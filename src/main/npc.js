@@ -26,12 +26,21 @@ function normEmotion(e) {
 // 小模型幾乎都選 happy：台詞裡明明在害羞、在嫌棄，表情卻是笑的。依台詞內容修正
 const EMOTION_CUES = {
   shy: /害羞|臉紅|紅著臉|紅了臉|臉頰(發燙|泛紅|紅紅|微紅)|低下頭|低著頭|捂住(臉|眼)|遮住(臉|嘴)|不好意思|結結巴巴|小小聲|(^|[^一-鿿])([一-鿿])、\2/,
+  surprised: /[欸咦誒哇喵][？?！!]|[？?][！!]|[！!][？?]|嚇(了一跳|到了|一跳)|竟然|居然|真的假的|尾巴(的毛)?(都)?炸/,
+  worried: /擔心|別太累|不要太累|別勉強|不要勉強|要注意身體|不舒服|逾期|來不及|糟糕|怎麼辦|唉|嗚/,
+  cheer: /太棒了|恭喜|萬歲|好耶|耶[！!～~]|成功了|做到了|🎉|乾杯|加油[！!]{2,}/,
+  thinking: /嗯[…\.]{1,}|讓(艾琳|我)想想|想一想|歪著頭|歪頭|抵著下巴|托著下巴|思考|該不會|會不會是/,
   // 鄙視不靠台詞推測：它只在冒險者失禮、騷擾、一直戳時出現（會扣好感）
 };
-function refineEmotion(text, emotion) {
+// 這些事件模型選了 happy／normal、台詞又看不出情緒時，用事件本身的表情
+const EVENT_EMOTION = {
+  overdue: 'worried', reminder: 'thinking', custom: 'thinking', daily: 'thinking', wrapup: 'thinking',
+  levelup: 'cheer', all_clear: 'cheer', submit: 'cheer', objective_last: 'cheer', poke_meow: 'surprised',
+};
+function refineEmotion(text, emotion, event) {
   if (emotion !== 'happy' && emotion !== 'normal') return emotion; // 模型自己挑了別的表情就照它
   for (const [emo, re] of Object.entries(EMOTION_CUES)) if (re.test(String(text || ''))) return emo;
-  return emotion;
+  return (event && EVENT_EMOTION[event]) || emotion;
 }
 // 這次「決定好的情緒」：engine 先擲骰決定要不要害羞／鄙視，再請模型照這個情緒說話（台詞和表情才會一致）
 const MOODS = {
@@ -317,7 +326,7 @@ class NPC {
       '3. 只能根據【狀態】裡的資訊講任務、日期、數字，不可以編造任務或數據。之前的對話如果提到別的任務或行程，那可能已經過時，一律以這次的【狀態】為準。',
       `4. 不要列清單、不要用 Markdown、不要重複${call}說的話，也不要沿用自己前面回覆過的句子，每次換新的說法。`,
       `5. ${call}聊工作以外的話題時，依【角色設定參考】用角色的身分回答；沒寫到的細節可以用符合設定的方式發揮，但不能和設定矛盾，也不要假裝知道${call}那邊的現實資訊（天氣、新聞）。`,
-      `6. 用 JSON 回覆兩個欄位：line 放這次真正要說出口的完整句子，emotion 從選項裡挑一個。shy＝被稱讚、被說中心事、聊到感情時害羞；disdain＝看垃圾一樣的冷眼，只在${call}對${self}失禮或騷擾時用。`,
+      `6. 用 JSON 回覆兩個欄位：line 放這次真正要說出口的完整句子，emotion 照這句話的情緒挑，不要每句都用 happy：normal＝平常；happy＝開心；cheer＝慶祝（交付、升級、全部完成）；thinking＝思考、提醒行程、不確定；surprised＝驚訝、被嚇到；worried＝擔心${call}（逾期、太累、不舒服）；shy＝被稱讚、被說中心事、聊到感情時害羞；disdain＝看垃圾一樣的冷眼，只在${call}對${self}失禮或騷擾時用。`,
       ...this.relationLines(),
     ].join('\n');
   }
@@ -501,7 +510,7 @@ class NPC {
       const rep = dropRepeats(out.text, recentLines.map((l) => voice(l, this.names())));
       out.text = rep.text;
       if (rep.allRepeated) out.repeated = true;
-      out.emotion = mood ? MOOD_EMOTION[mood] : refineEmotion(out.text, out.emotion);
+      out.emotion = mood ? MOOD_EMOTION[mood] : refineEmotion(out.text, out.emotion, event === 'objective' && facts.left === 0 ? 'objective_last' : event);
       if (!mood && out.emotion === 'disdain' && event !== 'chat') out.emotion = 'normal'; // 鄙視只能由 mood 指定
       this.status = { online: true, message: `AI：${this.llm.model}`, checkedAt: Date.now() };
       this.slowUntil = 0; // 又回得出來了，閒話也恢復用 AI
@@ -527,4 +536,4 @@ class NPC {
   }
 }
 
-module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, MOOD_EMOTION, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };
+module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, MOOD_EMOTION, EVENT_EMOTION, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };

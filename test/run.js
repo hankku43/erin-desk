@@ -693,6 +693,15 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.strictEqual(refineEmotion('黃瓜？艾琳冷冷地看著它。', 'normal'), 'normal');
   assert.strictEqual(refineEmotion('嗯哼～今天也一起加油吧！', 'happy'), 'happy');
   assert.strictEqual(refineEmotion('艾、艾琳嚇到了！', 'surprised'), 'surprised');
+  // 其他表情也跟著台詞走：驚訝、擔心、思考、歡呼；看不出來時用事件本身的表情
+  assert.strictEqual(refineEmotion('欸？！真的假的', 'happy'), 'surprised');
+  assert.strictEqual(refineEmotion('別太累了喔，先休息一下。', 'happy'), 'worried');
+  assert.strictEqual(refineEmotion('嗯……讓艾琳想想。', 'happy'), 'thinking');
+  assert.strictEqual(refineEmotion('太棒了！恭喜交付！', 'happy'), 'cheer');
+  assert.strictEqual(refineEmotion('好的，艾琳記下了。', 'normal', 'overdue'), 'worried');
+  assert.strictEqual(refineEmotion('今天也辛苦了。', 'happy', 'levelup'), 'cheer');
+  assert.strictEqual(refineEmotion('今天也辛苦了。', 'happy', 'greet'), 'happy', '一般事件維持模型的選擇');
+  assert.ok(/不要每句都用 happy/.test(new (require('../src/main/npc').NPC)({ npc: { name: '艾琳' }, llm: {} }).systemPrompt()), '系統提示說明每種表情');
   // 重複前幾句的句子會被拿掉；整句都重複時保留並標記
   const prev = ['喵～艾琳的尾巴現在在搖晃，但更開心的是能和你分享奶茶的時光！'];
   assert.deepStrictEqual(dropRepeats('喵～艾琳的尾巴突然停在半空，但更開心的是能和你分享奶茶的時光！今天想聊什麼呢？', prev), { text: '今天想聊什麼呢？', removed: 1 });
