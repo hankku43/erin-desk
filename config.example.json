@@ -1,0 +1,86 @@
+{
+  "plan": {
+    "path": "plans/week_sample.md",
+    "writeBack": true
+  },
+  "npc": {
+    "name": "艾琳",
+    "role": "冒險者公會的櫃台接待員，負責發布委託與驗收",
+    "personality": "開朗、有點愛操心，會小小吐槽但很溫柔；看到玩家努力會真心替他開心。",
+    "callName": "冒險者",
+    "catchphrases": [
+      "交給我吧！",
+      "嗯哼～",
+      "辛苦啦"
+    ]
+  },
+  "llm": {
+    "enabled": true,
+    "baseUrl": "http://127.0.0.1:11434",
+    "model": "qwen3:4b",
+    "noThinkPrefix": "/no_think\n",
+    "temperature": 0.8,
+    "maxTokens": 160,
+    "maxChars": 90,
+    "timeoutMs": 45000,
+    "keepAlive": "30m"
+  },
+  "rewards": {
+    "objective": {
+      "xp": 20,
+      "gold": 5
+    },
+    "quest": {
+      "main": {
+        "xp": 100,
+        "gold": 50
+      },
+      "major": {
+        "xp": 80,
+        "gold": 40
+      },
+      "side": {
+        "xp": 40,
+        "gold": 20
+      }
+    },
+    "onTimeBonus": 0.2,
+    "dailyRow": {
+      "xp": 10,
+      "gold": 2
+    },
+    "dailyReport": {
+      "xp": 30,
+      "gold": 10
+    },
+    "levelStep": 120
+  },
+  "window": {
+    "alwaysOnTop": true,
+    "idleChatterMinutes": 45
+  },
+  "lore": {
+    "path": "lore/艾琳.md",
+    "topK": 3,
+    "embeddings": "auto",
+    "embedModel": "qwen3-embedding:0.6b"
+  },
+  "reminders": {
+    "weekdaysOnly": true,
+    "graceMinutes": 15,
+    "items": [
+      {
+        "time": "12:00",
+        "event": "lunch"
+      },
+      {
+        "time": "13:00",
+        "event": "afternoon"
+      },
+      {
+        "time": "16:50",
+        "event": "wrapup"
+      }
+    ]
+  }
+}

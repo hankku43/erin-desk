@@ -1,0 +1,19 @@
+# 相依套件
+node_modules/
+
+# 個人資料：存檔、備份、向量快取
+data/
+
+# 個人設定（從 config.example.json 複製；程式第一次啟動也會自動建立）
+config.json
+
+# 自己的週計畫：只保留範本與範例，其餘不進 repo
+plans/*
+!plans/_template.md
+!plans/week_sample.md
+
+# 工具產生的截圖與雜項
+Claude outputs/
+*.log
+.DS_Store
+Thumbs.db

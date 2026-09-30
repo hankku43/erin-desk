@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; img-src 'self' file: data:; style-src 'self' 'unsafe-inline';">
+<title>任務櫃台</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="upper">
+    <section id="panel" class="card hidden" data-hit></section>
+    <section id="dialog" class="card hidden" data-hit>
+      <div class="dlg-head">
+        <span class="nameplate" id="npcName">艾琳</span>
+        <span class="ai-dot" id="aiDot" title=""></span>
+        <button class="icon-btn" id="dlgMini" title="縮小化（變回貓咪）">▁</button>
+        <button class="icon-btn" id="dlgClose" title="關閉">✕</button>
+      </div>
+      <div class="dlg-text" id="dlgText"></div>
+      <div class="dlg-more hidden" id="dlgMore">點一下繼續 ▼</div>
+      <div class="proposal hidden" id="proposal"></div>
+      <div class="chat-row hidden" id="chatRow">
+        <input id="chatInput" maxlength="300" placeholder="說說進度，例如「週報寫好了」（Enter 送出）" autocomplete="off">
+        <button class="btn" id="chatSend">送出</button>
+      </div>
+      <div class="choices" id="choices">
+        <button class="btn" data-act="board">📜 任務板</button>
+        <button class="btn gold" data-act="submit" id="btnSubmit">🏆 交付任務</button>
+        <button class="btn" data-act="daily">📅 今日行程</button>
+        <button class="btn" data-act="report">📝 下班回報</button>
+        <button class="btn" data-act="chat">💬 聊聊</button>
+        <button class="btn ghost" data-act="bye">👋 再見</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="hud" data-hit>
+    <div class="hud-top">
+      <span class="lv" id="lv">Lv.1</span>
+      <span class="title" id="ptitle">見習冒險者</span>
+      <span class="gold" id="gold">🪙 0</span>
+      <button class="hud-mini" id="hudMini" title="縮小化（變回貓咪）">▁</button>
+    </div>
+    <div class="xpbar"><div class="xpfill" id="xpfill"></div><span id="xptext">0 / 120</span></div>
+    <div class="tracker" id="tracker"></div>
+  </div>
+
+  <div id="npcWrap" data-hit>
+    <div class="marker hidden" id="marker">!</div>
+    <img id="npcImg" alt="NPC" draggable="false">
+  </div>
+
+  <div id="fx"></div>
+  <div id="toast" class="hidden"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
