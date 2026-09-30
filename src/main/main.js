@@ -22,6 +22,8 @@ const WIN_W = 610, WIN_H = 800; // 加寬：狀態面板和角色並排、不重
 let win, engine, tickTimer, idleTimer, watchTimer, focusTimer;
 let moving = false; // 程式自己調整視窗大小時，不記錄位置
 
+// 測試用的資料夾（測試新手教學.bat）：連 Electron 自己的資料也分開，才能跟平常的艾琳同時開著
+if (process.env.QUEST_NPC_HOME) app.setPath('userData', path.join(path.resolve(process.env.QUEST_NPC_HOME), '.electron'));
 if (!app.requestSingleInstanceLock()) app.quit();
 
 // 沒接住的錯誤寫進 data/crash.log，朋友回報問題時可以把這個檔案傳過來
