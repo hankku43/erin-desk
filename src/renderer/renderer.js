@@ -2,7 +2,7 @@
 /* global api */
 const $ = (s) => document.querySelector(s);
 const GREET_COOLDOWN = 30 * 60000; // 半小時內再點她，就不重複報告任務，改成閒聊
-const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null };
+const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null, starSeen: {}, flMode: 'auto', flSlotId: null, flFlashUntil: 0, lastActive: null };
 const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm']); // 表單面板：畫面更新時不重畫，免得打到一半的字不見
 
 // 未捕捉的錯誤印到主程式終端機（啟動.bat 的視窗看得到）
@@ -140,6 +140,7 @@ function applyMini(on, { greet: sayHi = true } = {}) { // 參數改名，避免�
     if (was && sayHi) {
       openDialog();
       if (state.pending.length) { const p = state.pending; state.pending = []; enqueue(p); } // 縮小期間累積的提醒
+      else if (state.view && state.view.focus && state.view.focus.active) peekFocus();       // 專注中點貓咪：告訴你還剩幾分鐘
       else if (state.lastLine) showLine(state.lastLine);                                   // 沒有新訊息：把上一句直接放回來，不打字、不觸發任何事件
       else greet();                                                                         // 什麼都沒有（例如第一次）才打招呼
     }
@@ -152,7 +153,8 @@ function miniNotify(lines) {
   state.pending = state.pending.slice(-5);
   state.miniAlert = true;
   setMarker('alert');
-  setEmotion('normal'); jump();
+  setEmotion('normal');
+  if (!(state.view && state.view.focus && state.view.focus.active)) jump(); // 專注中安靜亮個 ! 就好，不跳
 }
 async function goMini() {
   if (state.mini || fx.busy) return;
@@ -326,7 +328,12 @@ function confetti(n) {
 
 // ---------- 畫面更新 ----------
 function applyView(v) {
+  // 剛勾完當前任務的目標：焦點行先切到任務、讓新的星星亮一下
+  const la = state.lastActive, na = v.active;
+  if (la && na && la.id === na.id && na.doneCount > la.done) { state.flFlashUntil = Date.now() + 4500; setTimeout(renderTracker, 4600); }
+  state.lastActive = na ? { id: na.id, done: na.doneCount } : null;
   state.view = v;
+  state.clockOffset = new Date(v.now).getTime() - Date.now(); // 面板倒數用主程式的時間
   state.fx = v.fx !== false;
   const p = v.player;
   $('#lv').textContent = `Lv.${p.level}`;
@@ -342,6 +349,8 @@ function applyView(v) {
   dot.classList.toggle('off', !v.npc.enabled);
   dot.title = (v.npc.enabled ? (online ? `AI 已連線：${v.npc.model}` : `AI 離線：${(v.npc.status && v.npc.status.message) || ''}`) : 'AI 對話已關閉') + '（點一下切換開關）';
   renderTracker();
+  renderFocus();
+  renderFortuneTag();
   const a = v.active;
   $('#btnSubmit').disabled = !(a && a.status === 'ready');
   const m = $('#marker');
@@ -362,29 +371,214 @@ function todayISO() { const d = state.view ? new Date(state.view.now) : new Date
 function nowHHMM() { const d = state.view ? new Date(state.view.now) : new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
 function shortTitle(s, n = 14) { return s.length > n ? s.slice(0, n) + '…' : s; }
 
-function renderTracker() {
-  const v = state.view, a = v.active, t = v.today;
-  let html = '';
-  if (!a) {
-    const allDone = v.quests.length && v.quests.every((q) => q.status === 'done');
-    html = `<div class="t-label">📌 當前任務</div><div class="t-title">${allDone ? '🎉 本週任務全部完成！' : '目前沒有任務'}</div>`;
-  } else {
-    html += `<div class="t-label">${TIER_ICON[a.tier] || '📌'} ${a.tierName}・當前任務</div><div class="t-title">${rich(a.title)}</div>`;
-    const shown = a.objectives.slice(0, 4);
-    for (const o of shown) html += `<div class="t-obj ${o.done ? 'done' : ''}">${o.done ? '☑' : '☐'}<span>${rich(o.text.length > 30 ? o.text.slice(0, 30) + '…' : o.text)}</span></div>`;
-    if (a.objectives.length > shown.length) html += `<div class="t-obj">…還有 ${a.objectives.length - shown.length} 項</div>`;
-    html += `<div class="t-meta">${dueChip(a)}<span class="chip">${a.doneCount}/${a.total}</span>${a.status === 'ready' ? `<span class="ready">✨ 可以交付了，點${esc(v.npc.name)}！</span>` : ''}</div>`;
-  }
-  const cur = t && t.current;
-  if (cur) {
-    const blk = t.branch ? (t.chosenBranch === 'b' ? cur.b : t.chosenBranch === 'a' ? cur.a : '（選擇路線）') : cur.a;
-    html += `<div class="now">⏰ ${esc(cur.slot)}　${rich(blk)}</div>`;
-  } else if (t && t.upcoming) {
-    html += `<div class="now">🕒 接下來 ${esc(t.upcoming.slot)}　${rich(t.branch ? '' : t.upcoming.a)}</div>`;
-  }
-  $('#tracker').innerHTML = html;
+// ---------- 狀態面板：一行焦點 ----------
+// 在時段內顯示時段（⏳ 沙漏），不在時段內顯示當前任務（⭐ 星星）；左邊的圖示可以切換。細項在滑過去的小卡裡
+const nowMs = () => Date.now() + (state.clockOffset || 0);
+const hm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+function slotTimes(row, date) {
+  if (!row || !row.start) return null;
+  const s = new Date(`${date}T${row.start}:00`).getTime();
+  const e = row.end ? new Date(`${date}T${row.end}:00`).getTime() : null;
+  return { s, e };
 }
-$('#tracker').addEventListener('click', () => openPanel('board'));
+function rowText(row, t) {
+  if (!row) return '';
+  return t.branch ? (t.chosenBranch === 'b' ? row.b : t.chosenBranch === 'a' ? row.a : (row.a === row.b ? row.a : `${row.a}／${row.b}`)) : row.a;
+}
+// 用現在的時間重新找「這一格」和「下一格」（面板每 15 秒更新一次，不用等主程式）
+function slotNow() {
+  const t = state.view && state.view.today;
+  if (!t || !t.rows || !t.rows.length) return { cur: null, next: null, t };
+  const now = nowMs();
+  let cur = null, next = null;
+  for (const r of t.rows) {
+    const tm = slotTimes(r, t.date);
+    if (!tm) continue;
+    if (tm.e && now >= tm.s && now < tm.e) cur = { row: r, ...tm };
+    else if (!next && now < tm.s) next = { row: r, ...tm };
+  }
+  return { cur, next, t };
+}
+function starsHtml(q, animate) {
+  const n = q.objectives.length;
+  if (!n) return '';
+  if (n > 6) return `<span class="stars few">★ ${q.doneCount}/${n}</span>`;
+  const seen = state.starSeen[q.id] ?? q.doneCount;
+  return `<span class="stars">${q.objectives.map((o, i) => {
+    const lit = i < q.doneCount; // 依完成數量點亮，看起來一顆一顆往右亮
+    const pop = animate && lit && i >= seen;
+    return `<i class="${lit ? 'on' : ''} ${pop ? 'pop' : ''}">${lit ? '★' : '☆'}</i>`;
+  }).join('')}</span>`;
+}
+function dueSub(q) {
+  if (q.status === 'ready') return `<em class="ready">・✨ 目標都完成了，點${esc(state.view.npc.name)}交付</em>`;
+  if (q.status === 'done' || q.daysLeft === null) return '';
+  if (q.daysLeft < 0) return `<em class="late">・⚠ 逾期 ${-q.daysLeft} 天</em>`;
+  if (q.daysLeft === 0) return '<em class="today">・🔥 今天截止</em>';
+  if (q.daysLeft === 1) return '<em class="today">・明天截止</em>';
+  return `・剩 ${q.daysLeft} 天（${esc(q.deadlineLabel)}）`;
+}
+function flMode() {
+  const { cur, next } = slotNow();
+  const slotId = cur ? cur.row.id : null;
+  if (slotId !== state.flSlotId) { state.flSlotId = slotId; state.flMode = 'auto'; } // 換到下一格就回到自動
+  if (state.flFlashUntil && Date.now() < state.flFlashUntil) return 'quest';       // 剛勾完目標：先秀一下星星
+  if (state.flMode === 'quest') return 'quest';
+  if (state.flMode === 'slot') return cur || next ? 'slot' : 'quest';
+  return cur ? 'slot' : 'quest';
+}
+function renderTracker() {
+  const v = state.view;
+  if (!v) return;
+  const el = $('#tracker');
+  if (state.focusConfirm && v.focus && v.focus.active) {
+    el.innerHTML = `<div class="fl confirm"><span class="fl-ico">🍅</span><div class="fl-main"><div class="fl-text">還剩 ${v.focus.leftMin} 分鐘，要結束專注嗎？</div></div><button class="btn small danger" data-focus-stop>結束</button><button class="btn small ghost" data-focus-keep>繼續</button></div>`;
+    return;
+  }
+  const mode = flMode();
+  const { cur, next, t } = slotNow();
+  const canSlot = !!(cur || next);
+  const a = v.active;
+  let html = '';
+  if (mode === 'slot' && cur) {
+    const total = cur.e - cur.s, done = nowMs() - cur.s;
+    const pct = Math.max(0, Math.min(100, (done / total) * 100));
+    const left = Math.max(0, Math.ceil((cur.e - nowMs()) / 60000));
+    const cls = left <= 3 ? 'end' : left <= 10 ? 'soon' : '';
+    html = `<div class="fl ${cls}"><button class="fl-ico" data-flip title="切換成當前任務">⏳</button>
+      <div class="fl-main"><div class="fl-text">${rich(rowText(cur.row, t))}</div>
+        <div class="fl-sub fl-barrow"><span>${esc(cur.row.start)}</span><div class="fl-bar"><i style="width:${pct.toFixed(1)}%"></i></div><span>${esc(cur.row.end)}</span></div></div>
+      <span class="fl-side">剩 ${left} 分</span></div>`;
+  } else if (mode === 'slot' && next) {
+    const mins = Math.max(0, Math.ceil((next.s - nowMs()) / 60000));
+    html = `<div class="fl"><button class="fl-ico" data-flip title="切換成當前任務">🕒</button>
+      <div class="fl-main"><div class="fl-text">${rich(rowText(next.row, t))}</div><div class="fl-sub">下一格・${esc(next.row.slot)}</div></div>
+      <span class="fl-side">${mins >= 60 ? `${Math.floor(mins / 60)} 小時後` : `${mins} 分後`}</span></div>`;
+  } else if (a) {
+    const ready = a.status === 'ready';
+    html = `<div class="fl fl-q ${ready ? 'ready' : ''}"><button class="fl-ico" ${canSlot ? 'data-flip title="切換成今天的時段"' : 'disabled'}>${TIER_ICON[a.tier] || '📌'}</button>
+      <div class="fl-main"><div class="fl-text">${rich(a.title)}</div><div class="fl-sub">${esc(a.tierName)}${dueSub(a)}</div></div>
+      <span class="fl-side">${starsHtml(a, true)}</span></div>`;
+    state.starSeen[a.id] = a.doneCount;
+  } else {
+    const allDone = v.quests.length && v.quests.every((q) => q.status === 'done');
+    html = `<div class="fl"><span class="fl-ico">${allDone ? '🎉' : '📜'}</span><div class="fl-main"><div class="fl-text">${allDone ? '本週任務全部完成！' : '目前沒有任務'}</div><div class="fl-sub">點這裡打開任務板</div></div></div>`;
+  }
+  el.innerHTML = html;
+  if (state.peekOpen) renderPeek();
+}
+$('#tracker').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-flip]')) {
+    e.stopPropagation();
+    state.flFlashUntil = 0;
+    state.flMode = flMode() === 'slot' ? 'quest' : 'slot';
+    renderTracker();
+    return;
+  }
+  if (e.target.closest('[data-focus-stop]')) { state.focusConfirm = false; await run(() => api.cancelFocus(), { thinking: false }); return; }
+  if (e.target.closest('[data-focus-keep]')) { state.focusConfirm = false; renderTracker(); return; }
+  if (e.target.closest('button')) return;
+  hidePeek();
+  openPanel('board');
+});
+
+// ---------- 滑過去看細項 ----------
+function renderPeek() {
+  const v = state.view, a = v && v.active;
+  const { cur, next, t } = slotNow();
+  let html = '';
+  if (a) {
+    html += `<div class="pk-head">${TIER_ICON[a.tier] || '📌'} <b>${rich(a.title)}</b>${dueChip(a)}</div>`;
+    html += a.objectives.slice(0, 7).map((o) => `<div class="pk-obj ${o.done ? 'done' : ''}"><i>${o.done ? '★' : '☆'}</i><span>${rich(o.text)}</span></div>`).join('');
+    if (a.objectives.length > 7) html += `<div class="pk-obj more">…還有 ${a.objectives.length - 7} 項</div>`;
+    if (a.status === 'ready') html += `<div class="pk-ready">✨ 目標都完成了，點${esc(v.npc.name)}交付吧！</div>`;
+  }
+  const r = cur || next;
+  if (r) {
+    const txt = rowText(r.row, t), out = t.branch ? '' : r.row.b;
+    let meta = '';
+    if (cur) { const pct = Math.round(((nowMs() - cur.s) / (cur.e - cur.s)) * 100); meta = `已過 ${pct}%・剩 ${Math.max(0, Math.ceil((cur.e - nowMs()) / 60000))} 分`; }
+    else meta = `${next.row.start} 開始`;
+    html += `<div class="pk-slot"><div>${cur ? '⏳' : '🕒'} <b>${esc(r.row.slot)}</b> ${rich(txt)}</div>${out ? `<div class="pk-out">→ ${rich(out)}</div>` : ''}<div class="pk-meta">${meta}</div></div>`;
+  }
+  if (!html) html = '<div class="pk-obj">目前沒有任務或時段</div>';
+  html += '<div class="pk-hint">點一下打開任務板</div>';
+  const pk = $('#hudPeek');
+  pk.innerHTML = html;
+  pk.style.bottom = `${$('#hud').offsetHeight + 20}px`;
+}
+function hidePeek() { clearTimeout(state.peekTimer); state.peekOpen = false; $('#hudPeek').classList.add('hidden'); }
+$('#tracker').addEventListener('mouseenter', () => {
+  clearTimeout(state.peekTimer);
+  state.peekTimer = setTimeout(() => { if (state.mini || state.focusConfirm) return; state.peekOpen = true; renderPeek(); $('#hudPeek').classList.remove('hidden'); }, 280);
+});
+$('#tracker').addEventListener('mouseleave', hidePeek);
+
+// ---------- 🔮 今日運勢 ----------
+function renderFortuneTag() {
+  const f = state.view && state.view.fortune;
+  const tag = $('#fortuneTag');
+  tag.className = `fortune-tag ${f ? `drawn t${f.tier}` : 'new'}`;
+  tag.textContent = f ? f.rank : '🔮';
+  tag.title = f ? `今日運勢：${f.rank}（點一下再看一次）` : '點一下抽今日運勢';
+}
+async function drawFortune() {
+  if (state.mini) return;
+  const r = await run(() => api.drawFortune(), { thinking: false });
+  if (!r || !r.ok) return;
+  showFortuneCard(r.fortune, r.again ? null : r.reward);
+  if (!r.again && r.fortune.tier >= 5) confetti(36);
+}
+function showFortuneCard(f, reward) {
+  const c = $('#fortuneCard');
+  clearTimeout(state.fortuneTimer);
+  c.className = `t${f.tier}`;
+  c.innerHTML = `<div class="fc-inner"><div class="fc-back"><div class="fc-emblem">🔮</div><div>星盾公會・今日運勢</div></div>
+    <div class="fc-front"><div class="fc-date">${+f.date.slice(5, 7)}/${+f.date.slice(8, 10)} 的運勢</div><div class="fc-rank">${esc(f.rank)}</div>
+      <div class="fc-advice">${esc(f.advice)}</div><div class="fc-item">幸運物：<b>${esc(f.item)}</b></div>
+      <div class="fc-reward">${reward ? `✨ +${reward.xp} XP　🪙 +${reward.gold}` : '今天已經抽過囉'}</div></div></div>`;
+  c.style.bottom = `${$('#hud').offsetHeight + 22}px`;
+  void c.offsetWidth;
+  c.classList.add('show');
+  setTimeout(() => c.classList.add('flip'), reward ? 650 : 60);
+  state.fortuneTimer = setTimeout(hideFortuneCard, reward ? 8000 : 5000);
+}
+function hideFortuneCard() { const c = $('#fortuneCard'); c.classList.add('bye'); setTimeout(() => { c.className = 'hidden'; }, 350); }
+$('#fortuneCard').addEventListener('click', hideFortuneCard);
+$('#hudTop').addEventListener('click', (e) => { if (e.target.closest('button')) return; drawFortune(); });
+
+// ---------- 🍅 專注模式 ----------
+const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+function renderFocus() {
+  const f = state.view && state.view.focus;
+  const on = !!(f && f.active);
+  document.body.classList.toggle('focusing', on);
+  const b = $('#hudFocus');
+  b.classList.toggle('on', on);
+  b.textContent = on ? `🍅${mmss(f.endAt - nowMs())}` : '🍅';
+  b.title = on ? '專注中（點一下可以結束）' : `專注 ${(f && f.minutes) || 25} 分鐘：${state.view ? state.view.npc.name : ''}變回貓咪陪你，時間到叫你休息`;
+  $('#focusBadge').classList.toggle('hidden', !on);
+  $('#zzz').classList.toggle('hidden', !on);
+  if (on) $('#focusBadge').textContent = `🍅 ${mmss(f.endAt - nowMs())}`;
+  clearInterval(state.focusTick);
+  if (on) state.focusTick = setInterval(() => {
+    const ff = state.view && state.view.focus;
+    if (!ff || !ff.active) { clearInterval(state.focusTick); return; }
+    $('#hudFocus').textContent = `🍅${mmss(ff.endAt - nowMs())}`; $('#focusBadge').textContent = `🍅 ${mmss(ff.endAt - nowMs())}`;
+  }, 1000);
+}
+async function startFocus() {
+  if (state.view && state.view.focus && state.view.focus.active) { state.focusConfirm = true; renderTracker(); clearTimeout(state.focusConfirmT); state.focusConfirmT = setTimeout(() => { state.focusConfirm = false; renderTracker(); }, 6000); return; }
+  closePanel(); hidePeek();
+  const r = await run(() => api.startFocus(), { thinking: false });
+  if (!r || !r.ok) return;
+  setTimeout(() => { if (!state.mini && state.view.focus && state.view.focus.active) goMini(); }, 2800); // 說完話再變回貓咪
+}
+$('#hudFocus').addEventListener('click', (e) => { e.stopPropagation(); startFocus(); });
+async function peekFocus() {
+  const r = await run(() => api.focusPeek(), { thinking: false });
+  return r;
+}
 
 // ---------- 聊天改進度：確認卡 ----------
 function showProposal(p) {
@@ -739,6 +933,10 @@ api.on('npc:lines', (lines) => {
   openDialog(); enqueue(lines);
 });
 api.on('ui:mini', (on) => applyMini(on));
+api.on('ui:focus', () => startFocus());
+api.on('ui:fortune', () => drawFortune());
+api.on('fx:reward', (reward) => { if (!state.mini) celebrate(reward); });
+setInterval(() => { if (state.view && !state.mini) renderTracker(); }, 15000); // 沙漏、下一格、切換時段
 api.on('ui:shrink', () => goMini());
 api.on('ui:open', (kind) => { openPanel(kind); if (kind === 'daily') run(() => api.daily()); });
 

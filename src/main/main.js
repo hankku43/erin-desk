@@ -11,7 +11,7 @@ const APP_DIR = path.join(__dirname, '..', '..');
 const CHAR_DIR = path.join(APP_DIR, 'assets', 'character');
 const WIN_W = 610, WIN_H = 800; // 加寬：狀態面板和角色並排、不重疊
 
-let win, engine, tickTimer, idleTimer, watchTimer;
+let win, engine, tickTimer, idleTimer, watchTimer, focusTimer;
 let moving = false; // 程式自己調整視窗大小時，不記錄位置
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -271,6 +271,10 @@ function showMenu() {
     { label: '📜 任務板', click: () => { if (mini) setMini(false); push('ui:open', 'board'); } },
     { label: '📅 今日行程', click: () => { if (mini) setMini(false); push('ui:open', 'daily'); } },
     { label: '📝 下班回報', click: () => { if (mini) setMini(false); push('ui:open', 'report'); } },
+    engine.state.focus
+      ? { label: `🍅 結束專注（還剩 ${engine.focusInfo().leftMin} 分鐘）`, click: stopFocus }
+      : { label: `🍅 專注 ${engine.focusCfg().minutes} 分鐘`, click: () => { if (mini) setMini(false); push('ui:focus'); } },
+    { label: engine.fortuneToday() ? `🔮 今日運勢：${engine.fortuneToday().rank}` : '🔮 抽今日運勢', click: () => { if (mini) setMini(false); push('ui:fortune'); } },
     { type: 'separator' },
     { label: '選擇週計畫檔…', click: choosePlan },
     { label: '📥 匯入行事曆（.ics）到本週…', click: menuSafe(importIcs) },
@@ -340,11 +344,35 @@ function scheduleHealth() {
   }, 20000);
 }
 
+// 🍅 專注：準時結束；結束時把貓咪叫醒（展開），再放獎勵特效
+function scheduleFocus(minDelay = 0) {
+  clearTimeout(focusTimer);
+  const f = engine.state.focus;
+  if (!f) return;
+  focusTimer = setTimeout(finishFocus, Math.max(minDelay, f.endAt - Date.now() + 300));
+}
+function finishFocus() {
+  const r = engine.completeFocus();
+  if (!r) { scheduleFocus(1000); return; } // 時鐘誤差，還沒到
+  push('view:update', { view: r.view });
+  push('npc:lines', r.lines);
+  if (isMini()) setMini(false);
+  setTimeout(() => push('fx:reward', r.reward), 1400);
+}
+function stopFocus() {
+  clearTimeout(focusTimer);
+  const r = engine.cancelFocus();
+  push('view:update', { view: r.view });
+  push('npc:lines', r.lines);
+  if (isMini()) setMini(false);
+}
+
 function scheduleIdle() {
   clearInterval(idleTimer);
   const min = Number(engine.config.window.idleChatterMinutes || 0);
   if (!min) return;
   idleTimer = setInterval(async () => {
+    if (engine.state.focus) return; // 專注中不主動搭話
     const t = engine.todayInfo();
     if (!t.current) return; // 只在排定時段內主動搭話
     const r = await engine.daily();
@@ -381,6 +409,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('plan:deleteReminder', wrap((id) => engine.deleteReminder(id)));
   ipcMain.handle('ics:import', wrap(() => importIcs()));
   ipcMain.handle('smart:set', wrap((on) => setSmart(!!on)));
+  ipcMain.handle('focus:start', wrap((min) => { const r = engine.startFocus(min); scheduleFocus(); return r; }));
+  ipcMain.handle('focus:cancel', wrap(() => { clearTimeout(focusTimer); return engine.cancelFocus(); }));
+  ipcMain.handle('focus:peek', wrap(() => engine.focusPeek()));
+  ipcMain.handle('fortune:draw', wrap(() => engine.drawFortune()));
   ipcMain.handle('ics:export', wrap(() => exportIcs()));
   ipcMain.on('win:ignore', (_e, ignore) => { if (win) win.setIgnoreMouseEvents(!!ignore, { forward: true }); });
   ipcMain.on('win:move', (_e, { dx, dy }) => {
@@ -402,6 +434,7 @@ app.whenReady().then(async () => {
   setTimeout(runTick, 4000);
   setTimeout(() => { runTick(); tickTimer = setInterval(runTick, 60000); }, 60000 - (Date.now() % 60000) + 500);
   scheduleIdle();
+  scheduleFocus(4000); // 上次關程式時還在專注：時間到了就補結算（等畫面載好）
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
   if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app });

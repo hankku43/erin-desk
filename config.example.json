@@ -58,6 +58,12 @@
     },
     "levelStep": 120
   },
+  "focus": {
+    "minutes": 25,
+    "rest": 5,
+    "xp": 15,
+    "gold": 3
+  },
   "window": {
     "alwaysOnTop": true,
     "idleChatterMinutes": 45

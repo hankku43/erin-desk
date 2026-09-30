@@ -23,6 +23,30 @@ const ICS = require('./ics');
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
+// 🔮 今日運勢：沒有「凶」，最差也是末吉；tier 給畫面配色用
+const FORTUNE_RANKS = [
+  { name: '大吉', w: 12, xp: 10, gold: 12, tier: 5 },
+  { name: '中吉', w: 23, xp: 8, gold: 8, tier: 4 },
+  { name: '小吉', w: 25, xp: 6, gold: 6, tier: 3 },
+  { name: '吉', w: 25, xp: 5, gold: 5, tier: 2 },
+  { name: '末吉', w: 15, xp: 3, gold: 3, tier: 1 },
+];
+const FORTUNE_ADVICE = [
+  '適合先做最小的那一項，星星會一顆一顆亮起來',
+  '適合把拖最久的那件事收尾',
+  '適合開口問人，答案比想像中近',
+  '適合整理桌面和檔案，找東西會變快',
+  '適合準時吃午餐、睡個午覺',
+  '適合下班前寫下明天的第一步',
+  '適合一次只做一件事，其他的先記進小本子',
+  '適合多喝水，精神會比較好',
+  '適合回一封拖了很久的信',
+  '適合把大任務切成三小塊',
+  '適合早一點開始，鐘樓會站在你這邊',
+  '適合對自己說一聲辛苦了',
+];
+const FORTUNE_ITEMS = ['溫奶茶', '魚形麵包', '紅緞帶', '蠟封章', '小銀鈴', '藍色小花', '鐘樓的鐘聲', '傳信鴿', '打氣抽屜的糖', '梟長的羽毛', '舊書攤的信封', '霜月村的初雪']
+
 function deepMerge(a, b) {
   const out = { ...a };
   for (const [k, v] of Object.entries(b || {})) {
@@ -64,6 +88,7 @@ class Engine {
       rewards: G.DEFAULT_REWARDS,
       window: { alwaysOnTop: true, idleChatterMinutes: 45 },
       lore: { path: 'lore/艾琳.md', topK: 3, embeddings: 'auto', embedModel: 'qwen3-embedding:0.6b' },
+      focus: { minutes: 25, rest: 5, xp: 15, gold: 3 }, // 🍅 專注模式
       reminders: {
         weekdaysOnly: true, graceMinutes: 15,
         items: [
@@ -400,6 +425,8 @@ class Engine {
       fx: this.config.window.transformFx !== false,
       editable: !this.legacy && !!this.planText,
       smart: { on: this.lore.smartOn(), status: this.lore.embedStatus },
+      focus: this.focusInfo(),
+      fortune: this.fortuneToday(),
     };
   }
 
@@ -520,6 +547,80 @@ class Engine {
       lines.push(await this.say('all_clear'));
     }
     return { reward: r, lines, view: this.view() };
+  }
+
+  // ---- 🍅 專注模式：艾琳變回貓咪陪你，時間到叫你休息並給星屑 ----
+  focusCfg() { return { minutes: 25, rest: 5, xp: 15, gold: 3, ...(this.config.focus || {}) }; }
+  focusInfo() {
+    const f = this.state.focus;
+    const today = G.todayISO(this.now());
+    const count = this.state.focusStats && this.state.focusStats.date === today ? this.state.focusStats.count : 0;
+    if (!f) return { active: false, todayCount: count, minutes: this.focusCfg().minutes };
+    const left = Math.max(0, f.endAt - this.now().getTime());
+    return { active: true, startAt: f.startAt, endAt: f.endAt, minutes: f.minutes, leftMin: Math.ceil(left / 60000), todayCount: count };
+  }
+  focusLine(key, extra = {}) {
+    const c = this.focusCfg();
+    return { ...this.npc.template(key, { minutes: c.minutes, rest: c.rest, xp: c.xp, ...extra }), event: key };
+  }
+  startFocus(minutes) {
+    if (this.state.focus) throw new Error('已經在專注中了');
+    const min = Number(minutes) > 0 ? Number(minutes) : this.focusCfg().minutes;
+    const start = this.now().getTime();
+    this.state.focus = { startAt: start, endAt: start + Math.round(min * 60000), minutes: min };
+    this.saveState();
+    return { lines: [this.focusLine('focus_start', { minutes: Math.round(min) })], focus: this.focusInfo(), view: this.view() };
+  }
+  focusPeek() {
+    const f = this.focusInfo();
+    if (!f.active) return { lines: [], focus: f, view: this.view() };
+    return { lines: [this.focusLine('focus_peek', { left: f.leftMin })], focus: f, view: this.view() };
+  }
+  cancelFocus() {
+    const f = this.state.focus;
+    if (!f) return { lines: [], focus: this.focusInfo(), view: this.view() };
+    const done = Math.max(0, Math.floor((this.now().getTime() - f.startAt) / 60000));
+    this.state.focus = null;
+    this.saveState();
+    return { lines: [this.focusLine('focus_cancel', { done })], focus: this.focusInfo(), view: this.view() };
+  }
+  // 時間到才算數（主程式的計時器會準時呼叫；太早呼叫就什麼都不做）
+  completeFocus() {
+    const f = this.state.focus;
+    if (!f || this.now().getTime() < f.endAt - 1000) return null;
+    const c = this.focusCfg();
+    const today = G.todayISO(this.now());
+    const stats = this.state.focusStats && this.state.focusStats.date === today ? this.state.focusStats : { date: today, count: 0 };
+    stats.count += 1;
+    this.state.focusStats = stats;
+    this.state.focus = null;
+    const reward = G.grant(this.state, { xp: c.xp, gold: c.gold }, `完成專注 ${Math.round(f.minutes)} 分鐘（今天第 ${stats.count} 顆🍅）`, this.config.rewards);
+    this.saveState();
+    const lines = [this.focusLine('focus_done', { minutes: Math.round(f.minutes), count: stats.count })];
+    if (reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
+    return { reward, lines, focus: this.focusInfo(), view: this.view() };
+  }
+
+  // ---- 🔮 今日運勢：每天第一次抽有一點獎勵，之後再點就是再看一次 ----
+  fortuneToday() {
+    const f = this.state.fortune;
+    return f && f.date === G.todayISO(this.now()) ? f : null;
+  }
+  drawFortune() {
+    const today = G.todayISO(this.now());
+    const had = this.fortuneToday();
+    if (had) return { again: true, fortune: had, lines: [{ ...this.npc.template('fortune_again', had), event: 'fortune' }], view: this.view() };
+    const rnd = this.rand || Math.random;
+    const pick = (arr) => arr[Math.floor(rnd() * arr.length) % arr.length];
+    let r = rnd() * FORTUNE_RANKS.reduce((n, x) => n + x.w, 0);
+    const rank = FORTUNE_RANKS.find((x) => (r -= x.w) < 0) || FORTUNE_RANKS[FORTUNE_RANKS.length - 1];
+    const fortune = { date: today, rank: rank.name, advice: pick(FORTUNE_ADVICE), item: pick(FORTUNE_ITEMS), xp: rank.xp, gold: rank.gold, tier: rank.tier };
+    this.state.fortune = fortune;
+    const reward = G.grant(this.state, { xp: rank.xp, gold: rank.gold }, `今日運勢：${rank.name}`, this.config.rewards);
+    this.saveState();
+    const lines = [{ ...this.npc.template('fortune', fortune), event: 'fortune' }];
+    if (reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
+    return { again: false, fortune, reward, lines, view: this.view() };
   }
 
   async setActive(questId) {

@@ -29,13 +29,17 @@ contextBridge.exposeInMainWorld('api', {
   importIcs: () => ipcRenderer.invoke('ics:import'),
   exportIcs: () => ipcRenderer.invoke('ics:export'),
   setSmart: (on) => ipcRenderer.invoke('smart:set', on),
+  startFocus: (min) => ipcRenderer.invoke('focus:start', min),
+  cancelFocus: () => ipcRenderer.invoke('focus:cancel'),
+  focusPeek: () => ipcRenderer.invoke('focus:peek'),
+  drawFortune: () => ipcRenderer.invoke('fortune:draw'),
   setIgnoreMouse: (ignore) => ipcRenderer.send('win:ignore', ignore),
   moveWindow: (dx, dy) => ipcRenderer.send('win:move', { dx, dy }),
   dragEnd: () => ipcRenderer.send('win:dragEnd'),
   openMenu: () => ipcRenderer.send('win:menu'),
   setMini: (on) => ipcRenderer.send('win:mini', on),
   on: (channel, fn) => {
-    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink'];
+    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward'];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, payload) => fn(payload));
   },

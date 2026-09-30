@@ -471,3 +471,60 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('對話紀錄範圍測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// 🔮 今日運勢、🍅 專注模式
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-fun-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  let t = new Date(`${new Date().getFullYear()}-09-30T10:00:00`).getTime();
+  const mk = () => new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  let E = mk();
+  // 運勢：一天一次，第一次有獎勵
+  E.rand = () => 0.01; // 大吉、第一句建議、第一個幸運物
+  assert.strictEqual(E.view().fortune, null);
+  const xp0 = E.state.player.xp, g0 = E.state.player.gold;
+  const f1 = E.drawFortune();
+  assert.deepStrictEqual([f1.again, f1.fortune.rank, f1.fortune.item, E.state.player.xp - xp0, E.state.player.gold - g0], [false, '大吉', '溫奶茶', 10, 12]);
+  assert.ok(/「大吉」/.test(f1.lines[0].text) && /溫奶茶/.test(f1.lines[0].text) && /12 金幣/.test(f1.lines[0].text), f1.lines[0].text);
+  assert.strictEqual(E.state.history[0].reason, '今日運勢：大吉');
+  const f2 = E.drawFortune();
+  assert.ok(f2.again && /已經抽過/.test(f2.lines[0].text) && E.state.player.gold - g0 === 12, '同一天再抽只是再看一次');
+  assert.strictEqual(E.view().fortune.rank, '大吉');
+  E.rand = () => 0.99;
+  t += 24 * 3600000;
+  const f3 = E.drawFortune();
+  assert.ok(!f3.again && f3.fortune.rank === '末吉', '隔天可以再抽；最差是末吉（沒有凶）');
+  // 專注：開始 → 太早結算不算 → 時間到結算 → 獎勵與計數
+  const s1 = E.startFocus();
+  assert.ok(E.view().focus.active && E.view().focus.leftMin === 25 && /專注 25 分鐘/.test(s1.lines[0].text));
+  assert.throws(() => E.startFocus(), /已經在專注/);
+  assert.ok(/還剩 25 分鐘|還有 25 分鐘/.test(E.focusPeek().lines[0].text));
+  t += 10 * 60000;
+  assert.strictEqual(E.completeFocus(), null, '還沒到就不結算');
+  assert.strictEqual(E.view().focus.leftMin, 15);
+  // 重開程式：專注狀態還在
+  E = mk();
+  assert.ok(E.view().focus.active, '重開程式後還在專注');
+  t += 15 * 60000;
+  const xp1 = E.state.player.xp;
+  const done = E.completeFocus();
+  assert.ok(done && done.reward.xp === 15 && done.reward.gold === 3 && E.state.player.xp === xp1 + 15);
+  assert.ok(/第 1 顆番茄/.test(done.lines[0].text), done.lines[0].text);
+  assert.ok(!E.view().focus.active && E.view().focus.todayCount === 1);
+  assert.ok(/完成專注 25 分鐘（今天第 1 顆🍅）/.test(E.state.history[0].reason));
+  // 取消：沒有獎勵
+  E.startFocus(); t += 7 * 60000;
+  const xp2 = E.state.player.xp;
+  const c = E.cancelFocus();
+  assert.ok(!E.view().focus.active && E.state.player.xp === xp2 && /專注了 7 分鐘/.test(c.lines[0].text));
+  // 設定可以改分鐘數與獎勵
+  E.saveConfigPatch({ focus: { minutes: 50, xp: 30 } });
+  E.startFocus(); t += 50 * 60000;
+  const d2 = E.completeFocus();
+  assert.ok(d2.reward.xp === 30 && /完成專注 50 分鐘（今天第 2 顆🍅）/.test(E.state.history[0].reason) && E.view().focus.todayCount === 2, E.state.history[0].reason);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('今日運勢與專注模式測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

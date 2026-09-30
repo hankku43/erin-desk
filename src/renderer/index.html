@@ -35,19 +35,27 @@
   </div>
 
   <div id="hud" data-hit>
-    <div class="hud-top">
+    <div class="hud-top" id="hudTop">
       <span class="lv" id="lv">Lv.1</span>
       <span class="title" id="ptitle">見習冒險者</span>
+      <span class="fortune-tag" id="fortuneTag" title="點一下抽今日運勢">🔮</span>
       <span class="gold" id="gold">🪙 0</span>
+      <button class="hud-btn hud-focus" id="hudFocus" title="專注 25 分鐘">🍅</button>
       <button class="hud-mini" id="hudMini" title="縮小化（變回貓咪）">▁</button>
     </div>
     <div class="xpbar"><div class="xpfill" id="xpfill"></div><span id="xptext">0 / 120</span></div>
     <div class="tracker" id="tracker"></div>
   </div>
+  <!-- 滑過焦點行時的細項小卡（不擋滑鼠） -->
+  <div id="hudPeek" class="hidden"></div>
+  <!-- 今日運勢卡片 -->
+  <div id="fortuneCard" class="hidden" data-hit></div>
 
   <div id="npcWrap" data-hit>
     <div class="marker hidden" id="marker">!</div>
+    <div class="zzz hidden" id="zzz"><span>z</span><span>z</span><span>Z</span></div>
     <img id="npcImg" alt="NPC" draggable="false">
+    <div class="focus-badge hidden" id="focusBadge">🍅 25:00</div>
   </div>
 
   <div id="fx"></div>
