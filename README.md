@@ -189,7 +189,7 @@
 
 ## 五、換成你自己的角色
 
-把圖片放進 `assets/character/`，檔名如下（沒提供的表情會用 `normal` 代替）：
+把圖片放進 `assets/character/`，檔名如下（沒提供的表情會用相近的圖代替：`shy` → `happy`、`disdain` → `thinking`，其他 → `normal`）：
 
 | 檔名 | 用在 |
 |---|---|
@@ -199,6 +199,8 @@
 | `thinking.png` | 思考、提醒行程 |
 | `surprised.png` | 驚訝 |
 | `worried.png` | 逾期、卡關 |
+| `shy.png` | 害羞：被稱讚、被說中心事 |
+| `disdain.png` | 鄙視：俏皮的吐槽、不以為然 |
 | `mini.png` | 縮小化時的貓咪型態（沒有的話會用 normal 縮小） |
 | `mini_alert.png` | 縮小時有新提醒 |
 

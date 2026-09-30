@@ -9,7 +9,27 @@ try {
   toTW = OpenCC.Converter({ from: 'cn', to: 'tw' });
 } catch (_) { /* 未安裝 opencc-js 時略過繁簡轉換 */ }
 
-const EMOTIONS = ['normal', 'happy', 'thinking', 'surprised', 'cheer', 'worried'];
+const EMOTIONS = ['normal', 'happy', 'thinking', 'surprised', 'cheer', 'worried', 'shy', 'disdain'];
+// 還沒有圖的表情先借相近的圖（沒列的一律用 normal）
+const EMOTION_FALLBACK = { shy: 'happy', disdain: 'thinking' };
+// 模型偶爾會自己發明表情名稱，收斂到現有的幾種
+const EMOTION_ALIAS = {
+  embarrassed: 'shy', blush: 'shy', blushing: 'shy', flustered: 'shy', bashful: 'shy', '害羞': 'shy',
+  contempt: 'disdain', disgust: 'disdain', disgusted: 'disdain', unimpressed: 'disdain', smug: 'disdain', annoyed: 'disdain', '鄙視': 'disdain', '無言': 'disdain',
+  excited: 'cheer', sad: 'worried', nervous: 'worried', confused: 'thinking', shocked: 'surprised', smile: 'happy',
+};
+function normEmotion(e) {
+  const k = String(e || '').trim().toLowerCase();
+  if (EMOTIONS.includes(k)) return k;
+  return EMOTION_ALIAS[k] || 'normal';
+}
+// 補上沒有圖的表情：先用 EMOTION_FALLBACK 指定的圖，再退回 normal、再退回任何一張
+function fillEmotionImages(found) {
+  const out = { ...found };
+  const any = out.normal || Object.values(out).find(Boolean) || null;
+  for (const emo of EMOTIONS) if (!out[emo]) out[emo] = out[EMOTION_FALLBACK[emo]] || out.normal || any;
+  return out;
+}
 
 const EVENT_DESC = {
   greet: '冒險者剛點了你、來到櫃台。打招呼並提醒當前任務。',
@@ -22,7 +42,7 @@ const EVENT_DESC = {
   reminder_set: '冒險者設了一個提醒。確認你會準時叫他，1 句。',
   imported: '冒險者把行事曆（Google／Outlook）匯進週計畫了。用【事件】裡的結果告訴他加了什麼，1～2 句，像接待員把外面送來的委託單抄進公會的板子。',
   poke: '冒險者戳了你一下（純粹想看你的反應）。用 1～2 句做個符合個性的小反應或閒聊：可以講【靈感】裡那件小事、公會裡的日常、或對冒險者的關心。不要每次都講任務，也不要問「有什麼事嗎」。',
-  poke_annoyed: '冒險者短時間內戳了你好幾下。有點無奈但不生氣地回應，耳朵貼平那種感覺，1 句就好。',
+  poke_annoyed: '冒險者短時間內戳了你好幾下。有點無奈但不生氣地回應，半瞇眼吐槽、耳朵貼平那種感覺（表情可以用 disdain），1 句就好。',
   poke_meow: '冒險者戳太多下了，你忍不住「喵」了一聲，然後堅決否認。1～2 句。',
   assign: '你正在把新任務指派給冒險者。說明任務重點與為什麼重要（依【任務理由】），鼓勵他開始。',
   objective: '冒險者剛勾選完成一個任務目標。簡短稱讚，提示剩下幾項。',
@@ -94,7 +114,7 @@ const TEMPLATES = {
     ['梟長剛剛掉了一根羽毛在{self}的委託書上，{self}把它夾進小本子了。', 'happy'],
     ['你知道嗎？鐘樓慢五分鐘，所以你其實比你以為的還早一點。', 'thinking'],
     ['閣樓的鴿子今天很乖，一封信都沒叼走。目前為止。', 'normal'],
-    ['尾巴不是拿來抓的！……好啦，輕輕的可以。', 'surprised'],
+    ['尾巴不是拿來抓的！……好啦，輕輕的可以。', 'shy'],
     ['{self}在練習「小豆」，你看，指尖這裡……欸，不見了。', 'thinking'],
     ['打氣抽屜還有三顆糖，要不要來一顆？', 'happy'],
     ['今天鎮上的風把麵包香吹過來了，胖狐狸食堂又在烤東西。', 'happy'],
@@ -107,20 +127,21 @@ const TEMPLATES = {
     ['準時是對等你的人的溫柔——梟長說的，{self}抄下來了。', 'normal'],
     ['喵……才沒有。你聽錯了。', 'surprised'],
     ['星圖上你的那顆星今天有點亮，大概是因為你有來找{self}。', 'happy'],
-    ['想聊天的話就按「聊聊」，{self}什麼都可以聊，除了黃瓜。', 'happy'],
+    ['想聊天的話就按「聊聊」，{self}什麼都可以聊，除了黃瓜。', 'disdain'],
     ['{self}剛把冷掉的奶茶重新弄溫了，這是{self}最實用的魔法。', 'normal'],
     ['委託板上有一張沒人領的舊委託，{self}每個月都會擦一次灰塵。', 'normal'],
-    ['耳朵在動不是因為緊張，是因為……好吧，是有一點。', 'surprised'],
+    ['耳朵在動不是因為緊張，是因為……好吧，是有一點。', 'shy'],
     ['{call}，休息也是委託的一部分，這句話{self}今天已經對三個人說過了。', 'normal'],
     ['{self}在數金幣。一枚、兩枚……不是{self}的，是等一下要發給你的。', 'happy'],
     ['二號櫃台的大姐今天請{self}吃了燉肉，所以{self}現在很有力氣蓋章。', 'cheer'],
-    ['小本子第一頁還是你的名字喔，{self}沒有換頁。', 'happy'],
-    ['嗯，{self}看看……你今天的耳朵——啊不是，你今天看起來還不錯。', 'thinking'],
+    ['小本子第一頁還是你的名字喔，{self}沒有換頁。', 'shy'],
+    ['嗯，{self}看看……你今天的耳朵——啊不是，你今天看起來還不錯。', 'shy'],
   ],
   poke_annoyed: [
     ['欸、再戳耳朵會貼平喔。', 'worried'],
     ['好了好了，{self}在這裡，不會跑掉的～', 'normal'],
-    ['戳這麼多下，是想把{self}戳成貓嗎？', 'surprised'],
+    ['戳這麼多下，是想把{self}戳成貓嗎？', 'disdain'],
+    ['……{call}，戳{self}不會讓委託自己做完喔。', 'disdain'],
   ],
   poke_meow: [
     ['喵！……你聽到了什麼？什麼都沒有。', 'surprised'],
@@ -246,7 +267,7 @@ class NPC {
       '3. 只能根據【狀態】裡的資訊講任務、日期、數字，不可以編造任務或數據。之前的對話如果提到別的任務或行程，那可能已經過時，一律以這次的【狀態】為準。',
       `4. 不要列清單、不要用 Markdown、不要重複${call}說的話。`,
       `5. ${call}聊工作以外的話題時，依【角色設定參考】用角色的身分回答；沒寫到的細節可以用符合設定的方式發揮，但不能和設定矛盾，也不要假裝知道${call}那邊的現實資訊（天氣、新聞）。`,
-      '6. 以 JSON 回覆：{"line":"台詞","emotion":"normal|happy|thinking|surprised|cheer|worried"}',
+      `6. 以 JSON 回覆：{"line":"台詞","emotion":"${EMOTIONS.join('|')}"}。shy＝被稱讚、被說中心事、聊到感情時害羞；disdain＝半瞇眼的俏皮吐槽，只在開玩笑時用（${call}一直戳、找藉口拖延、提到黃瓜），不可以真的看不起${call}。`,
     ].join('\n');
   }
 
@@ -347,7 +368,7 @@ class NPC {
     try {
       const j = JSON.parse(cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned);
       line = j.line || j.text || '';
-      emotion = j.emotion || 'normal';
+      emotion = normEmotion(j.emotion);
       data = j;
     } catch (_) {
       line = cleaned.replace(/^["「]|["」]$/g, '');
@@ -355,7 +376,6 @@ class NPC {
     line = toTW(String(line)).replace(/\s*\n+\s*/g, ' ').trim();
     const max = maxChars || (this.llm.maxChars || 90) + 30;
     if (line.length > max) line = line.slice(0, max).replace(/[，、；]?[^。！？!?]*$/, '') + '…';
-    if (!EMOTIONS.includes(emotion)) emotion = 'normal';
     return { text: line, emotion, data };
   }
 
@@ -432,4 +452,4 @@ class NPC {
   }
 }
 
-module.exports = { NPC, EMOTIONS, TEMPLATES, voice, WHY, isFallbackText };
+module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, normEmotion, fillEmotionImages, TEMPLATES, voice, WHY, isFallbackText };

@@ -617,3 +617,42 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('占卜魔法測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 表情：害羞、鄙視 ----------
+(async () => {
+  const { NPC, EMOTIONS, TEMPLATES, normEmotion, fillEmotionImages } = require('../src/main/npc');
+  assert.ok(EMOTIONS.includes('shy') && EMOTIONS.includes('disdain'));
+  const loreSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'lore.js'), 'utf8');
+  assert.strictEqual(loreSrc.match(/const EMOTIONS = (\[[^\]]*\])/)[1], JSON.stringify(EMOTIONS).replace(/"/g, "'").replace(/,/g, ', '), 'lore.js 的表情清單要跟 npc.js 一樣');
+  // 角色設定檔裡的 shy／disdain 讀得到
+  const byTitle = Object.fromEntries(L.entries.map((e) => [e.title, e.emotion]));
+  assert.strictEqual(byTitle['稱讚與感謝'], 'shy');
+  assert.strictEqual(byTitle['討厭的東西'], 'disdain');
+  // 內建台詞只用存在的表情，而且新表情真的有被用到
+  const used = new Set();
+  for (const arr of Object.values(TEMPLATES)) for (const [, emo] of arr) { assert.ok(EMOTIONS.includes(emo), `不存在的表情：${emo}`); used.add(emo); }
+  assert.ok(used.has('shy') && used.has('disdain'));
+  // 模型自己發明的名稱收斂回來
+  assert.strictEqual(normEmotion('Embarrassed'), 'shy');
+  assert.strictEqual(normEmotion('contempt'), 'disdain');
+  assert.strictEqual(normEmotion('disdain'), 'disdain');
+  assert.strictEqual(normEmotion('dancing'), 'normal');
+  assert.strictEqual(normEmotion(undefined), 'normal');
+  // 還沒有圖的表情：害羞借 happy、鄙視借 thinking，都沒有就用 normal
+  const f1 = fillEmotionImages({ normal: 'n.png', happy: 'h.png', thinking: 't.png' });
+  assert.deepStrictEqual([f1.shy, f1.disdain, f1.cheer, f1.worried], ['h.png', 't.png', 'n.png', 'n.png']);
+  const f2 = fillEmotionImages({ normal: 'n.png', happy: 'h.png', thinking: 't.png', shy: 's.png', disdain: 'd.png' });
+  assert.deepStrictEqual([f2.shy, f2.disdain], ['s.png', 'd.png'], '有自己的圖就用自己的');
+  assert.strictEqual(fillEmotionImages({ normal: 'n.png' }).disdain, 'n.png');
+  assert.strictEqual(fillEmotionImages({ happy: 'h.png' }).disdain, 'h.png', '連 normal 都沒有時用任何一張');
+  // 系統提示與 JSON schema 都有新表情；模型回 blush 會變成 shy
+  const npc = new NPC({ npc: { name: '艾琳', role: '接待員', callName: '冒險者' }, llm: { enabled: true, baseUrl: 'http://x', model: 'm', maxChars: 90 } });
+  npc.status.online = true;
+  let sent = null;
+  npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '欸？！艾、艾琳才沒有害羞……', emotion: 'blush' }) } }; };
+  const said = await npc.say('chat', { level: 1, title: '見習', xpInLevel: 0, xpForNext: 120, goldTotal: 0, streak: 0, now: '9/30' }, { userText: '艾琳今天好可愛' });
+  assert.strictEqual(said.emotion, 'shy');
+  assert.ok(/shy＝.*disdain＝/.test(sent.messages[0].content), '系統提示說明新表情');
+  assert.ok(sent.format.properties.emotion.enum.includes('disdain'), 'schema 有 disdain');
+  console.log('表情測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

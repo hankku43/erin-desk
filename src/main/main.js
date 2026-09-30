@@ -5,7 +5,7 @@ const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell } = require('el
 const path = require('path');
 const fs = require('fs');
 const { Engine } = require('./engine');
-const { EMOTIONS } = require('./npc');
+const { EMOTIONS, fillEmotionImages } = require('./npc');
 
 const APP_DIR = path.join(__dirname, '..', '..');
 const CHAR_DIR = path.join(APP_DIR, 'assets', 'character');
@@ -35,10 +35,10 @@ function uiImage(base) {
 }
 
 function characterImages() {
-  const found = {};
-  for (const emo of EMOTIONS) found[emo] = findImage(emo);
-  const fallback = found.normal || Object.values(found).find(Boolean) || null;
-  for (const emo of EMOTIONS) if (!found[emo]) found[emo] = fallback;
+  const own = {};
+  for (const emo of EMOTIONS) own[emo] = findImage(emo);
+  const found = fillEmotionImages(own); // 沒有圖的表情借相近的圖
+  const fallback = found.normal;
   const mini = findImage('mini');
   return {
     images: found,

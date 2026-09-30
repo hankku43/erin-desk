@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const EMOTIONS = ['normal', 'happy', 'thinking', 'surprised', 'cheer', 'worried'];
+const EMOTIONS = ['normal', 'happy', 'thinking', 'surprised', 'cheer', 'worried', 'shy', 'disdain']; // 跟 npc.js 一樣（測試會檢查）
 
 // ---- 文字處理 ----
 function normalize(s) {

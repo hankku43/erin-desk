@@ -10,6 +10,8 @@
 | `thinking.png` | 貓娘・思考 | 同上 |
 | `surprised.png` | 貓娘・驚訝 | 同上 |
 | `worried.png` | 貓娘・擔心（逾期時） | 同上 |
+| `shy.png` | 貓娘・害羞（被稱讚、被說中心事） | 同上 |
+| `disdain.png` | 貓娘・鄙視（俏皮的吐槽、不以為然） | 同上 |
 | `mini.png` | 貓咪型態・平常（縮小化時，**必要**） | 1:1，建議 512×512 |
 | `mini_alert.png` | 貓咪型態・有新訊息 | 同上 |
 
@@ -23,7 +25,7 @@
 3. **貓咪型態也用定裝照當參考**，讓毛色、眼睛顏色和項圈跟貓娘對得上。
 4. **去背**：大多數 AI 沒辦法直接輸出透明背景，所以提示詞會要求純灰色背景，生成後再用 remove.bg、Photoshop「移除背景」或 `rembg` 去背，存成 **PNG**。
    - 不要用白色或綠色背景：白頭髮會跟白背景黏在一起，綠背景會讓白髮邊緣泛綠。
-5. **統一尺寸**：6 張表情要同樣的畫布大小、角色放在同樣位置，切換表情時才不會跳動。
+5. **統一尺寸**：所有表情要同樣的畫布大小、角色放在同樣位置，切換表情時才不會跳動。`tools/remove_bg.py` 會一起處理去背和對齊（見最後一段）。
 
 ## 貓娘立繪：共用提示詞
 
@@ -61,6 +63,43 @@ text, watermark, signature, busy background, gradient background, multiple chara
 | thinking | `thinking pose, index finger on her chin, eyes looking up to the side, slight pout, one ear tilted` | 食指抵下巴，眼睛往斜上看，微嘟嘴，一邊耳朵歪斜 |
 | surprised | `surprised, wide round eyes, small open mouth, ears standing straight up, tail fur puffed out` | 睜大眼睛，嘴巴小小張開，耳朵直豎，尾巴毛炸開 |
 | worried | `worried, eyebrows drawn together, nervous small smile, ears drooping flat, a small sweat drop` | 眉頭皺起，勉強的苦笑，耳朵垂下，額頭一滴汗 |
+| shy | `shy and flustered, deep blush across her cheeks and nose, eyes glancing away to the side, holding the rolled scroll up in front of her mouth to hide an embarrassed smile, cat ears folded down to the sides, tail curled in front of her waist, a few thin blush lines on her cheeks` | 臉頰到鼻樑整片泛紅，眼神往旁邊飄，把卷軸舉到嘴巴前面遮住害羞的笑，耳朵往兩側垂低，尾巴捲到腰前 |
+| disdain | `unimpressed deadpan expression, half-closed eyes (jitome) staring straight at the viewer, one eyebrow slightly raised, lips pressed into a small flat line with the corners turned down, chin slightly lifted, cat ears turned outward and flattened sideways, tail swishing to one side, playful teasing disdain, not angry` | 半瞇眼（ジト目）盯著鏡頭，一邊眉毛微挑，嘴巴抿成一條小直線、嘴角往下，下巴微抬，耳朵往兩側壓平，尾巴甩向一邊；俏皮的不以為然，不是生氣 |
+
+### 害羞、鄙視：改圖時直接貼的完整說明
+
+用 ChatGPT／Gemini 改圖時，上傳 **`assets/raw/normal.png`**（還帶灰背景的原圖）當參考，比上傳去背後的圖更穩：透明背景常被當成黑色或白色，白頭髮邊緣會跑掉。
+
+**shy.png（害羞）**
+
+```
+這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖和畫面比例，背景維持純灰色平塗。
+只改表情和拿卷軸的那隻手：
+- 害羞：臉頰到鼻樑整片泛紅，臉頰上有幾條細細的紅暈斜線
+- 眼神往旁邊飄，不敢看鏡頭，眉毛微微往下
+- 把手上的卷軸舉到嘴巴前面，遮住害羞的笑（卷軸不要擋到眼睛）
+- 貓耳往兩側垂低，尾巴捲到腰前
+不要加文字、愛心或其他符號。
+```
+
+**disdain.png（鄙視）**
+
+```
+這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖和畫面比例，背景維持純灰色平塗。
+只改表情，手和卷軸維持原本的姿勢：
+- 半瞇眼（ジト目），眼睛直直盯著鏡頭
+- 一邊眉毛微微挑起，嘴巴抿成一條小直線、嘴角往下
+- 下巴微微抬起，像在說「……你認真的嗎？」
+- 貓耳往兩側壓平（飛機耳），尾巴甩向一邊
+- 是俏皮的吐槽、不以為然：不要生氣、不要兇、不要臉紅，也不要加漫畫的陰影線
+不要加文字或符號。
+```
+
+小提醒：
+
+- 鄙視最容易畫成「生氣」，出現皺眉瞪人、露牙的話，補一句「表情再淡一點，比較像無言，不是生氣」。
+- 害羞如果卷軸遮到整張臉，補一句「卷軸往下一點，只遮住嘴巴」。
+- 兩張都挑「頭和身體位置最接近定裝照」的那張，對齊時比較不會變形。
 
 ## 貓咪型態（縮小化用）
 
@@ -87,6 +126,12 @@ one front paw raised as if waving, mouth open as if meowing
 
 ## 放進程式
 
-1. 去背後的 PNG 照上面的檔名放進 `assets/character/`。
-2. 刪掉或移走同名的 `.svg`，也可以不刪，PNG 會優先使用。
-3. 右鍵 → 離開，再重新啟動。
+1. 把生成的原圖（灰背景）照上面的檔名放進 `assets/raw/`。
+2. 去背＋對齊：
+   - 全部重做：`python tools/remove_bg.py`（所有表情一起重新對齊，畫布可能會變）
+   - 只加新的表情：`python tools/remove_bg.py shy disdain`（對齊到現有的 `assets/character/normal.png`，舊圖不動）
+   - 需要先 `pip install "rembg[cpu]" opencv-python pillow numpy`
+3. 去背後的 PNG 會出現在 `assets/character/`。舊的 `.svg` 可以不刪，PNG 會優先使用。
+4. 右鍵 → 離開，再重新啟動。
+
+還沒做的表情會暫時用相近的圖代替：害羞 → happy，鄙視 → thinking，其他 → normal。

@@ -1,5 +1,8 @@
 # 批次去背＋去灰邊＋對齊＋統一畫布（assets/raw → assets/character）
 # 需要：pip install "rembg[cpu]" opencv-python pillow numpy
+#
+#   python tools/remove_bg.py              全部重做（所有表情一起對齊，畫布可能會變）
+#   python tools/remove_bg.py shy disdain  只加新的表情：對齊到現有的 assets/character/normal.png，舊圖不動
 import os, sys, numpy as np, cv2
 from PIL import Image
 from rembg import new_session, remove
@@ -83,5 +86,41 @@ def group(names, ref_name, out_h, square=False):
         img.save(os.path.join(OUT, n + '.png'), optimize=True)
         print('  saved', n, img.size)
 
-group(['normal', 'happy', 'cheer', 'thinking', 'surprised', 'worried'], 'normal', 1200)
-group(['mini', 'mini_alert'], 'mini', 512, square=True)
+def add_to(names, ref_name='normal'):
+    """只處理新的表情：對齊到已經做好的 assets/character/<ref>.png，畫布大小不變、舊圖不動"""
+    ref = np.asarray(Image.open(os.path.join(OUT, ref_name + '.png')).convert('RGBA'))
+    H, W = ref.shape[:2]
+    rb = np.where(ref[..., 3].max(axis=1) > 8)[0]
+    for n in names:
+        src = matte(n)[0]
+        M, s, ninl, ng = align(src, ref, 0)
+        info = f'scale={s:.3f} inliers={ninl}/{ng} t=({M[0,2]:.0f},{M[1,2]:.0f})'
+        if ninl < 25:  # 對不齊時退回：角色高度跟 normal 一樣、底部置中
+            sb = np.where(src[..., 3].max(axis=1) > 8)[0]
+            sc = (rb.max() - rb.min()) / max(1, sb.max() - sb.min())
+            M = np.float32([[sc, 0, (W - src.shape[1] * sc) / 2], [0, sc, H - sb.max() * sc]])
+            info += ' → 對不齊，改用高度＋置中'
+        out = cv2.warpAffine(src, M, (W, H), flags=cv2.INTER_LANCZOS4, borderValue=(0, 0, 0, 0))
+        # 半身圖的底部要貼齊畫布，不然角色會浮起來；差一點點就往下推
+        gap = H - 1 - np.where(out[..., 3].max(axis=1) > 8)[0].max()
+        if 0 < gap <= H * 0.04:
+            M[1, 2] += gap
+            out = cv2.warpAffine(src, M, (W, H), flags=cv2.INTER_LANCZOS4, borderValue=(0, 0, 0, 0))
+            info += f'，往下推 {gap}px 貼齊底部'
+        elif gap > H * 0.04:
+            info += f'，⚠ 底部空了 {gap}px：新圖的角色可能比定裝照小，建議重新生成構圖更接近的圖'
+        print(n, info)
+        Image.fromarray(out, 'RGBA').save(os.path.join(OUT, n + '.png'), optimize=True)
+        print('  saved', n, (W, H))
+
+GIRL = ['normal', 'happy', 'cheer', 'thinking', 'surprised', 'worried', 'shy', 'disdain']
+has_raw = lambda n: os.path.exists(os.path.join(RAW, n + '.png'))
+if len(sys.argv) > 1:
+    names = sys.argv[1:]
+    missing = [n for n in names if not has_raw(n)]
+    if missing: sys.exit('assets/raw/ 裡找不到：' + '、'.join(n + '.png' for n in missing))
+    if any(n.startswith('mini') for n in names): sys.exit('貓咪型態請用全部重做（不加參數）')
+    add_to(names)
+else:
+    group([n for n in GIRL if has_raw(n)], 'normal', 1200)
+    group(['mini', 'mini_alert'], 'mini', 512, square=True)
