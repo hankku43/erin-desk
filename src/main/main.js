@@ -22,7 +22,15 @@ const WIN_W = 610, WIN_H = 800; // 加寬：狀態面板和角色並排、不重
 let win, engine, tickTimer, idleTimer, watchTimer, focusTimer;
 let moving = false; // 程式自己調整視窗大小時，不記錄位置
 
-// 測試用的資料夾（測試新手教學.bat）：連 Electron 自己的資料也分開，才能跟平常的艾琳同時開著
+// 🧪 測試模式（測試新手教學.bat 會加 --erin-test）：每次用全新的暫存資料夾，看朋友第一次打開的樣子。
+// 路徑由程式自己決定（純英文），不經過 .bat 的中文字，才不會被命令列的編碼弄壞
+const TEST_MODE = process.argv.includes('--erin-test');
+if (TEST_MODE) {
+  const home = path.join(require('os').tmpdir(), 'erin-onboarding-test');
+  try { fs.rmSync(home, { recursive: true, force: true }); } catch (_) { /* 清不掉就沿用 */ }
+  process.env.QUEST_NPC_HOME = home;
+}
+// 另外指定資料夾時，連 Electron 自己的資料也分開，才能跟平常的艾琳同時開著
 if (process.env.QUEST_NPC_HOME) app.setPath('userData', path.join(path.resolve(process.env.QUEST_NPC_HOME), '.electron'));
 if (!app.requestSingleInstanceLock()) app.quit();
 
@@ -214,10 +222,11 @@ function createWindow() {
     transparent: true, frame: false, resizable: false, hasShadow: false,
     alwaysOnTop: engine.config.window.alwaysOnTop !== false,
     skipTaskbar: false, backgroundColor: '#00000000',
-    title: `${engine.config.npc.name}的任務櫃台`,
+    title: `${engine.config.npc.name}的任務櫃台${TEST_MODE ? '（測試）' : ''}`,
     icon: path.join(APP_DIR, 'build', 'icon.png'), // 工作列上的小貓圖示
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }, // 被其他視窗蓋住時動畫也不降速
   });
+  win.on('page-title-updated', (e) => e.preventDefault()); // 工作列顯示「艾琳的任務櫃台」，不要被網頁的 <title> 蓋掉
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(APP_DIR, 'src', 'renderer', 'index.html'));
   win.on('moved', () => { if (!moving) rememberPosition(); });
@@ -580,6 +589,7 @@ app.whenReady().then(async () => {
   createWindow();
   watchPlan();
   engine.npc.checkStatus().then((st) => { push('view:update', { view: engine.view() }); if (st.online) engine.npc.warmUp(); });
+  if (TEST_MODE) win.webContents.once('did-finish-load', () => setTimeout(() => push('view:update', { view: engine.view(), reason: `🧪 測試用的${engine.config.npc.name}：全新的資料夾，平常的存檔不受影響` }), 1200));
   scheduleHealth();
 
   // 提醒對齊整分鐘（12:00 就在 12:00 說，不會晚 59 秒）；啟動後先跑一次，補上寬限時間內的提醒
