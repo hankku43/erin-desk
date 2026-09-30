@@ -1041,3 +1041,54 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const d of [appDir, userDir, d3]) fs.rmSync(d, { recursive: true, force: true });
   console.log('新手引導測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 動作不等 AI：先完成、話晚點說（排隊、合併、順序） ----------
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-defer-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  const E = new Engine({ appDir: dir, now: () => new Date(`${new Date().getFullYear()}-09-30T10:00:00`) });
+  E.deferSpeech = true;
+  const heard = [], asked = [];
+  E.onSpeech = (ls) => heard.push(...ls);
+  E.npc.status.online = true;
+  E.npc.fetchJSON = async (_p, body) => { asked.push(body); await new Promise((r) => setTimeout(r, 200)); return { message: { content: JSON.stringify({ line: `好的（第 ${asked.length} 句）`, emotion: 'happy' }) } }; };
+  const q = E.plan.quests[0];
+  // 連勾三個目標：每一個都馬上完成，不用等 AI
+  const t0 = Date.now();
+  const rs = [];
+  for (let i = 0; i < 3; i++) rs.push(await E.setObjective(q.id, i, true));
+  assert.ok(Date.now() - t0 < 150, '勾選不用等 AI（AI 一句要 200ms）：' + (Date.now() - t0) + 'ms');
+  assert.ok(rs.every((r) => !r.lines.some((l) => l.event === 'objective')), '回傳裡沒有 AI 的話（晚點推）');
+  assert.ok(rs[2].view.quests.find((x) => x.id === q.id).objectives.every((o) => o.done), '三個都勾好了');
+  assert.ok(rs[0].view.rev < rs[1].view.rev && rs[1].view.rev < rs[2].view.rev, '畫面有新舊順序');
+  assert.strictEqual(E.speechSeq, 3);
+  await E.speechIdle();
+  const objLines = heard.filter((l) => l.event === 'objective');
+  assert.ok(objLines.length <= 2 && objLines.every((l) => l.deferred), '還沒開始說的舊句子被最新的取代：' + objLines.length);
+  const lastAsk = asked[asked.length - 1].messages.at(-1).content;
+  assert.ok(/3\/3|目標全完成|全部/.test(lastAsk) || /「上架申請已送出/.test(lastAsk), '最後一句是照最新的進度說的');
+  // 交付：先回傳報酬，話照順序說（交付 → 下一個任務）
+  heard.length = 0;
+  const sub = await E.submit(q.id);
+  assert.ok(sub.reward && sub.reward.xp > 0 && !sub.lines.some((l) => ['submit', 'assign'].includes(l.event)));
+  await E.speechIdle();
+  assert.deepStrictEqual(heard.map((l) => l.event).filter((e) => e !== 'levelup'), ['submit', 'assign'], '順序：交付 → 派下一個');
+  // AI 沒開：一樣排隊，用內建台詞，很快就說
+  heard.length = 0; E.npc.status.online = false;
+  await E.setActive(E.plan.quests[2].id);
+  await E.speechIdle();
+  assert.ok(heard.length === 1 && heard[0].source === 'template' && heard[0].event === 'assign');
+  // 聊天、戳、打招呼照舊等回覆（那是在講話）
+  E.npc.status.online = true;
+  const c = await E.chat('今天好嗎');
+  assert.ok(c.lines.some((l) => l.event === 'chat'));
+  // 沒開延後時（測試、舊行為）：照舊直接回傳
+  E.deferSpeech = false;
+  const r = await E.setObjective(E.plan.quests[1].id, 0, true);
+  assert.ok(r.lines.some((l) => l.event === 'objective'));
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('動作不等 AI 測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

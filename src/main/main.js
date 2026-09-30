@@ -241,7 +241,8 @@ function push(channel, payload) {
 
 function wrap(fn) {
   return async (_e, ...args) => {
-    try { return { ok: true, ...(await fn(...args)) }; } catch (e) {
+    const seq = engine.speechSeq;
+    try { const r = await fn(...args); return { ok: true, ...r, speechQueued: engine.speechSeq - seq }; } catch (e) {
       console.error(e);
       return { ok: false, error: e.message, view: engine.view() };
     }
@@ -391,47 +392,65 @@ const menuSafe = (fn) => async () => {
   } catch (e) { console.error(e); push('view:update', { view: engine.view(), reason: `⚠ ${e.message}` }); }
 };
 
-function showMenu() {
+// 右鍵選單：常用的放第一層，其他收進分組（避免一長串）
+function menuTemplate() {
   const npcName = engine.config.npc.name;
   const mini = isMini();
-  const menu = Menu.buildFromTemplate([
+  const open = (kind) => () => { if (mini) setMini(false); push('ui:open', kind); };
+  const st = engine.npc.status || {};
+  const aiTitle = !engine.config.llm.enabled ? '🤖 AI：關閉（內建台詞）' : st.online ? '🤖 AI：🟢 已連線' : '🤖 AI：⚪ 離線';
+  const f = engine.fortuneToday();
+  return [
     { label: mini ? '🔼 展開' : '🐾 縮小化（變回貓咪）', click: () => (mini ? setMini(false) : push('ui:shrink')) }, // 縮小走前端，先播變身動畫
-    { label: '🖥 固定在顯示器', submenu: displayMenu() },
     { type: 'separator' },
-    { label: '📜 任務板', click: () => { if (mini) setMini(false); push('ui:open', 'board'); } },
-    { label: '📅 今日行程', click: () => { if (mini) setMini(false); push('ui:open', 'daily'); } },
-    { label: '📝 下班回報', click: () => { if (mini) setMini(false); push('ui:open', 'report'); } },
+    { label: '📜 任務板', click: open('board') },
+    { label: '📅 今日行程', click: open('daily') },
+    { label: '📝 下班回報', click: open('report') },
     engine.state.focus
       ? { label: `🍅 結束專注（還剩 ${engine.focusInfo().leftMin} 分鐘）`, click: stopFocus }
       : { label: `🍅 專注 ${engine.focusCfg().minutes} 分鐘`, click: () => { if (mini) setMini(false); push('ui:focus'); } },
-    { label: engine.fortuneToday() ? `🔮 今日運勢：${engine.fortuneToday().rank}` : '🔮 抽今日運勢', click: () => { if (mini) setMini(false); push('ui:fortune'); } },
-    { label: `✨ 占卜魔法（${engine.divCfg().cost} 金幣）…`, click: () => { if (mini) setMini(false); push('ui:open', 'divine'); } },
+    { label: '✨ 更多玩法', submenu: [
+      { label: f ? `🔮 今日運勢：${f.rank}` : '🔮 抽今日運勢', click: () => { if (mini) setMini(false); push('ui:fortune'); } },
+      { label: `✨ 占卜魔法（${engine.divCfg().cost} 金幣）…`, click: open('divine') },
+    ] },
     { type: 'separator' },
-    { label: '選擇週計畫檔…', click: choosePlan },
-    { label: '📥 匯入行事曆（.ics）到本週…', click: menuSafe(importIcs) },
-    { label: '📤 匯出本週成行事曆（.ics）…', click: menuSafe(exportIcs) },
-    { label: '重新載入計畫檔', click: () => reloadPlan('已重新載入') },
-    { label: '開啟計畫檔', click: () => shell.openPath(engine.planFile()) },
-    { label: '開啟設定檔 config.json', click: () => shell.openPath(engine.configFile()) },
-    { label: '📁 打開我的資料夾', click: () => shell.openPath(USER_DIR) },
-    { label: '開啟角色設定檔（艾琳的故事）', click: () => shell.openPath(engine.lore.file) },
-    { label: '重新讀取設定', click: async () => { engine.loadConfig(); await engine.npc.checkStatus(); push('view:update', { view: engine.view(), reason: '設定已重新讀取' }); } },
+    { label: '📂 週計畫', submenu: [
+      { label: '選擇週計畫檔…', click: () => choosePlan() },
+      { label: '開啟計畫檔', click: () => shell.openPath(engine.planFile()) },
+      { label: '重新載入計畫檔', click: () => reloadPlan('已重新載入') },
+      { type: 'separator' },
+      { label: '📥 匯入行事曆（.ics）到本週…', click: menuSafe(importIcs) },
+      { label: '📤 匯出本週成行事曆（.ics）…', click: menuSafe(exportIcs) },
+    ] },
+    { label: aiTitle, submenu: [
+      { label: `AI 對話（${engine.config.llm.model}）`, type: 'checkbox', checked: !!engine.config.llm.enabled, click: (m) => setAI(m.checked) },
+      { label: aiStatusLabel(), enabled: false },
+      { label: '立刻重新連線', enabled: !!engine.config.llm.enabled, click: async () => { engine.npc.backoffUntil = 0; const s2 = await engine.npc.checkStatus(); push('view:update', { view: engine.view(), reason: s2.online ? `🟢 AI 已連線（${engine.config.llm.model}）` : `⚪ ${s2.message}` }); } },
+      { type: 'separator' },
+      { label: `🧠 聰明${npcName}（向量搜尋）`, type: 'checkbox', checked: engine.lore.smartOn(), click: (m) => menuSafe(() => setSmart(m.checked))() },
+      { label: engine.lore.statusText(), enabled: false },
+    ] },
+    { label: '⚙ 設定與資料', submenu: [
+      { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
+      { label: '🖥 固定在顯示器', submenu: displayMenu() },
+      { label: '縮到工作列', click: () => win.minimize() },
+      { type: 'separator' },
+      { label: '📁 打開我的資料夾', click: () => shell.openPath(USER_DIR) },
+      { label: '開啟設定檔 config.json', click: () => shell.openPath(engine.configFile()) },
+      { label: `開啟角色設定檔（${npcName}的故事）`, click: () => shell.openPath(engine.lore.file) },
+      { label: '開啟角色圖片資料夾', click: () => { fs.mkdirSync(userCharDir(), { recursive: true }); shell.openPath(userCharDir()); } },
+      { label: '重新讀取設定', click: async () => { engine.loadConfig(); await engine.npc.checkStatus(); push('view:update', { view: engine.view(), reason: '設定已重新讀取' }); } },
+    ] },
+    { label: '❓ 說明', submenu: [
+      { label: '🩺 健康檢查（哪裡怪怪的？）', click: open('health') },
+      { label: '🎓 新手教學（再看一次）', click: open('onboard') },
+    ] },
     { type: 'separator' },
-    { label: `🤖 AI 對話（${engine.config.llm.model}）`, type: 'checkbox', checked: !!engine.config.llm.enabled, click: (m) => setAI(m.checked) },
-    { label: `　${aiStatusLabel()}`, enabled: false },
-    { label: '　立刻重新連線', enabled: !!engine.config.llm.enabled, click: async () => { engine.npc.backoffUntil = 0; const st = await engine.npc.checkStatus(); push('view:update', { view: engine.view(), reason: st.online ? `🟢 AI 已連線（${engine.config.llm.model}）` : `⚪ ${st.message}` }); } },
-    { label: `🧠 聰明${npcName}（向量搜尋）`, type: 'checkbox', checked: engine.lore.smartOn(), click: (m) => menuSafe(() => setSmart(m.checked))() },
-    { label: `　${engine.lore.statusText()}`, enabled: false },
-    { label: '開啟角色圖片資料夾', click: () => { fs.mkdirSync(userCharDir(), { recursive: true }); shell.openPath(userCharDir()); } },
-    { type: 'separator' },
-    { label: '🩺 健康檢查（哪裡怪怪的？）', click: () => { if (mini) setMini(false); push('ui:open', 'health'); } },
-    { label: '🎓 新手教學（再看一次）', click: () => { if (mini) setMini(false); push('ui:open', 'onboard'); } },
-    { type: 'separator' },
-    { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
-    { label: '縮到工作列', click: () => win.minimize() },
     { label: `離開（${npcName}會想你的）`, click: () => app.quit() },
-  ]);
-  menu.popup({ window: win });
+  ];
+}
+function showMenu() {
+  Menu.buildFromTemplate(menuTemplate()).popup({ window: win });
 }
 
 function aiStatusLabel() {
@@ -520,6 +539,9 @@ app.whenReady().then(async () => {
   else if (app.isPackaged) USER_DIR = path.join(app.getPath('documents'), '艾琳的任務櫃台');
   try { prepareUserDir(); } catch (e) { console.error('建立使用者資料夾失敗', e); }
   engine = new Engine({ appDir: APP_DIR, userDir: USER_DIR });
+  // 勾目標、交付這些動作先完成、畫面馬上更新；艾琳的話在背後想好再推過去（等 AI 的時候介面不會卡住）
+  engine.deferSpeech = true;
+  engine.onSpeech = (lines) => push('npc:lines', lines);
 
   ipcMain.handle('view:get', wrap(async () => ({ view: engine.view(), character: characterImages(), mini: isMini() })));
   ipcMain.on('win:mini', (_e, on) => setMini(on));
@@ -600,7 +622,7 @@ app.whenReady().then(async () => {
   scheduleFocus(4000); // 上次關程式時還在專注：時間到了就補結算（等畫面載好）
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
-  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app });
+  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate });
 });
 
 app.on('second-instance', () => { if (win) { win.restore(); win.focus(); } });

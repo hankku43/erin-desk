@@ -111,20 +111,20 @@ async function onNpcClick() {
   if (typeof obMark === 'function' && obMark('click')) return; // 🎓 新手教學的「點她一下」
   $('#marker').classList.add('hidden');
   if (state.queue.length || state.typing) { advance(); return; } // 還有話沒說完 → 先聽完
-  if (state.busy) return;
+  if (state.talking) return;
   const stale = !state.lastGreetAt || Date.now() - state.lastGreetAt > GREET_COOLDOWN;
   if ($('#dialog').classList.contains('hidden') && (stale || state.pendingAmbient)) {
     openDialog();
     await greet();
   } else {
     openDialog();
-    await run(() => api.poke());
+    await run(() => api.poke(), { talk: true });
   }
 }
 async function greet() {
   state.lastGreetAt = Date.now();
   const pending = state.pendingAmbient; state.pendingAmbient = null;
-  const r = await run(() => api.greet());
+  const r = await run(() => api.greet(), { talk: true });
   if (pending && pending.length) enqueue(pending);
   return r;
 }
@@ -286,13 +286,15 @@ $('#dlgText').addEventListener('click', () => advance());
 $('#dlgMore').addEventListener('click', () => advance());
 
 // ---------- 通用執行（等待 NPC 回覆） ----------
-async function run(fn, { thinking = true } = {}) {
-  if (state.busy) return null;
-  state.busy = true;
+// talk：跟艾琳「講話」（打招呼、戳、聊天）同一時間只能一件；其他動作（勾目標、交付…）隨時都能做，
+// 它們會馬上完成，艾琳的回話晚一點才推過來（npc:lines），等的時候介面照常可以用
+async function run(fn, { thinking = true, talk = false } = {}) {
+  if (talk && state.talking) return null;
+  if (talk) state.talking = true;
   if (thinking) showThinking();
   let r;
   try { r = await fn(); } catch (e) { r = { ok: false, error: String(e) }; }
-  state.busy = false;
+  if (talk) state.talking = false;
   if (r && r.view) applyView(r.view);
   if (!r || !r.ok) {
     toast(`⚠ ${r && r.error ? r.error : '發生錯誤'}`, 4000);
@@ -301,7 +303,9 @@ async function run(fn, { thinking = true } = {}) {
   }
   if (r.writeError) toast(`⚠ 回寫計畫檔失敗：${r.writeError}`, 5000);
   if (r.reward) celebrate(r.reward);
-  enqueue(r.lines);
+  if (r.lines && r.lines.length) enqueue(r.lines);
+  else if (r.speechQueued) { if (!state.typing && !state.queue.length && !$('#dialog').classList.contains('hidden')) showThinking(); } // 艾琳在想要說什麼
+  else if (thinking) { if (state.lastLine) showLine(state.lastLine); else closeDialog(); } // 這次沒話要說：把「思考中」收掉
   showProposal(r.proposal || null);
   return r;
 }
@@ -337,6 +341,9 @@ function confetti(n) {
 
 // ---------- 畫面更新 ----------
 function applyView(v) {
+  if (!v) return;
+  if (v.rev && state.viewRev && v.rev < state.viewRev) return; // 比較舊的回應晚到：不要蓋掉比較新的畫面
+  if (v.rev) state.viewRev = v.rev;
   // 剛勾完當前任務的目標：焦點行先切到任務、讓新的星星亮一下
   const la = state.lastActive, na = v.active;
   if (la && na && la.id === na.id && na.doneCount > la.done) { state.flFlashUntil = Date.now() + 4500; setTimeout(renderTracker, 4600); }
@@ -804,7 +811,7 @@ $('#choices').addEventListener('click', async (e) => {
   const act = b.dataset.act;
   if (act === 'board') openPanel('board');
   if (act === 'submit' && state.view.active) openPanel('submit', state.view.active.id);
-  if (act === 'daily') { openPanel('daily'); run(() => api.daily()); }
+  if (act === 'daily') { openPanel('daily'); run(() => api.daily(), { talk: true }); }
   if (act === 'report') openPanel('report');
   if (act === 'chat') { $('#chatRow').classList.toggle('hidden'); $('#chatInput').focus(); }
   if (act === 'divine') openPanel('divine');
@@ -818,10 +825,10 @@ function questionFromChat(t) {
 async function sendChat() {
   const inp = $('#chatInput');
   const text = inp.value.trim();
-  if (!text || state.busy) return;
+  if (!text || state.talking) return;
   if (DV_RE.test(text) && !/(是什麼|什麼是|怎麼算|原理|準不準)/.test(text)) { inp.value = ''; openPanel('divine', { question: questionFromChat(text) }); return; }
   inp.value = '';
-  await run(() => api.chat(text));
+  await run(() => api.chat(text), { talk: true });
   inp.focus();
 }
 $('#chatSend').addEventListener('click', sendChat);
@@ -851,7 +858,11 @@ function renderPanel() {
   const prevBody = el.querySelector('.panel-body');
   const keepScroll = el.dataset.kind === state.panel && prevBody ? prevBody.scrollTop : 0;
   el.dataset.kind = state.panel;
+  // 重畫時保住正在打的新目標（艾琳的話晚到、畫面更新時，打到一半的字不會不見）
+  const typing = el.querySelector('[data-obj-input]');
+  const keep = typing ? { id: typing.dataset.objInput, value: typing.value, focus: document.activeElement === typing } : null;
   renderPanelInner(el, v);
+  if (keep) { const i = el.querySelector(`[data-obj-input="${keep.id}"]`); if (i) { i.value = keep.value; if (keep.focus) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } } }
   const body = el.querySelector('.panel-body');
   if (body && keepScroll) body.scrollTop = keepScroll;
 }
@@ -1140,8 +1151,8 @@ $('#panel').addEventListener('change', async (e) => {
   if (t.name === 'dvm' && state.dv) { state.dv.method = t.value; renderPanel(); return; }
   if (t.name === 'qfTier') { document.querySelectorAll('.tp').forEach((l) => l.classList.toggle('on', l.querySelector('input').checked)); return; }
   if (t.dataset.obj) {
-    const r = await run(() => api.setObjective(t.dataset.obj, Number(t.dataset.idx), t.checked), { thinking: false });
-    if (r && r.ok && t.checked) openDialog();
+    if (t.checked) openDialog(); // 先把對話框打開，艾琳想好就會說
+    await run(() => api.setObjective(t.dataset.obj, Number(t.dataset.idx), t.checked), { thinking: false });
   }
   if (t.dataset.row) await run(() => api.toggleDaily(t.dataset.row, t.checked), { thinking: false });
 });
@@ -1167,7 +1178,7 @@ api.on('ui:shrink', () => goMini());
 api.on('ui:open', (kind) => {
   if (kind === 'onboard') { state.ob = null; openOnboard('welcome'); return; }
   if (kind === 'health') { openHealth(); return; }
-  openPanel(kind); if (kind === 'daily') run(() => api.daily());
+  openPanel(kind); if (kind === 'daily') run(() => api.daily(), { talk: true });
 });
 
 // ---------- 啟動 ----------

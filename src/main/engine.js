@@ -82,6 +82,8 @@ class Engine {
     this.backedUp = false;
     this.affPending = []; // 好感度事件（冷戰開始…），settle() 時變成台詞
     this.tutPending = []; // 新手任務完成的台詞
+    // 動作後的話可以「先做事、話晚點說」：main.js 會打開 deferSpeech，測試時照舊等 AI 說完
+    this.deferSpeech = false; this.onSpeech = null; this.speechQueue = []; this.speechBusy = false; this.speechSeq = 0; this.viewRev = 0;
     // 新手引導：第一次用的人才需要；已經在用的存檔直接當作完成
     if (!this.state.onboarding) { this.state.onboarding = { done: !this.isFreshUser() }; this.saveState(); }
     this.loadPlan();
@@ -233,8 +235,8 @@ class Engine {
     if (!this.ps.activeQuestId) G.ensureActive(this.plan, this.ps, this.now());
     this.saveState();
     const qv = q && G.questView(this.plan, this.ps, this.now()).find((x) => x.id === q.id);
-    const lines = qv ? [await this.say('registered', { questView: qv, eventDetail: `冒險者自己登記了新委託「${q.title}」（${qv.tierName}，${qv.deadlineLabel || '沒有截止日'}）` })] : [];
-    return { lines, questId: q && q.id, view: this.view() };
+    const lines = qv ? [await this.act('registered', { questView: qv, eventDetail: `冒險者自己登記了新委託「${q.title}」（${qv.tierName}，${qv.deadlineLabel || '沒有截止日'}）` })] : [];
+    return this.settle({ lines, questId: q && q.id, view: this.view() });
   }
 
   async editQuest(questId, fields) {
@@ -302,7 +304,7 @@ class Engine {
     if (!String(fields.text || '').trim()) throw new Error('提醒要有內容');
     this.writePlan(this.P.addReminder(this.planText, fields));
     const t = `${+fields.at.slice(5, 7)}/${+fields.at.slice(8, 10)} ${fields.at.slice(11, 16)}`;
-    return { lines: [await this.say('reminder_set', { label: `${t} ${fields.text}`, eventDetail: `冒險者設了提醒：${t} ${fields.text}${fields.action ? `，到時要${fields.action}` : ''}` })], view: this.view() };
+    return this.settle({ lines: [await this.act('reminder_set', { label: `${t} ${fields.text}`, eventDetail: `冒險者設了提醒：${t} ${fields.text}${fields.action ? `，到時要${fields.action}` : ''}` })], view: this.view() });
   }
 
   async deleteReminder(id) {
@@ -362,8 +364,8 @@ class Engine {
     this.saveState();
     const parts = [added.length ? `${added.length} 格行程` : '', themed.length ? `${themed.length} 天主題` : ''].filter(Boolean).join('、');
     const label = parts ? `加了 ${parts}` : (skipped ? '都已經在計畫裡了，沒有新的' : `${rs}～${re} 這段沒有事件`);
-    const lines = [await this.say('imported', { label, eventDetail: `冒險者從行事曆匯入：${label}${skipped ? `（${skipped} 個已存在略過）` : ''}，範圍 ${rs}～${re}` })];
-    return { added, themed, skipped, total: events.length, range: [rs, re], calendar: cal.name, label, lines, view: this.view() };
+    const lines = [await this.act('imported', { label, eventDetail: `冒險者從行事曆匯入：${label}${skipped ? `（${skipped} 個已存在略過）` : ''}，範圍 ${rs}～${re}` })];
+    return this.settle({ added, themed, skipped, total: events.length, range: [rs, re], calendar: cal.name, label, lines, view: this.view() });
   }
 
   // 時段 → 事件；提醒 → 15 分鐘事件＋鬧鐘；有截止日的任務 → 全天事件
@@ -430,6 +432,7 @@ class Engine {
     const today = G.todayISO(this.now());
     const progress = this.plan.progressLog.find((p) => p.date === today) || null;
     return {
+      rev: ++this.viewRev, // 畫面用：比較新舊，舊的回應不會蓋掉新的
       now: this.now().toISOString(),
       player: { ...this.state.player, ...lv },
       planTitle: this.plan.title, planPath: this.planFile(), planError: this.planError || this.configError || null,
@@ -489,6 +492,38 @@ class Engine {
     const line = await this.npc.say(event, this.facts(extra), opts);
     return { ...line, event };
   }
+
+  // 動作（勾目標、交付、換任務…）之後的一句話：
+  // deferSpeech 時先排隊、動作立刻完成（畫面不用等 AI），說完再用 onSpeech 推給畫面；
+  // opts.coalesce：同一類的話還沒開始說就被新的取代（連勾三個目標只說最新的那句）
+  async act(event, extra = {}, opts = {}) {
+    if (!this.deferSpeech) return this.say(event, extra, opts);
+    const { coalesce, ...rest } = opts;
+    const job = { event, facts: this.facts(extra), opts: rest, relation: this.relationInfo(), coalesce: coalesce || null };
+    if (job.coalesce) for (const j of this.speechQueue) if (j.coalesce === job.coalesce) j.dropped = true;
+    this.speechQueue.push(job);
+    this.speechSeq += 1;
+    this.pumpSpeech();
+    return null;
+  }
+  async pumpSpeech() {
+    if (this.speechBusy) return;
+    this.speechBusy = true;
+    try {
+      while (this.speechQueue.length) {
+        const job = this.speechQueue.shift();
+        if (job.dropped) continue;
+        this.npc.relation = job.relation;
+        let line;
+        try { line = await this.npc.say(job.event, job.facts, job.opts); } catch (_) { line = this.npc.template(job.event, job.facts); }
+        line = { ...line, event: job.event, deferred: true };
+        delete line.tpl;
+        try { if (this.onSpeech) this.onSpeech([line]); } catch (_) { /* 畫面關了就算了 */ }
+      }
+    } finally { this.speechBusy = false; }
+  }
+  // 等排隊的話全部說完（測試用）
+  async speechIdle() { while (this.speechBusy || this.speechQueue.length) await new Promise((r) => setTimeout(r, 5)); }
 
   // ---- 動作 ----
   dayGreet(now = this.now()) {
@@ -561,8 +596,8 @@ class Engine {
     const lines = [];
     if (done) {
       const qv = G.questView(this.plan, this.ps, this.now()).find((x) => x.id === questId);
-      lines.push(await this.say('objective', { questView: qv, eventDetail: `完成目標「${q.objectives[index].text}」` }));
-      if (reward && reward.levelUp) lines.push(await this.say('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }));
+      lines.push(await this.act('objective', { questView: qv, eventDetail: `完成目標「${q.objectives[index].text}」` }, { coalesce: 'objective' }));
+      if (reward && reward.levelUp) lines.push(await this.act('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }));
     }
     if (reward) this.affect(this.affCfg().gain.objective, '完成目標'); // 第一次完成才有（跟星屑一樣）
     if (done) this.tutorialMark('objective');
@@ -575,16 +610,16 @@ class Engine {
     this.tutorialMark('submit');
     this.saveState();
     const lines = [];
-    lines.push(await this.say('submit', {
+    lines.push(await this.act('submit', {
       questView: r.quest, xp: r.xp, gold: r.gold, report,
       bonus: r.onTime ? '準時加成！' : '',
       eventDetail: `交付「${r.quest.title}」，獲得 ${r.xp} XP、${r.gold} 金幣${r.onTime ? '（含準時加成 20%）' : '（已逾期，無加成）'}`,
     }));
-    if (r.levelUp) lines.push(await this.say('levelup', { level: r.levelUp.level, title: r.levelUp.title, eventDetail: `升到 Lv.${r.levelUp.level}，新稱號「${r.levelUp.title}」` }));
+    if (r.levelUp) lines.push(await this.act('levelup', { level: r.levelUp.level, title: r.levelUp.title, eventDetail: `升到 Lv.${r.levelUp.level}，新稱號「${r.levelUp.title}」` }));
     if (r.next) {
-      lines.push(await this.say('assign', { questView: G.questView(this.plan, this.ps, this.now()).find((x) => x.id === r.next.id), eventDetail: `指派新任務「${r.next.title}」` }));
+      lines.push(await this.act('assign', { questView: G.questView(this.plan, this.ps, this.now()).find((x) => x.id === r.next.id), eventDetail: `指派新任務「${r.next.title}」` }));
     } else {
-      lines.push(await this.say('all_clear'));
+      lines.push(await this.act('all_clear'));
     }
     return this.settle({ reward: r, lines, view: this.view() });
   }
@@ -700,7 +735,7 @@ class Engine {
   // 每個動作結束前呼叫：露出鄙視的臉要多扣；升降階、冷戰開始的台詞接在後面
   settle(res) {
     if (!res) return res;
-    const lines = res.lines || [];
+    const lines = (res.lines || []).filter(Boolean); // act() 排隊時回傳 null
     const extra = this.tutPending.splice(0);
     if (this.affOn()) {
       for (const l of lines) if (l && l.emotion === 'disdain') this.affect(-this.affCfg().loss.disdain, '露出鄙視的眼神');
@@ -714,7 +749,7 @@ class Engine {
       a.stage = st;
     }
     this.saveState();
-    if (extra.length) res.lines = [...lines, ...extra];
+    res.lines = [...lines, ...extra];
     if (res.view) res.view = this.view();
     return res;
   }
@@ -914,7 +949,7 @@ class Engine {
     this.ps.activeQuestId = questId;
     this.saveState();
     const qv = G.questView(this.plan, this.ps, this.now()).find((x) => x.id === questId);
-    return { lines: [await this.say('assign', { questView: qv, eventDetail: `冒險者自己選了任務「${qv.title}」` })], view: this.view() };
+    return this.settle({ lines: [await this.act('assign', { questView: qv, eventDetail: `冒險者自己選了任務「${qv.title}」` }, { coalesce: 'assign' })], view: this.view() });
   }
 
   async toggleDaily(rowId, done) {
@@ -936,7 +971,7 @@ class Engine {
     const day = this.plan.days.find((d) => d.date === dateISO);
     const name = day ? day.columns[which === 'a' ? 1 : 2] : which;
     G.remember(this.state, `${dateISO} 選擇路線「${name}」`);
-    return { lines: [await this.say('daily', { eventDetail: `冒險者選擇了「${name}」路線` })], view: this.view() };
+    return this.settle({ lines: [await this.act('daily', { eventDetail: `冒險者選擇了「${name}」路線` }, { coalesce: 'branch' })], view: this.view() });
   }
 
   async daily() {
@@ -951,8 +986,8 @@ class Engine {
     if (reward) this.affect(this.affCfg().gain.report, '下班回報');
     this.saveState();
     const report = [fields.done, fields.blocker && `卡點：${fields.blocker}`, fields.next && `明天：${fields.next}`].filter(Boolean).join('；');
-    const lines = [await this.say('daily_report', { report })];
-    if (reward && reward.levelUp) lines.push(await this.say('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }));
+    const lines = [await this.act('daily_report', { report })];
+    if (reward && reward.levelUp) lines.push(await this.act('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }));
     return this.settle({ reward, lines, writeError, view: this.view() });
   }
 
@@ -1120,20 +1155,20 @@ class Engine {
     this.saveState();
     const lines = [];
     if (submitted) {
-      lines.push(await this.say('submit', {
+      lines.push(await this.act('submit', {
         questView: submitted.quest, xp: submitted.xp, gold: submitted.gold, report: it0(items, 'submit').report || p.text,
         bonus: submitted.onTime ? '準時加成！' : '',
         eventDetail: `透過聊天交付「${submitted.quest.title}」，這次總共獲得 ${total.xp} XP`,
       }));
     } else if (done.length) {
       const qv = G.questView(this.plan, this.ps, this.now()).find((x) => x.active);
-      lines.push(await this.say('objective', { questView: qv, eventDetail: `照冒險者說的更新了進度：${done.join('、')}` }));
+      lines.push(await this.act('objective', { questView: qv, eventDetail: `照冒險者說的更新了進度：${done.join('、')}` }, { coalesce: 'objective' }));
     }
     if (failed.length) lines.push({ text: `有幾項沒辦法處理：${failed.join('、')}`, emotion: 'worried', source: 'template', event: 'chat' });
-    if (total.levelUp) lines.push(await this.say('levelup', { level: total.levelUp.level, title: total.levelUp.title, eventDetail: `升到 Lv.${total.levelUp.level}，新稱號「${total.levelUp.title}」` }));
+    if (total.levelUp) lines.push(await this.act('levelup', { level: total.levelUp.level, title: total.levelUp.title, eventDetail: `升到 Lv.${total.levelUp.level}，新稱號「${total.levelUp.title}」` }));
     if (submitted) {
-      if (submitted.next) lines.push(await this.say('assign', { questView: G.questView(this.plan, this.ps, this.now()).find((x) => x.id === submitted.next.id), eventDetail: `指派新任務「${submitted.next.title}」` }));
-      else lines.push(await this.say('all_clear'));
+      if (submitted.next) lines.push(await this.act('assign', { questView: G.questView(this.plan, this.ps, this.now()).find((x) => x.id === submitted.next.id), eventDetail: `指派新任務「${submitted.next.title}」` }));
+      else lines.push(await this.act('all_clear'));
     } else if (items.some((x) => x.type === 'activate')) {
       G.ensureActive(this.plan, this.ps, this.now());
     }
