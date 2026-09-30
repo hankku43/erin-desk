@@ -230,7 +230,7 @@ class NPC {
       '規則：',
       '1. 一律使用台灣繁體中文，口語、自然、有角色感。',
       `2. 每次只說 1～3 句，總長不超過 ${this.llm.maxChars || 90} 字。`,
-      '3. 只能根據【狀態】裡的資訊講任務、日期、數字，不可以編造任務或數據。',
+      '3. 只能根據【狀態】裡的資訊講任務、日期、數字，不可以編造任務或數據。之前的對話如果提到別的任務或行程，那可能已經過時，一律以這次的【狀態】為準。',
       `4. 不要列清單、不要用 Markdown、不要重複${call}說的話。`,
       `5. ${call}聊工作以外的話題時，依【角色設定參考】用角色的身分回答；沒寫到的細節可以用符合設定的方式發揮，但不能和設定矛盾，也不要假裝知道${call}那邊的現實資訊（天氣、新聞）。`,
       '6. 以 JSON 回覆：{"line":"台詞","emotion":"normal|happy|thinking|surprised|cheer|worried"}',
@@ -373,7 +373,7 @@ class NPC {
       }
       messages.push({ role: h.role, content });
     }
-    const task = `${this.llm.noThinkPrefix || ''}【狀態】\n${this.factsText(facts)}${extraUser ? `\n\n${extraUser}` : ''}\n\n【情境】${EVENT_DESC[event] || EVENT_DESC.chat}`;
+    const task = `${this.llm.noThinkPrefix || ''}【狀態】（最新，以這裡為準）\n${this.factsText(facts)}${extraUser ? `\n\n${extraUser}` : ''}\n\n【情境】${EVENT_DESC[event] || EVENT_DESC.chat}`;
     messages.push({ role: 'user', content: userText ? `${task}\n\n${this.names().call}說：「${userText}」` : task });
     const t0 = Date.now();
     try {

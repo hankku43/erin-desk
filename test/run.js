@@ -438,3 +438,36 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('聊天備援測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// 對話紀錄只給「同一個當前任務、30 分鐘內」的：換任務後，舊對話的任務名不能再送給模型
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-hist-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  let t = new Date(`${new Date().getFullYear()}-09-30T10:00:00`).getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  const [qa, qb] = E.plan.quests;
+  let sent = null;
+  E.npc.status.online = true;
+  E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '嗯哼～', emotion: 'happy', actions: [] }) } }; };
+  const said = () => sent.messages.slice(1, -1).map((m) => m.content).join(' ');
+  await E.setActive(qa.id);
+  // 舊存檔的紀錄（沒有 quest／at）一律不送
+  E.state.chat = [{ role: 'user', content: '舊的問題' }, { role: 'assistant', content: JSON.stringify({ line: `你的任務是「${qb.title}」`, emotion: 'normal' }) }];
+  await E.chat('第一句');
+  assert.ok(!/舊的問題/.test(said()), '沒有標記的舊紀錄不送');
+  t += 60000; await E.chat('第二句');
+  assert.ok(/第一句/.test(said()), '同任務、剛剛的對話會送');
+  // 換任務：之前的對話不再送
+  await E.setActive(qb.id);
+  t += 60000; await E.chat('第三句');
+  assert.ok(!/第一句|第二句/.test(said()), '換了當前任務，舊任務的對話不送');
+  // 超過 30 分鐘也不送
+  t += 31 * 60000; await E.chat('第四句');
+  assert.ok(!/第三句/.test(said()), '30 分鐘前的對話不送');
+  assert.ok(/以這裡為準/.test(sent.messages.at(-1).content) && /已經過時/.test(sent.messages[0].content), '提示寫明以狀態為準');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('對話紀錄範圍測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

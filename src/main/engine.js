@@ -571,10 +571,14 @@ class Engine {
     const now = this.now();
     const cat = I.buildCatalog(this.plan, this.ps, this.todayInfo(), now);
     const hits = await this.lore.retrieve(text, (this.config.lore || {}).topK || 3); // 跟這句話相關的角色設定
-    this.state.chat.push({ role: 'user', content: text });
+    // 對話紀錄只給 AI 看「同一個當前任務、30 分鐘內」的：換了任務之後，舊對話裡的任務名會讓小模型講錯
+    const quest = this.ps.activeQuestId || null;
+    const at = this.now().getTime();
+    const recent = this.state.chat.filter((h) => h.quest === quest && h.at && at - h.at < 30 * 60000);
+    this.state.chat.push({ role: 'user', content: text, quest, at });
     const line = await this.say('chat', {}, {
       userText: text,
-      history: this.state.chat.slice(0, -1), // npc 會濾掉備援台詞那幾輪，再取最後 6 句
+      history: recent, // npc 會再濾掉備援台詞那幾輪，取最後 6 句
       extraSystem: I.ACTION_RULES,
       extraProps: I.ACTION_SCHEMA,
       extraUser: [I.catalogText(cat), this.lore.contextText(hits)].filter(Boolean).join('\n\n'),
@@ -602,7 +606,7 @@ class Engine {
       }
     }
     delete line.data;
-    this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source }); // source=template 的不會再給模型看
+    this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest, at: this.now().getTime() }); // source=template 的不會再給模型看
     this.state.chat = this.state.chat.slice(-20);
     this.saveState();
     return { lines: [line], proposal, view: this.view() };
