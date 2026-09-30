@@ -200,7 +200,7 @@
 | `surprised.png` | 驚訝 |
 | `worried.png` | 逾期、卡關 |
 | `shy.png` | 害羞：被稱讚、被說中心事 |
-| `disdain.png` | 鄙視：俏皮的吐槽、不以為然 |
+| `disdain.png` | 鄙視：ゴミを見るような目（開玩笑時用） |
 | `mini.png` | 縮小化時的貓咪型態（沒有的話會用 normal 縮小） |
 | `mini_alert.png` | 縮小時有新提醒 |
 

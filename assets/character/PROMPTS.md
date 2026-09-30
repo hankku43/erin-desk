@@ -11,7 +11,7 @@
 | `surprised.png` | 貓娘・驚訝 | 同上 |
 | `worried.png` | 貓娘・擔心（逾期時） | 同上 |
 | `shy.png` | 貓娘・害羞（被稱讚、被說中心事） | 同上 |
-| `disdain.png` | 貓娘・鄙視（俏皮的吐槽、不以為然） | 同上 |
+| `disdain.png` | 貓娘・鄙視（ゴミを見るような目：看垃圾一樣的冷眼） | 同上 |
 | `mini.png` | 貓咪型態・平常（縮小化時，**必要**） | 1:1，建議 512×512 |
 | `mini_alert.png` | 貓咪型態・有新訊息 | 同上 |
 
@@ -64,7 +64,7 @@ text, watermark, signature, busy background, gradient background, multiple chara
 | surprised | `surprised, wide round eyes, small open mouth, ears standing straight up, tail fur puffed out` | 睜大眼睛，嘴巴小小張開，耳朵直豎，尾巴毛炸開 |
 | worried | `worried, eyebrows drawn together, nervous small smile, ears drooping flat, a small sweat drop` | 眉頭皺起，勉強的苦笑，耳朵垂下，額頭一滴汗 |
 | shy | `shy and flustered, deep blush across her cheeks and nose, eyes glancing away to the side, holding the rolled scroll up in front of her mouth to hide an embarrassed smile, cat ears folded down to the sides, tail curled in front of her waist, a few thin blush lines on her cheeks` | 臉頰到鼻樑整片泛紅，眼神往旁邊飄，把卷軸舉到嘴巴前面遮住害羞的笑，耳朵往兩側垂低，尾巴捲到腰前 |
-| disdain | `unimpressed deadpan expression, half-closed eyes (jitome) staring straight at the viewer, one eyebrow slightly raised, lips pressed into a small flat line with the corners turned down, chin slightly lifted, cat ears turned outward and flattened sideways, tail swishing to one side, playful teasing disdain, not angry` | 半瞇眼（ジト目）盯著鏡頭，一邊眉毛微挑，嘴巴抿成一條小直線、嘴角往下，下巴微抬，耳朵往兩側壓平，尾巴甩向一邊；俏皮的不以為然，不是生氣 |
+| disdain | `looking at the viewer as if she were looking at garbage (gomi wo miru you na me), cold contemptuous stare, chin raised and head tilted back slightly so she looks down at the viewer, half-lidded eyes, dull eyes with no highlights, small pupils, soft dark shadow over the upper half of her face down to her eyes, expressionless face, mouth closed in a flat line with the corners slightly down, eyebrows level (not angry), cat ears pinned back, tail hanging still` | 日本動漫的「ゴミを見るような目」：下巴抬起、從上往下俯視，半瞇眼、眼睛沒有高光、瞳孔縮小，額頭到眼睛一層陰影，面無表情、嘴巴閉成一直線，耳朵往後壓平，尾巴垂著不動 |
 
 ### 害羞、鄙視：改圖時直接貼的完整說明
 
@@ -82,22 +82,30 @@ text, watermark, signature, busy background, gradient background, multiple chara
 不要加文字、愛心或其他符號。
 ```
 
-**disdain.png（鄙視）**
+**disdain.png（鄙視：ゴミを見るような目）**
 
 ```
-這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖和畫面比例，背景維持純灰色平塗。
+這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，背景維持純灰色平塗。
 只改表情，手和卷軸維持原本的姿勢：
-- 半瞇眼（ジト目），眼睛直直盯著鏡頭
-- 一邊眉毛微微挑起，嘴巴抿成一條小直線、嘴角往下
-- 下巴微微抬起，像在說「……你認真的嗎？」
-- 貓耳往兩側壓平（飛機耳），尾巴甩向一邊
-- 是俏皮的吐槽、不以為然：不要生氣、不要兇、不要臉紅，也不要加漫畫的陰影線
-不要加文字或符號。
+- 日本動漫的「ゴミを見るような目」：像在看垃圾一樣，冷冰冰、毫無溫度的鄙視眼神
+- 下巴微微抬起、頭稍微往後仰，半瞇著眼從上往下俯視鏡頭
+- 眼睛沒有高光、瞳孔縮小，眼神空洞冷淡
+- 額頭到眼睛落下一層淡淡的陰影（漫畫「臉上一片陰影」的效果），陰影只畫在臉上
+- 面無表情，嘴巴緊閉成一條線，嘴角微微往下
+- 眉毛平直、稍微壓低，不要皺眉，不是生氣
+- 貓耳往後壓平，尾巴垂著不動
+- 臉不要紅、不要笑、不要流汗
+不要加文字、符號，頭上的背景也不要加直線。
 ```
+
+用 Stable Diffusion 的話，可以再加這些標籤：`jitome, half-closed eyes, empty eyes, no highlights, looking down, shaded face, expressionless, disgust, contempt`
 
 小提醒：
 
-- 鄙視最容易畫成「生氣」，出現皺眉瞪人、露牙的話，補一句「表情再淡一點，比較像無言，不是生氣」。
+- **畫成生氣**（皺眉瞪人、露牙）：補一句「不是生氣，是冷漠：眉毛放平、嘴巴閉上」。
+- **畫成想睡**（半瞇眼但眼神很軟）：補一句「不是想睡，眼神要冷，往下看著我；瞳孔再小一點，不要高光」。
+- **陰影太重**（整張臉黑掉）：補一句「陰影淡一點，只蓋到眼睛上方，眼睛要看得清楚」。
+- **頭仰太多**（位置跟定裝照差很多）：補一句「頭只要往後仰一點點，位置不要動」。
 - 害羞如果卷軸遮到整張臉，補一句「卷軸往下一點，只遮住嘴巴」。
 - 兩張都挑「頭和身體位置最接近定裝照」的那張，對齊時比較不會變形。
 
