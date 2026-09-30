@@ -155,23 +155,44 @@ class Lore {
     } finally { clearTimeout(t); }
   }
 
-  async embed(texts) {
-    const r = await this.fetchJSON('/api/embed', { model: this.embedModel, input: texts, keep_alive: '30m' }, 120000);
+  async embed(texts, timeoutMs = 120000) {
+    const r = await this.fetchJSON('/api/embed', { model: this.embedModel, input: texts, keep_alive: '30m' }, timeoutMs);
     return r.embeddings;
   }
 
+  // 「聰明艾琳」開關：config 的 lore.embeddings 不是 false/'off' 就算開
+  smartOn() { return this.embeddings !== false && this.embeddings !== 'off'; }
+
+  // 給選單看的狀態
+  statusText() {
+    const st = this.embedStatus;
+    if (!this.smartOn()) return '狀態：已關閉，只用關鍵字';
+    if (st === 'ready') return `狀態：🟢 向量就緒（${this.vectors ? this.vectors.size : 0} 條設定）`;
+    if (st === 'loading') return '狀態：⏳ 正在計算向量…';
+    if (st === 'no-ollama') return '狀態：⚪ 連不到 Ollama，先只用關鍵字';
+    if (st === 'no-model') return `狀態：⚪ 還沒裝 ${this.embedModel}（ollama pull ${this.embedModel}）`;
+    if (String(st).startsWith('error')) return `狀態：⚠ ${this.embedMessage || '向量計算失敗'}，先只用關鍵字`;
+    return '狀態：尚未檢查';
+  }
+
+  // 關掉：馬上改回純關鍵字
+  disableSmart() { this.embeddings = false; this.vectors = null; this.embedStatus = 'off'; }
+
   // 啟動時在背景算好所有設定的向量；模型沒裝就安靜地只用 BM25
-  async prepareEmbeddings() {
-    if (this.embeddings === false || this.embeddings === 'off' || !this.entries.length || !this.llm.baseUrl) { this.embedStatus = 'off'; return; }
+  // 同時只算一次；回傳最後的狀態（off / no-ollama / no-model / ready / error）
+  prepareEmbeddings() {
+    if (!this.preparing) this.preparing = this.doPrepare().finally(() => { this.preparing = null; });
+    return this.preparing;
+  }
+
+  async doPrepare() {
+    if (!this.smartOn() || !this.entries.length || !this.llm.baseUrl) { this.embedStatus = 'off'; this.vectors = null; return this.embedStatus; }
     try {
       const tags = await this.fetchJSON('/api/tags', null, 4000);
       const names = (tags.models || []).map((m) => m.name);
       const has = names.some((n) => n === this.embedModel || n.split(':')[0] === this.embedModel.split(':')[0]);
-      if (!has) {
-        this.embedStatus = this.embeddings === true ? `找不到向量模型 ${this.embedModel}，請 ollama pull` : 'off';
-        return;
-      }
-    } catch (_) { this.embedStatus = 'off'; return; }
+      if (!has) { this.embedStatus = 'no-model'; this.vectors = null; return this.embedStatus; }
+    } catch (_) { this.embedStatus = 'no-ollama'; this.vectors = null; return this.embedStatus; }
     const cachePath = path.join(this.dataDir, 'lore_vectors.json');
     let cache = {};
     try { const c = JSON.parse(fs.readFileSync(cachePath, 'utf8')); if (c.model === this.embedModel) cache = c.items || {}; } catch (_) { /* 沒有快取 */ }
@@ -187,12 +208,15 @@ class Lore {
       fs.mkdirSync(this.dataDir, { recursive: true });
       fs.writeFileSync(cachePath, JSON.stringify({ model: this.embedModel, items: cache }));
       this.vectors = new Map(this.entries.map((e) => [e.id, cache[hashOf(e)]]));
+      if (!this.smartOn()) { this.vectors = null; this.embedStatus = 'off'; return this.embedStatus; } // 算到一半被關掉
       this.embedStatus = 'ready';
       this.log(`角色設定向量就緒（${this.embedModel}）`);
     } catch (e) {
-      this.embedStatus = `向量計算失敗：${e.message}`;
+      this.embedStatus = 'error';
+      this.embedMessage = `向量計算失敗：${e.message}`;
       this.vectors = null;
     }
+    return this.embedStatus;
   }
 
   // ---- 檢索 ----
@@ -208,7 +232,7 @@ class Lore {
     let sem = null;
     if (this.vectors) {
       try {
-        const [qv] = await this.embed([query]);
+        const [qv] = await this.embed([query], 8000);
         sem = this.entries.map((e) => cosine(qv, this.vectors.get(e.id) || []));
       } catch (_) { sem = null; }
     }

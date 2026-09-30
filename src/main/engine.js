@@ -90,7 +90,19 @@ class Engine {
     const file = path.isAbsolute(c.path || '') ? c.path : path.join(this.appDir, c.path || 'lore/艾琳.md');
     this.lore = new Lore({ file, dataDir: this.dataDir, llm: this.config.llm, embeddings: c.embeddings, embedModel: c.embedModel, log: (m) => console.log(m) });
     this.config.npc = { ...this.config.npc, core: this.lore.core, loreName: this.lore.name };
-    if (this.config.llm.enabled) this.lore.prepareEmbeddings(); // 背景進行，不擋啟動
+    // 「聰明艾琳」開著就在背景算向量，不擋啟動；跟 AI 對話開關無關（只要 Ollama 有開）
+    if (this.lore.smartOn()) this.lore.prepareEmbeddings();
+  }
+
+  // 「聰明艾琳」（角色設定的向量搜尋）開關：寫進 config.json 的 lore.embeddings
+  async setSmart(on) {
+    this.saveConfigPatch({ lore: { embeddings: !!on } }); // 會重新讀設定、重建 lore，開著就開始算向量
+    let status = 'off';
+    if (on) status = await this.lore.prepareEmbeddings();
+    else this.lore.disableSmart();
+    const key = !on ? 'smart_off' : status === 'ready' ? 'smart_on' : 'smart_missing';
+    const line = this.npc.template(key, { model: this.lore.embedModel });
+    return { on: !!on, status, text: this.lore.statusText(), lines: [{ ...line, event: key }], view: this.view() };
   }
 
   saveConfigPatch(patch) {
@@ -386,6 +398,7 @@ class Engine {
       writeBack: this.config.plan.writeBack,
       fx: this.config.window.transformFx !== false,
       editable: !this.legacy && !!this.planText,
+      smart: { on: this.lore.smartOn(), status: this.lore.embedStatus },
     };
   }
 

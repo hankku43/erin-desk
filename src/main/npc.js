@@ -65,6 +65,9 @@ const TEMPLATES = {
     ['嗯哼，新委託「{quest}」！蓋章、存檔、貼上委託板，完成。', 'cheer'],
   ],
   reminder_set: [['提醒設好了：{label}。時間到{self}會叫你，包在{self}身上！', 'happy']],
+  smart_on: [['{self}戴上思考帽了！換個說法問，{self}也聽得懂喔～', 'cheer']],
+  smart_off: [['思考帽先收起來，{self}改翻小本子上的關鍵字找～', 'normal']],
+  smart_missing: [['欸，{self}的思考帽戴不上……要先開著 Ollama、裝好 {model} 才行喔。在那之前先用關鍵字找。', 'worried']],
   imported: [
     ['行事曆抄好了：{label}。外面送來的約，{self}都貼上板子囉～', 'happy'],
     ['嗯哼，{label}。這週的行程表現在跟你的行事曆對齊了！', 'cheer'],

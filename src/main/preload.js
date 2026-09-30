@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('api', {
   deleteReminder: (id) => ipcRenderer.invoke('plan:deleteReminder', id),
   importIcs: () => ipcRenderer.invoke('ics:import'),
   exportIcs: () => ipcRenderer.invoke('ics:export'),
+  setSmart: (on) => ipcRenderer.invoke('smart:set', on),
   setIgnoreMouse: (ignore) => ipcRenderer.send('win:ignore', ignore),
   moveWindow: (dx, dy) => ipcRenderer.send('win:move', { dx, dy }),
   dragEnd: () => ipcRenderer.send('win:dragEnd'),

@@ -288,3 +288,72 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(/艾琳會叫你/.test(t.text) && /提醒我打電話/.test(t.text), '內建台詞：自稱艾琳，提醒內容照原樣');
   console.log('口吻測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// 🧠 聰明艾琳（向量搜尋）開關：用假的 Ollama 測狀態、快取、開關與寫回設定
+(async () => {
+  const os = require('os');
+  const { Lore } = require('../src/main/lore');
+  const { Engine } = require('../src/main/engine');
+  const loreFile = path.join(__dirname, '..', 'lore', '艾琳.md');
+  // 假向量：字元雜湊成 64 維，字越像向量越近
+  const fakeVec = (t) => { const v = new Array(64).fill(0); for (const ch of String(t)) v[ch.codePointAt(0) % 64] += 1; const n = Math.hypot(...v) || 1; return v.map((x) => x / n); };
+  let ollama = 'up', models = ['qwen3-embedding:0.6b', 'qwen3:4b'], embedCalls = 0;
+  const realFetch = Lore.prototype.fetchJSON;
+  Lore.prototype.fetchJSON = async function (p, body) {
+    if (ollama === 'down') throw new Error('ECONNREFUSED');
+    if (p === '/api/tags') return { models: models.map((name) => ({ name })) };
+    if (p === '/api/embed') { embedCalls++; return { embeddings: body.input.map(fakeVec) }; }
+    throw new Error('unexpected ' + p);
+  };
+  try {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-smart-'));
+    const mk = (embeddings) => new Lore({ file: loreFile, dataDir: dir, llm: { baseUrl: 'http://x' }, embeddings });
+    // 關著：不碰 Ollama，只用關鍵字
+    const off = mk(false);
+    assert.strictEqual(await off.prepareEmbeddings(), 'off');
+    assert.ok(!off.smartOn() && !off.vectors && /已關閉/.test(off.statusText()) && embedCalls === 0);
+    // 開著：算向量、寫快取、檢索帶語意分數
+    const on = mk(true);
+    const [s1, s2] = await Promise.all([on.prepareEmbeddings(), on.prepareEmbeddings()]);
+    assert.deepStrictEqual([s1, s2], ['ready', 'ready'], '同時呼叫兩次只算一次');
+    assert.strictEqual(on.vectors.size, on.entries.length);
+    assert.ok(/向量就緒（\d+ 條設定）/.test(on.statusText()));
+    assert.ok(fs.existsSync(path.join(dir, 'lore_vectors.json')));
+    const hits = await on.retrieve('你幾歲', 3);
+    assert.ok(hits.length && hits[0].sem > 0, '開著時檢索有語意分數');
+    // 第二次啟動：全部從快取拿，不重算
+    const before = embedCalls;
+    await mk('auto').prepareEmbeddings();
+    assert.strictEqual(embedCalls, before, '快取命中不重算');
+    // 關掉：馬上回到純關鍵字，檢索照常
+    on.disableSmart();
+    assert.ok(!on.vectors && !on.smartOn());
+    const kwHits = await on.retrieve('你幾歲', 3);
+    assert.ok(kwHits.length && kwHits[0].entry.title === '年齡與生日' && kwHits[0].sem === 0);
+    // 沒裝模型／Ollama 沒開：狀態講清楚，檢索退回關鍵字
+    models = ['qwen3:4b'];
+    const nm = mk(true); assert.strictEqual(await nm.prepareEmbeddings(), 'no-model'); assert.ok(/ollama pull qwen3-embedding:0\.6b/.test(nm.statusText()));
+    ollama = 'down';
+    const nd = mk(true); assert.strictEqual(await nd.prepareEmbeddings(), 'no-ollama'); assert.ok(/連不到 Ollama/.test(nd.statusText()));
+    assert.ok((await nd.retrieve('你老家在哪', 3))[0].entry.title === '故鄉：霜月村');
+    // 引擎：setSmart 寫回 config.json，AI 對話關著也能開
+    ollama = 'up'; models = ['qwen3-embedding:0.6b'];
+    fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, lore: { path: loreFile, embeddings: false } }));
+    const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data') });
+    assert.ok(!E.view().smart.on);
+    const r1 = await E.setSmart(true);
+    assert.deepStrictEqual([r1.on, r1.status, E.view().smart.on], [true, 'ready', true]);
+    assert.ok(/思考帽/.test(r1.lines[0].text) && /艾琳/.test(r1.lines[0].text));
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).lore.embeddings, true, '開關寫進 config.json');
+    assert.ok(E.lore.vectors && E.lore.vectors.size > 0);
+    const r2 = await E.setSmart(false);
+    assert.deepStrictEqual([r2.on, r2.status, !!E.lore.vectors], [false, 'off', false]);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).lore.embeddings, false);
+    models = [];
+    const r3 = await E.setSmart(true);
+    assert.strictEqual(r3.status, 'no-model'); assert.ok(/qwen3-embedding/.test(r3.lines[0].text), '沒裝模型時艾琳會說要裝什麼');
+    fs.rmSync(dir, { recursive: true, force: true });
+    console.log('聰明艾琳開關測試通過 ✔');
+  } finally { Lore.prototype.fetchJSON = realFetch; }
+})().catch((e) => { console.error(e); process.exit(1); });

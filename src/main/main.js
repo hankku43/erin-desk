@@ -284,6 +284,8 @@ function showMenu() {
     { label: `🤖 AI 對話（${engine.config.llm.model}）`, type: 'checkbox', checked: !!engine.config.llm.enabled, click: (m) => setAI(m.checked) },
     { label: `　${aiStatusLabel()}`, enabled: false },
     { label: '　立刻重新連線', enabled: !!engine.config.llm.enabled, click: async () => { engine.npc.backoffUntil = 0; const st = await engine.npc.checkStatus(); push('view:update', { view: engine.view(), reason: st.online ? `🟢 AI 已連線（${engine.config.llm.model}）` : `⚪ ${st.message}` }); } },
+    { label: `🧠 聰明${npcName}（向量搜尋）`, type: 'checkbox', checked: engine.lore.smartOn(), click: (m) => menuSafe(() => setSmart(m.checked))() },
+    { label: `　${engine.lore.statusText()}`, enabled: false },
     { label: '開啟角色圖片資料夾', click: () => shell.openPath(CHAR_DIR) },
     { type: 'separator' },
     { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
@@ -300,6 +302,18 @@ function aiStatusLabel() {
 }
 
 // 手動開關 AI：寫回 config.json，立刻檢查連線
+// 🧠 聰明艾琳：角色設定的向量搜尋開關
+async function setSmart(on) {
+  const name = engine.config.npc.name;
+  if (on) push('view:update', { view: engine.view(), reason: `🧠 聰明${name}準備中…` });
+  const r = await engine.setSmart(on);
+  const plain = r.text.replace(/^狀態：\s*/, '').replace(/^[🟢⚪⏳⚠]\uFE0F?\s*/u, '');
+  const reason = !on ? `🧠 聰明${name}：關（只用關鍵字）`
+    : r.status === 'ready' ? `🧠 聰明${name}：開（${plain}）`
+    : `🧠 聰明${name}已開啟，但${plain}${r.status === 'no-ollama' ? '；Ollama 開了之後會自動接上' : ''}`;
+  return { ...r, reason };
+}
+
 async function setAI(on) {
   engine.saveConfigPatch({ llm: { enabled: !!on } });
   const st = await engine.npc.setEnabled(on);
@@ -313,6 +327,11 @@ function scheduleHealth() {
   let n = 0;
   healthTimer = setInterval(async () => {
     n++;
+    // 聰明艾琳開著但還沒就緒（Ollama 沒開、剛裝好向量模型）：每分鐘（沒模型時每 3 分鐘）再試一次
+    const lst = engine.lore.embedStatus;
+    if (engine.lore.smartOn() && ((['no-ollama', 'error'].includes(lst) && n % 3 === 0) || (lst === 'no-model' && n % 9 === 0))) {
+      engine.lore.prepareEmbeddings().then((r) => { if (r === 'ready') push('view:update', { view: engine.view(), reason: `🧠 聰明${engine.config.npc.name}準備好了，換個說法問也聽得懂` }); });
+    }
     if (!engine.config.llm.enabled) return;
     const online = !!engine.npc.status.online;
     if (online && n % 6 !== 0) return; // 連線中：每 2 分鐘確認一次就好
@@ -361,6 +380,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('plan:addReminder', wrap((f) => engine.addReminder(f || {})));
   ipcMain.handle('plan:deleteReminder', wrap((id) => engine.deleteReminder(id)));
   ipcMain.handle('ics:import', wrap(() => importIcs()));
+  ipcMain.handle('smart:set', wrap((on) => setSmart(!!on)));
   ipcMain.handle('ics:export', wrap(() => exportIcs()));
   ipcMain.on('win:ignore', (_e, ignore) => { if (win) win.setIgnoreMouseEvents(!!ignore, { forward: true }); });
   ipcMain.on('win:move', (_e, { dx, dy }) => {
