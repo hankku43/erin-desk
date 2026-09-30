@@ -24,6 +24,18 @@ let moving = false; // 程式自己調整視窗大小時，不記錄位置
 
 if (!app.requestSingleInstanceLock()) app.quit();
 
+// 沒接住的錯誤寫進 data/crash.log，朋友回報問題時可以把這個檔案傳過來
+function logCrash(kind, e) {
+  try {
+    const dir = path.join(USER_DIR, 'data');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, 'crash.log'), `${new Date().toISOString()}\t${kind}\t${(e && e.stack) || e}\n`);
+  } catch (_) { /* 連記錄都寫不進去就算了 */ }
+  console.error(kind, e);
+}
+process.on('uncaughtException', (e) => logCrash('uncaught', e));
+process.on('unhandledRejection', (e) => logCrash('unhandled', e));
+
 const MINI_SIZE = 140;
 
 function findImage(base) {
@@ -40,15 +52,18 @@ function findImage(base) {
 function prepareUserDir() {
   if (USER_DIR === APP_DIR) return;
   for (const d of ['plans', 'lore', 'data', path.join('assets', 'character')]) fs.mkdirSync(path.join(USER_DIR, d), { recursive: true });
-  const copyOnce = (rel) => { const to = path.join(USER_DIR, rel); if (!fs.existsSync(to)) fs.copyFileSync(path.join(APP_DIR, rel), to); };
+  const copy = (from, to) => fs.writeFileSync(to, fs.readFileSync(from)); // 來源在 app.asar 裡，用讀寫代替複製
+  const copyOnce = (rel) => { const to = path.join(USER_DIR, rel); if (!fs.existsSync(to)) copy(path.join(APP_DIR, rel), to); };
   copyOnce(path.join('plans', '_template.md'));
   copyOnce(path.join('plans', 'week_sample.md')); // 預設的計畫檔（新手教學裡可以換掉）
   // 角色設定：沒改過的話，程式更新時一起換成新版；改過就保留你的
+  // 打包後角色設定放在 resources/lore（中文檔名放進 app.asar 在某些環境讀不到）
   const rel = path.join('lore', '艾琳.md');
-  const src = path.join(APP_DIR, rel), dst = path.join(USER_DIR, rel), mark = `${dst}.builtin`;
+  const packed = app.isPackaged ? path.join(process.resourcesPath, rel) : null;
+  const src = packed && fs.existsSync(packed) ? packed : path.join(APP_DIR, rel), dst = path.join(USER_DIR, rel), mark = `${dst}.builtin`;
   const hash = (f) => { try { return crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex'); } catch (_) { return null; } };
   const builtin = hash(src), mine = hash(dst), last = fs.existsSync(mark) ? fs.readFileSync(mark, 'utf8').trim() : null;
-  if (!mine || (mine === last && builtin !== last)) { fs.copyFileSync(src, dst); fs.writeFileSync(mark, builtin || ''); }
+  if (!mine || (mine === last && builtin !== last)) { copy(src, dst); fs.writeFileSync(mark, builtin || ''); }
   else if (!last) fs.writeFileSync(mark, mine === builtin ? builtin : '');
 }
 
@@ -198,6 +213,7 @@ function createWindow() {
     alwaysOnTop: engine.config.window.alwaysOnTop !== false,
     skipTaskbar: false, backgroundColor: '#00000000',
     title: `${engine.config.npc.name}的任務櫃台`,
+    icon: path.join(APP_DIR, 'build', 'icon.png'), // 工作列上的小貓圖示
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }, // 被其他視窗蓋住時動畫也不降速
   });
   win.setIgnoreMouseEvents(true, { forward: true });
@@ -305,7 +321,7 @@ async function healthFix(action) {
   if (a === 'resetConfig') {
     const f = engine.configFile();
     if (fs.existsSync(f)) fs.copyFileSync(f, f.replace(/\.json$/, `.broken-${Date.now()}.json`));
-    fs.copyFileSync(path.join(APP_DIR, 'config.example.json'), f);
+    fs.writeFileSync(f, fs.readFileSync(path.join(APP_DIR, 'config.example.json')));
     engine.configError = null; engine.loadConfig(); engine.loadPlan(); watchPlan();
     return { reason: '⚙ 設定檔已還原成預設（舊的另存一份在旁邊）' };
   }
@@ -491,7 +507,7 @@ function scheduleIdle() {
 app.whenReady().then(async () => {
   if (process.env.QUEST_NPC_HOME) USER_DIR = path.resolve(process.env.QUEST_NPC_HOME);
   else if (app.isPackaged) USER_DIR = path.join(app.getPath('documents'), '艾琳的任務櫃台');
-  prepareUserDir();
+  try { prepareUserDir(); } catch (e) { console.error('建立使用者資料夾失敗', e); }
   engine = new Engine({ appDir: APP_DIR, userDir: USER_DIR });
 
   ipcMain.handle('view:get', wrap(async () => ({ view: engine.view(), character: characterImages(), mini: isMini() })));

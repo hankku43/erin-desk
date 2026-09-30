@@ -110,7 +110,7 @@ class Engine {
     };
     const p = this.configFile();
     const example = path.join(this.appDir, 'config.example.json');
-    if (!fs.existsSync(p) && fs.existsSync(example)) fs.copyFileSync(example, p); // 第一次啟動：從範例建立自己的設定檔
+    if (!fs.existsSync(p) && fs.existsSync(example)) fs.writeFileSync(p, fs.readFileSync(example)); // 第一次啟動：從範例建立自己的設定檔（打包後範例在 asar 裡，用讀寫代替複製）
     let user = {};
     try { user = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) {
       if (fs.existsSync(p)) this.configError = `config.json 格式錯誤：${e.message}`;
@@ -789,7 +789,7 @@ class Engine {
     const dir = path.join(this.userDir, 'plans');
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, '範例：秋季新品上市.md');
-    if (!fs.existsSync(file)) fs.copyFileSync(src, file);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, fs.readFileSync(src));
     this.usePlanFile(file);
     return { file, view: this.view() };
   }

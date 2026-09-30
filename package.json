@@ -5,13 +5,79 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test/run.js"
+    "test": "node test/run.js",
+    "dist": "electron-builder --win",
+    "dist:zip": "electron-builder --win zip"
   },
   "dependencies": {
     "lunar-javascript": "^1.7.7",
     "opencc-js": "^1.0.5"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "author": "hankku43",
+  "build": {
+    "appId": "io.github.hankku43.erin-desk",
+    "productName": "艾琳的任務櫃台",
+    "copyright": "hankku43",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "package.json",
+      "config.example.json",
+      "src/**/*",
+      "assets/character/*",
+      "!assets/character/PROMPTS.md",
+      "assets/ui/**/*",
+      "plans/_template.md",
+      "plans/week_sample.md",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "executableName": "Erin",
+      "artifactName": "Erin-${version}-portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "艾琳的任務櫃台",
+      "runAfterFinish": true,
+      "artifactName": "Erin-Setup-${version}.${ext}"
+    },
+    "extraResources": [
+      {
+        "from": "lore",
+        "to": "lore",
+        "filter": [
+          "**/*.md"
+        ]
+      }
+    ],
+    "publish": null
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hankku43/erin-desk.git"
   }
 }

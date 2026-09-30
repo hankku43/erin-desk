@@ -17,3 +17,6 @@ Claude outputs/
 *.log
 .DS_Store
 Thumbs.db
+
+# 打包出來的安裝程式（用 打包.bat 產生）
+dist/
