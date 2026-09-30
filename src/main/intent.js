@@ -35,7 +35,19 @@ const ACTION_RULES = [
   '代號只能使用【可操作項目】裡列出的；不確定是哪一項就不要放動作，改在 line 裡問清楚。',
   '只是聊天、詢問建議時，actions 用空陣列 []。',
   '有放動作時，line 要用角色口吻確認你要做的事，例如「要艾琳幫你把『週報寄出』勾起來嗎？」。',
+  'line 裡不要出現代號（q1、q1-0、d0），要說任務或目標的名字。',
 ].join('\n');
+
+// 模型偶爾會在台詞裡講代號（「要檢查 q4-0 嗎？」），換回任務／目標／行程的名字
+function decodeKeys(text, cat) {
+  const name = (k) => {
+    const o = cat.objectives.find((x) => x.key === k); if (o) return o.text;
+    const q = cat.quests.find((x) => x.key === k); if (q) return q.title;
+    const d = cat.daily.find((x) => x.key === k); if (d) return d.label;
+    return null;
+  };
+  return String(text || '').replace(/[ \t]*[「『]?(?<![A-Za-z0-9_])([qd]\d+(?:-\d+)?)(?![A-Za-z0-9_])[」』]?[ \t]*/g, (m, k) => { const n = name(k); return n ? `「${n}」` : m; });
+}
 
 function clean(s) {
   return String(s || '').toLowerCase().replace(/`/g, '').replace(/[\s，。、；：！？!?,.;:()（）「」『』【】\[\]"'～~+＋&*#=<>|｜]/g, '');
@@ -208,4 +220,4 @@ function explainNoop(msg, cat) {
   return null;
 }
 
-module.exports = { ACTION_SCHEMA, ACTION_RULES, buildCatalog, catalogText, validate, ruleParse, explainNoop };
+module.exports = { ACTION_SCHEMA, ACTION_RULES, buildCatalog, catalogText, validate, ruleParse, explainNoop, decodeKeys };

@@ -76,7 +76,8 @@
     "path": "lore/艾琳.md",
     "topK": 3,
     "embeddings": "auto",
-    "embedModel": "qwen3-embedding:0.6b"
+    "embedModel": "qwen3-embedding:0.6b",
+    "emotionChance": 0.5
   },
   "reminders": {
     "weekdaysOnly": true,

@@ -258,6 +258,7 @@
 | `lore.topK` | 每次對話最多給 AI 幾條設定 |
 | `lore.embeddings` | 🧠 聰明艾琳開關（右鍵選單會改這個）。`true`／`"auto"`：有向量模型就用；`false`：只用關鍵字 |
 | `lore.embedModel` | 向量模型名稱，預設 `qwen3-embedding:0.6b` |
+| `lore.emotionChance` | 聊到稱讚、感情、秘密（或戳她）時，這次真的害羞／鄙視的機率，預設 `0.5`；`1` 每次都害羞、`0` 交給 AI 自己挑 |
 
 修改後，右鍵 →「重新讀取設定」。
 

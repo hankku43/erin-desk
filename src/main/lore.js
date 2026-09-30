@@ -254,7 +254,7 @@ class Lore {
   contextText(hits) {
     if (!hits.length) return '';
     return '【角色設定參考】（依此回答，沒提到的細節可以用符合設定的方式發揮，但不要矛盾）\n' +
-      hits.map((h) => `▶ ${h.entry.title}：${h.entry.text.replace(/\n+/g, ' ')}`).join('\n');
+      hits.map((h) => `▶ ${h.entry.title}${h.strong && h.entry.emotion && h.entry.emotion !== 'normal' ? `（表情可用 ${h.entry.emotion}）` : ''}：${h.entry.text.replace(/\n+/g, ' ')}`).join('\n');
   }
 }
 

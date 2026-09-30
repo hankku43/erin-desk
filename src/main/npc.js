@@ -23,6 +23,32 @@ function normEmotion(e) {
   if (EMOTIONS.includes(k)) return k;
   return EMOTION_ALIAS[k] || 'normal';
 }
+// 小模型幾乎都選 happy：台詞裡明明在害羞、在嫌棄，表情卻是笑的。依台詞內容修正
+const EMOTION_CUES = {
+  shy: /害羞|臉紅|紅著臉|紅了臉|臉頰(發燙|泛紅|紅紅|微紅)|低下頭|低著頭|捂住(臉|眼)|遮住(臉|嘴)|不好意思|結結巴巴|小小聲|(^|[^一-鿿])([一-鿿])、\2/,
+  disdain: /嫌棄|翻了?個?白眼|冷冷地|冷眼|瞇起眼|半瞇著?眼|無言地|像看垃圾/,
+};
+function refineEmotion(text, emotion) {
+  if (emotion !== 'happy' && emotion !== 'normal') return emotion; // 模型自己挑了別的表情就照它
+  for (const [emo, re] of Object.entries(EMOTION_CUES)) if (re.test(String(text || ''))) return emo;
+  return emotion;
+}
+// 這次「決定好的情緒」：engine 先擲骰決定要不要害羞／鄙視，再請模型照這個情緒說話（台詞和表情才會一致）
+const MOODS = {
+  shy: (c) => `【這次的情緒：害羞】${c}在稱讚、示好，或問到心事。用害羞的反應回答：可以結巴（例如「艾、艾琳才……」）、嘴硬否認、讓耳朵或尾巴洩漏心情；這句只專心回應${c}，不要提任務、進度或代號。`,
+  disdain: (c) => `【這次的情緒：鄙視】用「看垃圾一樣」的冷淡眼神吐槽，一兩句就好；語氣冷，但不是真的討厭${c}；這句不要提任務或進度。`,
+};
+// 刪掉跟最近幾句回覆重複的句子（小模型會一直沿用自己上一句的句型）。全部都重複時保留原文，標記 allRepeated
+function dropRepeats(text, recent, n = 10) {
+  const segs = String(text || '').match(/[^。！？!?]+[。！？!?～~…）」』]*|[。！？!?]+/g) || [];
+  const pool = (recent || []).filter(Boolean).map(String);
+  const dup = (seg) => { const s = seg.replace(/\s/g, ''); for (let i = 0; i + n <= s.length; i++) { const sub = s.slice(i, i + n); if (pool.some((r) => r.replace(/\s/g, '').includes(sub))) return true; } return false; };
+  const keep = segs.filter((s) => !dup(s));
+  if (!pool.length || keep.length === segs.length) return { text, removed: 0 };
+  const rest = keep.join('').trim();
+  if (rest.replace(/[\s。！？!?～~…（）()「」『』]/g, '').length < 6) return { text, removed: 0, allRepeated: true };
+  return { text: rest, removed: segs.length - keep.length };
+}
 // 補上沒有圖的表情：先用 EMOTION_FALLBACK 指定的圖，再退回 normal、再退回任何一張
 function fillEmotionImages(found) {
   const out = { ...found };
@@ -268,7 +294,7 @@ class NPC {
       '1. 一律使用台灣繁體中文，口語、自然、有角色感。',
       `2. 每次只說 1～3 句，總長不超過 ${this.llm.maxChars || 90} 字。`,
       '3. 只能根據【狀態】裡的資訊講任務、日期、數字，不可以編造任務或數據。之前的對話如果提到別的任務或行程，那可能已經過時，一律以這次的【狀態】為準。',
-      `4. 不要列清單、不要用 Markdown、不要重複${call}說的話。`,
+      `4. 不要列清單、不要用 Markdown、不要重複${call}說的話，也不要沿用自己前面回覆過的句子，每次換新的說法。`,
       `5. ${call}聊工作以外的話題時，依【角色設定參考】用角色的身分回答；沒寫到的細節可以用符合設定的方式發揮，但不能和設定矛盾，也不要假裝知道${call}那邊的現實資訊（天氣、新聞）。`,
       `6. 用 JSON 回覆兩個欄位：line 放這次真正要說出口的完整句子，emotion 從 ${EMOTIONS.join('、')} 挑一個。shy＝被稱讚、被說中心事、聊到感情時害羞；disdain＝看垃圾一樣的冷眼，只在開玩笑時用（${call}一直戳、找藉口拖延、提到黃瓜），不可以真的看不起${call}。`,
     ].join('\n');
@@ -300,6 +326,7 @@ class NPC {
     if (event === 'daily' && !f.slot) key = 'daily_none';
     if (event === 'poke') key = f.pokeCount >= 5 ? 'poke_meow' : f.pokeCount >= 3 ? 'poke_annoyed' : 'poke';
     let pool = TEMPLATES[key] || TEMPLATES.greet;
+    if (f.mood) { const m = pool.filter(([, e]) => e === f.mood); if (m.length) pool = m; } // 先挑情緒，再避開最近說過的
     if (f.recent && f.recent.length) { // 避免連續重複
       const fresh = pool.filter(([t]) => !f.recent.includes(t));
       if (fresh.length) pool = fresh;
@@ -384,13 +411,17 @@ class NPC {
 
   // event: 見 EVENT_DESC；facts: 由 engine 組好；history: 聊天紀錄 [{role, content}]
   // opts.extraSystem：額外規則；opts.extraProps：JSON 輸出額外欄位（例如 actions）；opts.extraUser：附加在狀態後的資料
-  async say(event, facts, { userText, history, extraSystem, extraProps, extraUser, maxTokens, maxChars } = {}) {
+  // opts.mood：engine 決定好的情緒（shy／disdain），會加一段說話指示並固定表情
+  async say(event, facts, { userText, history, extraSystem, extraProps, extraUser, maxTokens, maxChars, mood } = {}) {
+    if (mood && !MOODS[mood]) mood = null;
+    if (mood) facts = { ...facts, mood }; // 用內建台詞時也挑同一種表情的句子
     if (!this.llm.enabled) return this.template(event, { ...facts, why: WHY.off });
     // 離線時直接用內建台詞；重連交給主程式每 20 秒一次的健康檢查，使用者的操作不會被逾時卡住
     if (!this.status.online) return this.template(event, { ...facts, why: WHY.offline });
     // 剛逾時過：閒話、提醒這類順便說的話先用內建台詞；聊天是冒險者主動問的，照樣問 AI
     if (event !== 'chat' && this.slowUntil && Date.now() < this.slowUntil) return this.template(event, facts);
-    const messages = [{ role: 'system', content: this.systemPrompt() + (extraSystem ? `\n${extraSystem}` : '') }];
+    const moodRule = mood ? MOODS[mood](this.names().call) : '';
+    const messages = [{ role: 'system', content: this.systemPrompt() + (extraSystem ? `\n${extraSystem}` : '') + (moodRule ? `\n${moodRule}` : '') }];
     // 舊的聊天紀錄也先校正口吻，免得模型學到以前說過的「我」「玩家」
     const hist = [];
     for (const h of history || []) {
@@ -402,7 +433,8 @@ class NPC {
       }
       hist.push(h);
     }
-    for (const h of hist.slice(-6)) {
+    const recentLines = hist.filter((h) => h.role === 'assistant').slice(-3).map((h) => { try { return JSON.parse(h.content).line; } catch (_) { return h.content; } });
+    for (const h of hist.slice(-4)) { // 太多舊回覆會讓小模型一直照抄自己的句型
       let content = h.content;
       if (h.role === 'assistant') {
         try { const j = JSON.parse(content); j.line = voice(j.line, this.names()); content = JSON.stringify(j); } catch (_) { content = voice(content, this.names()); }
@@ -421,7 +453,7 @@ class NPC {
         keep_alive: this.llm.keepAlive || '30m',
         format: {
           type: 'object',
-          properties: { line: { type: 'string' }, emotion: { type: 'string', enum: EMOTIONS }, ...(extraProps || {}) },
+          properties: { line: { type: 'string' }, emotion: { type: 'string', enum: mood ? [mood] : EMOTIONS }, ...(extraProps || {}) },
           required: ['line', 'emotion', ...Object.keys(extraProps || {})],
         },
         options: { temperature: this.llm.temperature ?? 0.8, num_predict: maxTokens || this.llm.maxTokens || 160, num_ctx: this.numCtx() },
@@ -432,6 +464,10 @@ class NPC {
       if (!out.text) throw new Error('空白回覆');
       if (isPlaceholder(out.text)) throw new Error(`照抄了格式說明「${out.text}」`);
       out.text = voice(out.text, { ...this.names(), protect: protectedTexts(facts, userText) });
+      const rep = dropRepeats(out.text, recentLines.map((l) => voice(l, this.names())));
+      out.text = rep.text;
+      if (rep.allRepeated) out.repeated = true;
+      out.emotion = mood || refineEmotion(out.text, out.emotion);
       this.status = { online: true, message: `AI：${this.llm.model}`, checkedAt: Date.now() };
       this.slowUntil = 0; // 又回得出來了，閒話也恢復用 AI
       return { ...out, source: 'llm' };
@@ -456,4 +492,4 @@ class NPC {
   }
 }
 
-module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, normEmotion, fillEmotionImages, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };
+module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };

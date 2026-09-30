@@ -88,7 +88,7 @@ class Engine {
       llm: { enabled: true, baseUrl: 'http://127.0.0.1:11434', model: 'qwen3:4b', noThinkPrefix: '/no_think\n' },
       rewards: G.DEFAULT_REWARDS,
       window: { alwaysOnTop: true, idleChatterMinutes: 45 },
-      lore: { path: 'lore/艾琳.md', topK: 3, embeddings: 'auto', embedModel: 'qwen3-embedding:0.6b' },
+      lore: { path: 'lore/艾琳.md', topK: 3, embeddings: 'auto', embedModel: 'qwen3-embedding:0.6b', emotionChance: 0.5 },
       focus: { minutes: 25, rest: 5, xp: 15, gold: 3 }, // 🍅 專注模式
       divination: { cost: 10, repeatHours: 24 }, // ✨ 占卜魔法：每次花費的金幣、一事不二占的時間
       reminders: {
@@ -514,7 +514,10 @@ class Engine {
     const e = this.lore.entries.length ? this.lore.entries[Math.floor(Math.random() * this.lore.entries.length)] : null;
     const inspiration = e ? `${e.title}：${e.text.split(/[。！？\n]/)[0]}。` : '';
     const recent = (this.state.recentQuips || []);
-    const line = await this.say(event, { pokeCount, inspiration, recent, eventDetail: `冒險者戳了你（12 秒內第 ${pokeCount} 次）` });
+    // 偶爾害羞、戳太多下偶爾鄙視（機率見 lore.emotionChance）
+    const chance = this.emotionChance();
+    const mood = event === 'poke' ? (this.rnd() < chance * 0.4 ? 'shy' : null) : event === 'poke_annoyed' ? (this.rnd() < chance ? 'disdain' : null) : null;
+    const line = await this.say(event, { pokeCount, inspiration, recent, eventDetail: `冒險者戳了你（12 秒內第 ${pokeCount} 次）` }, { mood });
     if (line.tpl) { this.state.recentQuips = [line.tpl, ...recent].slice(0, 10); this.saveState(); }
     delete line.tpl;
     return { lines: [line], view: this.view() };
@@ -607,6 +610,9 @@ class Engine {
   // ---- 🔮 今日運勢：每天第一次抽有一點獎勵，之後再點就是再看一次 ----
   // ---- ✨ 占卜魔法（艾琳的「星環占」＝梅花易數）----
   divCfg() { return { cost: 10, repeatHours: 24, ...(this.config.divination || {}) }; }
+  rnd() { return (this.rand || Math.random)(); }
+  // 命中標了害羞／鄙視的設定（或戳她）時，這次真的害羞／鄙視的機率 0～1（config 的 lore.emotionChance）
+  emotionChance() { const c = Number((this.config.lore || {}).emotionChance); return Number.isFinite(c) ? Math.min(1, Math.max(0, c)) : 0.5; }
   divineInfo() {
     const L = MH.lunarInfo(this.now());
     const recent = (this.state.divinations || []).slice(0, 5).map((d) => ({ id: d.id, at: d.at, question: d.question, ben: d.result.ben.name, tag: d.result.verdict.tag, level: d.result.verdict.level }));
@@ -750,7 +756,13 @@ class Engine {
     const at = this.now().getTime();
     const recent = this.state.chat.filter((h) => h.quest === quest && h.at && at - h.at < 30 * 60000);
     this.state.chat.push({ role: 'user', content: text, quest, at });
+    // 命中「稱讚／秘密／感情」這類標了害羞（或鄙視）的設定時，先擲骰決定這次要不要真的害羞；
+    // 要的話請模型照這個情緒說話、表情固定。同一句話在回報進度時不套用（那時要好好確認）
+    const strong = hits.find((h) => h.strong);
+    const hint = strong && strong.entry.emotion;
+    const mood = (hint === 'shy' || hint === 'disdain') && !I.ruleParse(text, cat).length && this.rnd() < this.emotionChance() ? hint : null;
     const line = await this.say('chat', {}, {
+      mood,
       userText: text,
       history: recent, // npc 會再濾掉備援台詞那幾輪，取最後 6 句
       extraSystem: I.ACTION_RULES,
@@ -758,6 +770,7 @@ class Engine {
       extraUser: [I.catalogText(cat), this.lore.contextText(hits)].filter(Boolean).join('\n\n'),
       maxTokens: 320,
     });
+    if (line.source === 'llm') line.text = I.decodeKeys(line.text, cat); // 台詞裡的 q4-0 換回名字
     // AI 給的動作；AI 離線時改用關鍵字解析
     const raw = line.source === 'llm' ? ((line.data && line.data.actions) || []) : I.ruleParse(text, cat);
     const items = I.validate(raw, cat);
@@ -779,6 +792,9 @@ class Engine {
         line.emotion = 'thinking';
       }
     }
+    // 模型整句都在重複前幾句（小模型的老毛病）：這個話題有預寫的台詞就改用它
+    if (line.repeated && !items.length && strong && strong.entry.reply) { line.text = strong.entry.reply; line.emotion = strong.entry.emotion || 'normal'; line.source = 'lore'; }
+    delete line.repeated;
     delete line.data;
     this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest, at: this.now().getTime() }); // source=template 的不會再給模型看
     this.state.chat = this.state.chat.slice(-20);

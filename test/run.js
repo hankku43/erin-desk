@@ -680,3 +680,93 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(/AI：m$/.test(npc.status.message), '下一句正常就恢復');
   console.log('格式說明照抄測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 好好的害羞：先擲骰決定情緒、台詞裡的害羞描寫、重複句、代號 ----------
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const { refineEmotion, dropRepeats, MOODS } = require('../src/main/npc');
+  const I = require('../src/main/intent');
+  // 台詞在害羞／嫌棄，表情卻是笑的 → 修正；模型自己選了別的表情就不動
+  assert.strictEqual(refineEmotion('艾、艾琳才沒有害羞！', 'happy'), 'shy');
+  assert.strictEqual(refineEmotion('（突然低下頭）……謝謝你。', 'happy'), 'shy');
+  assert.strictEqual(refineEmotion('黃瓜？艾琳冷冷地看著它。', 'normal'), 'disdain');
+  assert.strictEqual(refineEmotion('嗯哼～今天也一起加油吧！', 'happy'), 'happy');
+  assert.strictEqual(refineEmotion('艾、艾琳嚇到了！', 'surprised'), 'surprised');
+  // 重複前幾句的句子會被拿掉；整句都重複時保留並標記
+  const prev = ['喵～艾琳的尾巴現在在搖晃，但更開心的是能和你分享奶茶的時光！'];
+  assert.deepStrictEqual(dropRepeats('喵～艾琳的尾巴突然停在半空，但更開心的是能和你分享奶茶的時光！今天想聊什麼呢？', prev), { text: '今天想聊什麼呢？', removed: 1 });
+  assert.ok(dropRepeats('喵～艾琳的尾巴突然跳起來，但更開心的是能和你分享奶茶的時光！', prev).allRepeated);
+  assert.deepStrictEqual(dropRepeats('完全不一樣的一句話。', prev), { text: '完全不一樣的一句話。', removed: 0 });
+  // 代號換回名字
+  const cat0 = { objectives: [{ key: 'q2-0', text: '菜單定稿，店長回饋已處理' }], quests: [{ key: 'q2', title: '10/1 試吃會' }], daily: [{ key: 'd1', label: '補完最後三項標示' }] };
+  assert.strictEqual(I.decodeKeys('先幫你完成 q2-0 吧？', cat0), '先幫你完成「菜單定稿，店長回饋已處理」吧？');
+  assert.strictEqual(I.decodeKeys('「q2」和d1都記著', cat0), '「10/1 試吃會」和「補完最後三項標示」都記著');
+  assert.strictEqual(I.decodeKeys('q9-9 不存在就不動', cat0), 'q9-9 不存在就不動');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-shy-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  let t = new Date(`${new Date().getFullYear()}-09-30T10:00:00`).getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  await E.setActive(E.plan.quests[1].id);
+  let sent = null, reply = null;
+  E.npc.status.online = true;
+  E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify(reply) } }; };
+  const sys = () => sent.messages[0].content;
+  assert.strictEqual(E.emotionChance(), 0.5, '預設一半的機率');
+  // 骰到了：請模型害羞、表情固定 shy、這句不要提任務
+  E.rand = () => 0.1;
+  reply = { line: '欸？！艾琳才、才不是……尾巴自己在動啦。', emotion: 'shy', actions: [] };
+  let r = await E.chat('艾琳你好可愛');
+  assert.ok(/這次的情緒：害羞/.test(sys()) && /不要提任務/.test(sys()), '系統提示有害羞的說話指示');
+  assert.deepStrictEqual(sent.format.properties.emotion.enum, ['shy'], '表情只能選 shy');
+  assert.strictEqual(r.lines[0].emotion, 'shy');
+  assert.ok(/表情可用 shy/.test(sent.messages.at(-1).content), '角色設定參考帶著設定的表情');
+  // 沒骰到：交給模型；模型選 happy、台詞沒有害羞描寫 → 維持 happy
+  E.rand = () => 0.9; t += 60000;
+  reply = { line: '嗯哼～謝謝誇獎，今天也一起加油吧！', emotion: 'happy', actions: [] };
+  r = await E.chat('你喜歡的人是誰');
+  assert.ok(!/這次的情緒/.test(sys()) && sent.format.properties.emotion.enum.length === 8, '沒骰到就不加指示');
+  assert.strictEqual(r.lines[0].emotion, 'happy');
+  // 沒骰到但台詞在害羞 → 表情跟著台詞
+  t += 60000; reply = { line: '（突然害羞地低頭）唔……這種事要保密啦。', emotion: 'happy', actions: [] };
+  r = await E.chat('告訴我一個秘密');
+  assert.strictEqual(r.lines[0].emotion, 'shy');
+  // 回報進度時不套用害羞（要好好確認）
+  E.rand = () => 0; t += 60000;
+  reply = { line: '要幫你勾起來嗎？', emotion: 'thinking', actions: [{ type: 'check', target: 'q2-0' }] };
+  await E.chat('謝謝，菜單定稿了');
+  assert.ok(!/這次的情緒/.test(sys()), '同時在回報進度時不害羞');
+  // 設定成 0：永遠交給 AI；設定成 1：每次都害羞
+  E.saveConfigPatch({ lore: { emotionChance: 0 } }); E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify(reply) } }; }; E.npc.status.online = true;
+  t += 60000; reply = { line: '嗯哼～', emotion: 'happy', actions: [] };
+  await E.chat('你好可愛'); assert.ok(!/這次的情緒/.test(sys()), 'emotionChance 0');
+  // 台詞裡的代號換成名字
+  t += 60000; reply = { line: '先幫艾琳完成 q2-0 吧？', emotion: 'happy', actions: [] };
+  r = await E.chat('今天天氣如何');
+  assert.ok(/「菜單定稿，店長回饋已處理」/.test(r.lines[0].text) && !/q2-0/.test(r.lines[0].text), r.lines[0].text);
+  // 整句都在重複前面的話 → 改用這個話題預寫的台詞
+  t += 60000; reply = { line: '喵～艾琳的尾巴現在在搖晃，但更開心的是能和你分享奶茶的時光！', emotion: 'happy', actions: [] };
+  await E.chat('你有喜歡的人嗎');
+  t += 60000; reply = { line: '喵～艾琳的尾巴突然跳起來，但更開心的是能和你分享奶茶的時光！', emotion: 'happy', actions: [] };
+  r = await E.chat('你有喜歡的人嗎');
+  const loveReply = E.lore.entries.find((e) => e.title === '感情、戀愛').reply;
+  assert.strictEqual(r.lines[0].text, loveReply, '重複時改用預寫台詞：' + r.lines[0].text);
+  assert.strictEqual(r.lines[0].emotion, 'shy');
+  assert.ok(sent.messages.filter((m) => m.role !== 'system').length <= 5, '最多帶 4 句舊對話');
+  // 戳一下：骰到就害羞，戳太多下骰到就鄙視
+  E.saveConfigPatch({ lore: { emotionChance: 0.5 } }); E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify(reply) } }; }; E.npc.status.online = true;
+  E.rand = () => 0.1; E.pokeTimes = [];
+  reply = { line: '尾、尾巴不可以抓啦……', emotion: 'shy' };
+  r = await E.poke(); assert.strictEqual(r.lines[0].emotion, 'shy'); assert.ok(/這次的情緒：害羞/.test(sys()));
+  await E.poke();
+  reply = { line: '……冒險者，你是不是很閒？', emotion: 'disdain' };
+  r = await E.poke(); assert.strictEqual(r.lines[0].emotion, 'disdain'); assert.ok(/這次的情緒：鄙視/.test(sys()));
+  // AI 關著時，骰到害羞就挑害羞的內建台詞
+  E.npc.status.online = false; E.pokeTimes = [];
+  for (let i = 0; i < 5; i++) { E.pokeTimes = []; r = await E.poke(); assert.strictEqual(r.lines[0].emotion, 'shy', '離線也挑害羞的句子：' + r.lines[0].text); }
+  assert.ok(MOODS.shy('冒險者').includes('冒險者'));
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('害羞與重複測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
