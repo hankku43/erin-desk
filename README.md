@@ -194,7 +194,8 @@
 
 | 設定 | 說明 |
 |---|---|
-| `npc.name`、`role`、`personality`、`callName`、`catchphrases` | NPC 的名字、身分、個性、怎麼稱呼你、口頭禪，AI 會照這些演 |
+| `npc.name`、`role`、`personality`、`catchphrases` | NPC 的名字、身分、個性、口頭禪，AI 會照這些演 |
+| `npc.callName`、`npc.selfName` | 她怎麼叫你（預設「冒險者」）、怎麼稱呼自己（預設用 `name`，也就是「艾琳」，不說「我」）。AI 偶爾不聽話時，程式會把回覆裡的「我」「玩家」「主人」「您」自動改回來；任務名稱和你自己寫的字不會被改 |
 | `llm.enabled` | `false` 就不用 AI，只用內建台詞 |
 | `llm.model` | Ollama 模型名稱 |
 | `llm.timeoutMs` | AI 回應逾時，逾時會自動改用內建台詞 |

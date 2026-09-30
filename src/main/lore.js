@@ -1,4 +1,4 @@
-// 角色設定檢索：讀 lore/*.md，用 BM25（中文 bigram＋關鍵字）找出跟玩家的話最相關的幾條設定
+// 角色設定檢索：讀 lore/*.md，用 BM25（中文 bigram＋關鍵字）找出跟冒險者的話最相關的幾條設定
 // 可選：Ollama 的 embedding 模型做語意比對（混合排序），向量會快取在 data/lore_vectors.json
 'use strict';
 
@@ -125,7 +125,7 @@ class Lore {
     this.vectors = null;
   }
 
-  // 玩家的話裡直接包含某條的關鍵字 → 強命中
+  // 冒險者的話裡直接包含某條的關鍵字 → 強命中
   keywordHits(query) {
     const q = normalize(query);
     const hits = new Map();

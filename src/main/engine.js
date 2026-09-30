@@ -58,7 +58,7 @@ class Engine {
   loadConfig() {
     const defaults = {
       plan: { path: 'plans/week_sample.md', writeBack: true },
-      npc: { name: '艾琳', role: '公會櫃台接待員', personality: '開朗溫柔', callName: '冒險者', catchphrases: [] },
+      npc: { name: '艾琳', role: '公會櫃台接待員', personality: '開朗溫柔', callName: '冒險者', selfName: '', catchphrases: [] }, // selfName 空白＝用 name 自稱
       llm: { enabled: true, baseUrl: 'http://127.0.0.1:11434', model: 'qwen3:4b', noThinkPrefix: '/no_think\n' },
       rewards: G.DEFAULT_REWARDS,
       window: { alwaysOnTop: true, idleChatterMinutes: 45 },
@@ -178,7 +178,7 @@ class Engine {
     if (!this.ps.activeQuestId) G.ensureActive(this.plan, this.ps, this.now());
     this.saveState();
     const qv = q && G.questView(this.plan, this.ps, this.now()).find((x) => x.id === q.id);
-    const lines = qv ? [await this.say('registered', { questView: qv, eventDetail: `玩家自己登記了新委託「${q.title}」（${qv.tierName}，${qv.deadlineLabel || '沒有截止日'}）` })] : [];
+    const lines = qv ? [await this.say('registered', { questView: qv, eventDetail: `冒險者自己登記了新委託「${q.title}」（${qv.tierName}，${qv.deadlineLabel || '沒有截止日'}）` })] : [];
     return { lines, questId: q && q.id, view: this.view() };
   }
 
@@ -247,7 +247,7 @@ class Engine {
     if (!String(fields.text || '').trim()) throw new Error('提醒要有內容');
     this.writePlan(this.P.addReminder(this.planText, fields));
     const t = `${+fields.at.slice(5, 7)}/${+fields.at.slice(8, 10)} ${fields.at.slice(11, 16)}`;
-    return { lines: [await this.say('reminder_set', { label: `${t} ${fields.text}`, eventDetail: `玩家設了提醒：${t} ${fields.text}${fields.action ? `，到時要${fields.action}` : ''}` })], view: this.view() };
+    return { lines: [await this.say('reminder_set', { label: `${t} ${fields.text}`, eventDetail: `冒險者設了提醒：${t} ${fields.text}${fields.action ? `，到時要${fields.action}` : ''}` })], view: this.view() };
   }
 
   async deleteReminder(id) {
@@ -307,7 +307,7 @@ class Engine {
     this.saveState();
     const parts = [added.length ? `${added.length} 格行程` : '', themed.length ? `${themed.length} 天主題` : ''].filter(Boolean).join('、');
     const label = parts ? `加了 ${parts}` : (skipped ? '都已經在計畫裡了，沒有新的' : `${rs}～${re} 這段沒有事件`);
-    const lines = [await this.say('imported', { label, eventDetail: `玩家從行事曆匯入：${label}${skipped ? `（${skipped} 個已存在略過）` : ''}，範圍 ${rs}～${re}` })];
+    const lines = [await this.say('imported', { label, eventDetail: `冒險者從行事曆匯入：${label}${skipped ? `（${skipped} 個已存在略過）` : ''}，範圍 ${rs}～${re}` })];
     return { added, themed, skipped, total: events.length, range: [rs, re], calendar: cal.name, label, lines, view: this.view() };
   }
 
@@ -470,7 +470,7 @@ class Engine {
     const e = this.lore.entries.length ? this.lore.entries[Math.floor(Math.random() * this.lore.entries.length)] : null;
     const inspiration = e ? `${e.title}：${e.text.split(/[。！？\n]/)[0]}。` : '';
     const recent = (this.state.recentQuips || []);
-    const line = await this.say(event, { pokeCount, inspiration, recent, eventDetail: `玩家戳了你（12 秒內第 ${pokeCount} 次）` });
+    const line = await this.say(event, { pokeCount, inspiration, recent, eventDetail: `冒險者戳了你（12 秒內第 ${pokeCount} 次）` });
     if (line.tpl) { this.state.recentQuips = [line.tpl, ...recent].slice(0, 10); this.saveState(); }
     delete line.tpl;
     return { lines: [line], view: this.view() };
@@ -512,7 +512,7 @@ class Engine {
     this.ps.activeQuestId = questId;
     this.saveState();
     const qv = G.questView(this.plan, this.ps, this.now()).find((x) => x.id === questId);
-    return { lines: [await this.say('assign', { questView: qv, eventDetail: `玩家自己選了任務「${qv.title}」` })], view: this.view() };
+    return { lines: [await this.say('assign', { questView: qv, eventDetail: `冒險者自己選了任務「${qv.title}」` })], view: this.view() };
   }
 
   async toggleDaily(rowId, done) {
@@ -534,7 +534,7 @@ class Engine {
     const day = this.plan.days.find((d) => d.date === dateISO);
     const name = day ? day.columns[which === 'a' ? 1 : 2] : which;
     G.remember(this.state, `${dateISO} 選擇路線「${name}」`);
-    return { lines: [await this.say('daily', { eventDetail: `玩家選擇了「${name}」路線` })], view: this.view() };
+    return { lines: [await this.say('daily', { eventDetail: `冒險者選擇了「${name}」路線` })], view: this.view() };
   }
 
   async daily() {
@@ -574,7 +574,7 @@ class Engine {
       proposal = { id: `p${Date.now()}`, items, text };
       this.pendingProposal = proposal;
       if (line.source !== 'llm') {
-        line.text = items.length === 1 ? `要幫你${items[0].label}嗎？` : `我整理了 ${items.length} 項變更，確認一下喔～`;
+        line.text = items.length === 1 ? `要幫你${items[0].label}嗎？` : `${this.npc.names().self}整理了 ${items.length} 項變更，確認一下喔～`;
         line.emotion = 'thinking';
       }
     } else if (line.source !== 'llm') {
@@ -583,7 +583,7 @@ class Engine {
       if (noop) { line.text = noop; line.emotion = 'happy'; }
       else if (lore) { line.text = lore.entry.reply; line.emotion = lore.entry.emotion || 'normal'; line.source = 'lore'; }
       else if (/(完|好了|搞定|取消|交付|提交|勾)/.test(text)) {
-        line.text = '嗯……我找不到你說的是哪一項。可以說得更具體一點，或直接到任務板勾選喔。';
+        line.text = `嗯……${this.npc.names().self}找不到你說的是哪一項。可以說得更具體一點，或直接到任務板勾選喔。`;
         line.emotion = 'thinking';
       }
     }
@@ -644,7 +644,7 @@ class Engine {
       }));
     } else if (done.length) {
       const qv = G.questView(this.plan, this.ps, this.now()).find((x) => x.active);
-      lines.push(await this.say('objective', { questView: qv, eventDetail: `照玩家說的更新了進度：${done.join('、')}` }));
+      lines.push(await this.say('objective', { questView: qv, eventDetail: `照冒險者說的更新了進度：${done.join('、')}` }));
     }
     if (failed.length) lines.push({ text: `有幾項沒辦法處理：${failed.join('、')}`, emotion: 'worried', source: 'template', event: 'chat' });
     if (total.levelUp) lines.push(await this.say('levelup', { level: total.levelUp.level, title: total.levelUp.title, eventDetail: `升到 Lv.${total.levelUp.level}，新稱號「${total.levelUp.title}」` }));
