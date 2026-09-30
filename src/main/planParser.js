@@ -329,7 +329,8 @@ function setProgress(content, dateISO, { done, blocker, next }) {
 }
 
 function questHeading(q) {
-  const tok = q.tier === 'main' ? ' ⭐' : q.tier === 'side' ? ' 🌿' : '';
+  // 一定要有記號：沒有記號又沒有日期的標題會被當成「分組」，底下每行都變成一個任務
+  const tok = q.tier === 'main' ? ' ⭐' : q.tier === 'side' ? ' 🌿' : ' 🔧';
   const due = q.deadlineLabel ? ` 📅 ${q.deadlineLabel}` : '';
   return `## ${q.title}${tok}${due}`;
 }

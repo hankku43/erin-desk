@@ -22,6 +22,7 @@ const { Lore } = require('./lore');
 const ICS = require('./ics');
 const MH = require('./meihua');
 const A = require('./affection');
+const T = require('./tutorial');
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -65,9 +66,11 @@ function parseSlot(slot, dateISO) {
 }
 
 class Engine {
-  constructor({ appDir, dataDir, now } = {}) {
+  // appDir：程式本身的檔案（打包後是唯讀的）；userDir：設定、計畫、存檔（開發時兩個是同一個資料夾）
+  constructor({ appDir, userDir, dataDir, now } = {}) {
     this.appDir = appDir;
-    this.dataDir = dataDir || path.join(appDir, 'data');
+    this.userDir = userDir || appDir;
+    this.dataDir = dataDir || path.join(this.userDir, 'data');
     this.nowFn = now || (() => new Date());
     fs.mkdirSync(this.dataDir, { recursive: true });
     this.savePath = path.join(this.dataDir, 'save.json');
@@ -78,6 +81,9 @@ class Engine {
     this.loadState();
     this.backedUp = false;
     this.affPending = []; // 好感度事件（冷戰開始…），settle() 時變成台詞
+    this.tutPending = []; // 新手任務完成的台詞
+    // 新手引導：第一次用的人才需要；已經在用的存檔直接當作完成
+    if (!this.state.onboarding) { this.state.onboarding = { done: !this.isFreshUser() }; this.saveState(); }
     this.loadPlan();
   }
 
@@ -102,7 +108,7 @@ class Engine {
         ],
       },
     };
-    const p = path.join(this.appDir, 'config.json');
+    const p = this.configFile();
     const example = path.join(this.appDir, 'config.example.json');
     if (!fs.existsSync(p) && fs.existsSync(example)) fs.copyFileSync(example, p); // 第一次啟動：從範例建立自己的設定檔
     let user = {};
@@ -117,7 +123,7 @@ class Engine {
   // 角色設定檔：核心段落進系統提示，其餘依對話檢索
   loadLore() {
     const c = this.config.lore || {};
-    const file = path.isAbsolute(c.path || '') ? c.path : path.join(this.appDir, c.path || 'lore/艾琳.md');
+    const file = this.resolveFile(c.path || 'lore/艾琳.md');
     this.lore = new Lore({ file, dataDir: this.dataDir, llm: this.config.llm, embeddings: c.embeddings, embedModel: c.embedModel, log: (m) => console.log(m) });
     this.config.npc = { ...this.config.npc, core: this.lore.core, loreName: this.lore.name };
     // 「聰明艾琳」開著就在背景算向量，不擋啟動；跟 AI 對話開關無關（只要 Ollama 有開）
@@ -135,8 +141,18 @@ class Engine {
     return { on: !!on, status, text: this.lore.statusText(), lines: [{ ...line, event: key }], view: this.view() };
   }
 
+  configFile() { return path.join(this.userDir, 'config.json'); }
+  // 相對路徑：先找使用者資料夾，沒有的話用程式內建的（例如打包後還沒複製出來的範例）
+  resolveFile(p) {
+    if (path.isAbsolute(p)) return p;
+    const mine = path.join(this.userDir, p);
+    if (fs.existsSync(mine) || this.userDir === this.appDir) return mine;
+    const builtIn = path.join(this.appDir, p);
+    return fs.existsSync(builtIn) ? builtIn : mine;
+  }
+
   saveConfigPatch(patch) {
-    const p = path.join(this.appDir, 'config.json');
+    const p = this.configFile();
     let user = {};
     try { user = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { /* 新檔 */ }
     fs.writeFileSync(p, JSON.stringify(deepMerge(user, patch), null, 2), 'utf8');
@@ -154,10 +170,7 @@ class Engine {
     fs.renameSync(tmp, this.savePath);
   }
 
-  planFile() {
-    const p = this.config.plan.path;
-    return path.isAbsolute(p) ? p : path.join(this.appDir, p);
-  }
+  planFile() { return this.resolveFile(this.config.plan.path); }
 
   loadPlan() {
     this.planError = null;
@@ -433,6 +446,10 @@ class Engine {
       divination: this.divineInfo(),
       fortune: this.fortuneToday(),
       affection: { cold: this.isCold() }, // 好感度本身不給畫面看
+      onboarding: { needed: !(this.state.onboarding && this.state.onboarding.done) },
+      tutorial: this.tutorialInfo(),
+      schedule: this.scheduleInfo(),
+      llm: { enabled: !!this.config.llm.enabled, model: this.config.llm.model },
     };
   }
 
@@ -548,12 +565,14 @@ class Engine {
       if (reward && reward.levelUp) lines.push(await this.say('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }));
     }
     if (reward) this.affect(this.affCfg().gain.objective, '完成目標'); // 第一次完成才有（跟星屑一樣）
+    if (done) this.tutorialMark('objective');
     return this.settle({ reward, lines, view: this.view() });
   }
 
   async submit(questId, report = '') {
     const r = G.submitQuest(this.state, this.ps, this.plan, questId, report, this.now(), this.config.rewards);
     this.affect(this.affCfg().gain.submit + (r.onTime ? this.affCfg().gain.onTime : 0), r.onTime ? '準時交付任務' : '交付任務');
+    this.tutorialMark('submit');
     this.saveState();
     const lines = [];
     lines.push(await this.say('submit', {
@@ -589,8 +608,9 @@ class Engine {
     const min = Number(minutes) > 0 ? Number(minutes) : this.focusCfg().minutes;
     const start = this.now().getTime();
     this.state.focus = { startAt: start, endAt: start + Math.round(min * 60000), minutes: min };
+    this.tutorialMark('focus');
     this.saveState();
-    return { lines: [this.focusLine('focus_start', { minutes: Math.round(min) })], focus: this.focusInfo(), view: this.view() };
+    return this.settle({ lines: [this.focusLine('focus_start', { minutes: Math.round(min) })], focus: this.focusInfo(), view: this.view() });
   }
   focusPeek() {
     const f = this.focusInfo();
@@ -679,21 +699,126 @@ class Engine {
   affTpl(key, extra = {}) { const l = { ...this.npc.template(key, extra), event: 'affection' }; delete l.tpl; return l; }
   // 每個動作結束前呼叫：露出鄙視的臉要多扣；升降階、冷戰開始的台詞接在後面
   settle(res) {
-    if (!res || !this.affOn()) return res;
+    if (!res) return res;
     const lines = res.lines || [];
-    for (const l of lines) if (l && l.emotion === 'disdain') this.affect(-this.affCfg().loss.disdain, '露出鄙視的眼神');
-    const a = this.aff();
-    const extra = this.affPending.splice(0).map((k) => this.affTpl(k));
-    const st = A.stageOf(a.points, a.stage, this.affCfg().thresholds);
-    if (st > a.stage) {
-      extra.push(this.affTpl(`stageup_${st}`));
-      if (st > (a.maxStage || 1)) { G.grant(this.state, { xp: 0, gold: 10 * st }, '艾琳的心意', this.config.rewards); a.maxStage = st; }
-    } else if (st < a.stage) extra.push(this.affTpl('stagedown'));
-    a.stage = st;
+    const extra = this.tutPending.splice(0);
+    if (this.affOn()) {
+      for (const l of lines) if (l && l.emotion === 'disdain') this.affect(-this.affCfg().loss.disdain, '露出鄙視的眼神');
+      const a = this.aff();
+      extra.push(...this.affPending.splice(0).map((k) => this.affTpl(k)));
+      const st = A.stageOf(a.points, a.stage, this.affCfg().thresholds);
+      if (st > a.stage) {
+        extra.push(this.affTpl(`stageup_${st}`));
+        if (st > (a.maxStage || 1)) { G.grant(this.state, { xp: 0, gold: 10 * st }, '艾琳的心意', this.config.rewards); a.maxStage = st; }
+      } else if (st < a.stage) extra.push(this.affTpl('stagedown'));
+      a.stage = st;
+    }
     this.saveState();
     if (extra.length) res.lines = [...lines, ...extra];
     if (res.view) res.view = this.view();
     return res;
+  }
+
+  // ---- 🎓 新手引導與新手任務 ----
+  isFreshUser() { return !(this.state.history || []).length && !(this.state.player && this.state.player.xp) && !(this.state.chat || []).length; }
+  tutorialInfo() {
+    const t = this.state.tutorial;
+    if (!t || !t.active) return null;
+    const items = T.TUTORIAL.map((i) => ({ ...i, label: i.label.replace('艾琳', this.config.npc.name), done: !!(t.done || {})[i.key] }));
+    return { items, count: items.filter((i) => i.done).length, total: items.length, finished: !!t.finished };
+  }
+  startTutorial() { this.state.tutorial = { active: true, done: {}, finished: false, startedAt: this.now().toISOString() }; this.saveState(); }
+  hideTutorial() { if (this.state.tutorial) { this.state.tutorial.active = false; this.saveState(); } return { view: this.view() }; }
+  // 完成一個新手任務：小獎勵＋一句話（在 settle() 時接到台詞後面）
+  tutorialMark(key) {
+    const t = this.state.tutorial;
+    if (!t || !t.active || t.finished) return false;
+    t.done = t.done || {};
+    if (t.done[key]) return false;
+    const item = T.TUTORIAL.find((i) => i.key === key);
+    if (!item) return false;
+    t.done[key] = this.now().toISOString();
+    const label = item.label.replace('艾琳', this.config.npc.name);
+    G.grant(this.state, T.STEP_REWARD, `新手任務：${label}`, this.config.rewards);
+    const n = Object.keys(t.done).length, total = T.TUTORIAL.length;
+    const tpl = (k, f) => { const l = { ...this.npc.template(k, f), event: 'tutorial' }; delete l.tpl; return l; };
+    this.tutPending.push(tpl('tutorial_step', { label, n, total }));
+    if (n >= total) {
+      t.finished = true;
+      G.grant(this.state, T.GRADUATE_REWARD, '新手村畢業', this.config.rewards);
+      this.tutPending.push(tpl('tutorial_done', {}));
+    }
+    this.saveState();
+    return true;
+  }
+  async finishOnboarding() {
+    this.state.onboarding = { done: true, at: this.now().toISOString() };
+    if (!this.state.tutorial) this.startTutorial();
+    this.saveState();
+    const g = await this.greet();
+    const intro = { ...this.npc.template('tutorial_start', {}), event: 'tutorial' }; delete intro.tpl;
+    return this.settle({ lines: [...g.lines, intro], view: this.view() });
+  }
+  restartOnboarding() { this.state.onboarding = { done: false }; this.saveState(); return { view: this.view() }; }
+  // 這週一～週五，例如「我的一週 10/5–10/9」
+  defaultPlanTitle() {
+    const d = new Date(this.now()); const wd = d.getDay() || 7;
+    const mon = new Date(d); mon.setDate(d.getDate() - wd + 1);
+    const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+    return `我的一週 ${mon.getMonth() + 1}/${mon.getDate()}–${fri.getMonth() + 1}/${fri.getDate()}`;
+  }
+  // 新手引導建立第一份計畫：放在使用者資料夾的 plans/，不會蓋掉已經有的檔案
+  async createPlan({ title, quest } = {}) {
+    const t = String(title || '').trim() || this.defaultPlanTitle();
+    const dir = path.join(this.userDir, 'plans');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = t.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 40) || '我的一週';
+    let file = path.join(dir, `${base}.md`);
+    for (let i = 2; fs.existsSync(file); i++) file = path.join(dir, `${base} (${i}).md`);
+    let text = `# ${t}\n`;
+    if (quest && String(quest.title || '').trim()) {
+      text = PlanNew.addQuest(text, { ...quest, title: String(quest.title).trim(), objectives: (quest.objectives || []).map((o) => String(o).trim()).filter(Boolean) });
+    }
+    fs.writeFileSync(file, text.replace(/\n*$/, '\n'), 'utf8');
+    this.usePlanFile(file);
+    return { file, view: this.view() };
+  }
+  // 範例計畫：複製一份到使用者資料夾再用（不動程式內建的範例）
+  useSamplePlan() {
+    const src = path.join(this.appDir, 'plans', 'week_sample.md');
+    const dir = path.join(this.userDir, 'plans');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, '範例：秋季新品上市.md');
+    if (!fs.existsSync(file)) fs.copyFileSync(src, file);
+    this.usePlanFile(file);
+    return { file, view: this.view() };
+  }
+  usePlanFile(file) {
+    const rel = path.relative(this.userDir, file);
+    this.saveConfigPatch({ plan: { path: rel.startsWith('..') || path.isAbsolute(rel) ? file : rel.replace(/\\/g, '/') } });
+    this.backedUp = false;
+    this.loadPlan();
+  }
+  // 作息：午休、下午開工、下班前提醒；只在平日；主動搭話的間隔（0＝不主動）
+  saveSchedule({ lunch, back, wrap, weekdaysOnly = true, idle } = {}) {
+    const ok = (x) => /^\d{1,2}:\d{2}$/.test(String(x || ''));
+    const items = [];
+    if (ok(lunch)) items.push({ time: lunch, event: 'lunch' });
+    if (ok(back)) items.push({ time: back, event: 'afternoon' });
+    if (ok(wrap)) items.push({ time: wrap, event: 'wrapup' });
+    const patch = { reminders: { weekdaysOnly: !!weekdaysOnly, items } };
+    if (idle !== undefined && idle !== null && idle !== '' && Number.isFinite(Number(idle))) patch.window = { idleChatterMinutes: Math.max(0, Number(idle)) };
+    this.saveConfigPatch(patch);
+    return { view: this.view() };
+  }
+  setModel(model) {
+    this.saveConfigPatch({ llm: model ? { model, enabled: true } : { enabled: false } });
+    return { view: this.view() };
+  }
+  scheduleInfo() {
+    const r = this.config.reminders || {};
+    const at = (ev) => ((r.items || []).find((i) => i.event === ev) || {}).time || '';
+    return { lunch: at('lunch'), back: at('afternoon'), wrap: at('wrapup'), weekdaysOnly: r.weekdaysOnly !== false, idle: Number((this.config.window || {}).idleChatterMinutes || 0) };
   }
   divineInfo() {
     const L = MH.lunarInfo(this.now());
@@ -781,7 +906,8 @@ class Engine {
     this.saveState();
     const lines = [{ ...this.npc.template('fortune', fortune), event: 'fortune' }];
     if (reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
-    return { again: false, fortune, reward, lines, view: this.view() };
+    this.tutorialMark('fortune');
+    return this.settle({ again: false, fortune, reward, lines, view: this.view() });
   }
 
   async setActive(questId) {
@@ -856,6 +982,7 @@ class Engine {
     // 對話紀錄只給 AI 看「同一個當前任務、30 分鐘內」的：換了任務之後，舊對話裡的任務名會讓小模型講錯
     const recent = this.state.chat.filter((h) => h.quest === quest && h.at && at - h.at < 30 * 60000);
     this.state.chat.push({ role: 'user', content: text, quest, at });
+    this.tutorialMark('chat');
     const workItems = I.ruleParse(text, cat);
     // 好感：先用關鍵字看這句話（騷擾／失禮／道歉／稱讚／說自己很痛苦），AI 開著時再請它判斷一次
     const kw = aOn ? A.classify(text, acfg.words) : null;
@@ -988,6 +1115,8 @@ class Engine {
         done.push(it.label);
       } catch (e) { failed.push(`${it.label}（${e.message}）`); }
     }
+    if (done.length) this.tutorialMark('progress');
+    if (submitted) this.tutorialMark('submit');
     this.saveState();
     const lines = [];
     if (submitted) {

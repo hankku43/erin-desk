@@ -185,6 +185,10 @@ const TEMPLATES = {
     ['喵嗚……好啦{self}認輸，霜月村的人被戳五下都會這樣。', 'worried'],
     ['喵——！好了，你滿意了嗎？{self}要去喝奶茶壓驚了。', 'surprised'],
   ],
+  // ---- 🎓 新手任務 ----
+  tutorial_start: [['那就從新手任務開始吧！任務板最上面有一張清單，一個一個試試看，每完成一個{self}都會發一點獎勵～', 'cheer']],
+  tutorial_step: [['新手任務完成：「{label}」✔（{n}/{total}）', 'happy'], ['「{label}」學會了！（{n}/{total}）嗯哼，{call}學得真快。', 'happy']],
+  tutorial_done: [['新手村畢業！🎉 櫃台的功能{call}全部都會用了。{self}偷偷多塞了 50 金幣給你，之後也請多多指教～', 'cheer']],
   // ---- 隱藏好感度 ----
   poke_cold: [['……', 'normal'], ['（{self}假裝在整理委託書）', 'normal'], ['{self}在忙。有公事再說。', 'normal']],
   cold_start: [['……{self}要去整理委託書了。有公事再叫{self}。', 'normal']],

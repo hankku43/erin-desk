@@ -3,7 +3,7 @@
 const $ = (s) => document.querySelector(s);
 const GREET_COOLDOWN = 30 * 60000; // 半小時內再點她，就不重複報告任務，改成閒聊
 const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null, starSeen: {}, flMode: 'auto', flSlotId: null, flFlashUntil: 0, lastActive: null };
-const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine']); // 表單面板：畫面更新時不重畫，免得打到一半的字不見
+const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard']); // 表單面板：畫面更新時不重畫，免得打到一半的字不見
 
 // 未捕捉的錯誤印到主程式終端機（啟動.bat 的視窗看得到）
 window.addEventListener('error', (e) => console.error('[renderer error]', e.message, e.filename, e.lineno));
@@ -76,9 +76,9 @@ window.addEventListener('mouseleave', () => { lastIgnore = null; });
     if (!down) return;
     const wasClick = !down.moved;
     down = null; dragging = false;
-    if (wasClick) onNpcClick(); else api.dragEnd();
+    if (wasClick) onNpcClick(); else { api.dragEnd(); if (typeof obMark === 'function') obMark('drag'); }
   });
-  wrap.addEventListener('contextmenu', (e) => { e.preventDefault(); api.openMenu(); });
+  wrap.addEventListener('contextmenu', (e) => { e.preventDefault(); if (typeof obMark === 'function') obMark('menu'); api.openMenu(); });
   $('#hud').addEventListener('contextmenu', (e) => { e.preventDefault(); api.openMenu(); });
 })();
 
@@ -108,6 +108,7 @@ $('#npcWrap').addEventListener('animationend', (e) => { if (e.animationName === 
 async function onNpcClick() {
   if (state.mini) { if (!fx.busy) api.setMini(false); return; } // 展開後由 ui:mini 事件接手（縮小動畫中先不理）
   jump();
+  if (typeof obMark === 'function' && obMark('click')) return; // 🎓 新手教學的「點她一下」
   $('#marker').classList.add('hidden');
   if (state.queue.length || state.typing) { advance(); return; } // 還有話沒說完 → 先聽完
   if (state.busy) return;
@@ -368,7 +369,7 @@ function applyView(v) {
   if (state.mini && state.miniAlert) { /* 保留 ! */ }
   else if (a && a.status === 'ready') setMarker('ready');
   else if (m.dataset.kind === 'ready' || state.mini) setMarker(null);
-  if (v.planError) toast(`⚠ ${v.planError}`, 6000);
+  if (v.planError && !(v.onboarding && v.onboarding.needed) && state.panel !== 'onboard') toast(`⚠ ${v.planError}`, 6000);
   if (state.panel && !FORM_PANELS.has(state.panel)) renderPanel();
 }
 // 日期小工具：<input type="date"> 的值 ↔ 計畫檔裡的 M/D
@@ -885,7 +886,8 @@ function renderPanelInner(el, v) {
             </div></div>` : ''}
         </div>`;
       }
-      if (!qs.length) body = v.editable ? '<p class="hint">計畫檔裡還沒有任務。按上面的「＋ 新任務」登記第一筆委託吧！</p>' : '<p class="hint">計畫檔裡沒有任務。右鍵角色 →「選擇週計畫檔…」</p>';
+      body = tutorialHtml(v) + body; // 🎓 新手任務
+      if (!qs.length) body = tutorialHtml(v) + (v.editable ? '<p class="hint">計畫檔裡還沒有任務。按上面的「＋ 新任務」登記第一筆委託吧！</p>' : '<p class="hint">計畫檔裡沒有任務。右鍵角色 →「選擇週計畫檔…」</p>');
       else if (!v.editable) body += '<p class="hint">🔒 這份計畫檔是舊版表格格式，程式裡不能直接新增／編輯。用 <code>node tools/convert_plan.js</code> 轉成新格式就可以了。</p>';
     } else {
       body = '<div class="hist">' + (v.history.length
@@ -970,6 +972,8 @@ function renderPanelInner(el, v) {
   }
 
   if (state.panel === 'divine') renderDivine(el, v);
+  if (state.panel === 'onboard') renderOnboard(el, v);
+  if (state.panel === 'health') renderHealth(el, v);
 
   if (state.panel === 'report') {
     const t = v.today;
@@ -1045,6 +1049,9 @@ async function saveRemForm() {
 $('#panel').addEventListener('click', async (e) => {
   const t = e.target;
   if (state.panel === 'divine' && await divineClick(e)) return;
+  if (state.panel === 'onboard' && await onboardClick(e)) return;
+  if (state.panel === 'health' && await healthClick(e)) return;
+  if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }
   if (t.closest('[data-back]')) { backFromForm(); return; }
   const tab = t.closest('[data-tab]'); if (tab) { state.boardTab = tab.dataset.tab; renderPanel(); return; }
@@ -1119,6 +1126,7 @@ $('#panel').addEventListener('keydown', async (e) => {
   const t = e.target;
   if (e.isComposing) return;
   if (e.key === 'Enter' && state.panel === 'divine' && state.dv && state.dv.step === 'ask' && t.tagName === 'INPUT') { e.preventDefault(); divineStart(); return; }
+  if (state.panel === 'onboard') return; // 新手教學用按鈕前進後退
   if (e.key === 'Escape') { if (state.addingObj) { state.addingObj = null; renderPanel(); } else if (FORM_PANELS.has(state.panel)) backFromForm(); return; }
   if (e.key !== 'Enter') return;
   if (t.dataset.objInput) { e.preventDefault(); await saveObjective(t.dataset.objInput); return; }
@@ -1128,6 +1136,7 @@ $('#panel').addEventListener('keydown', async (e) => {
 });
 $('#panel').addEventListener('change', async (e) => {
   const t = e.target;
+  if (state.panel === 'onboard' && onboardChange(e)) return;
   if (t.name === 'dvm' && state.dv) { state.dv.method = t.value; renderPanel(); return; }
   if (t.name === 'qfTier') { document.querySelectorAll('.tp').forEach((l) => l.classList.toggle('on', l.querySelector('input').checked)); return; }
   if (t.dataset.obj) {
@@ -1155,7 +1164,11 @@ api.on('ui:fortune', () => drawFortune());
 api.on('fx:reward', (reward) => { if (!state.mini) celebrate(reward); });
 setInterval(() => { if (state.view && !state.mini) renderTracker(); }, 15000); // 沙漏、下一格、切換時段
 api.on('ui:shrink', () => goMini());
-api.on('ui:open', (kind) => { openPanel(kind); if (kind === 'daily') run(() => api.daily()); });
+api.on('ui:open', (kind) => {
+  if (kind === 'onboard') { state.ob = null; openOnboard('welcome'); return; }
+  if (kind === 'health') { openHealth(); return; }
+  openPanel(kind); if (kind === 'daily') run(() => api.daily());
+});
 
 // ---------- 啟動 ----------
 (async function init() {
@@ -1164,6 +1177,7 @@ api.on('ui:open', (kind) => { openPanel(kind); if (kind === 'daily') run(() => a
   if (!r.character.images.normal) $('#npcImg').alt = '（找不到角色圖片）';
   applyMini(r.mini, { greet: false });
   applyView(r.view);
-  if (!state.mini) setTimeout(() => { openDialog(); greet(); }, 600);
+  if (r.view.onboarding && r.view.onboarding.needed && !state.mini) setTimeout(() => openOnboard('welcome'), 600); // 🎓 第一次開啟：新手教學
+  else if (!state.mini) setTimeout(() => { openDialog(); greet(); }, 600);
   else setTimeout(async () => { state.lastGreetAt = Date.now(); const g = await api.greet(); if (g && g.ok && g.lines) miniNotify(g.lines); }, 600); // 縮小時啟動：貓咪揮手，點開才說
 })();

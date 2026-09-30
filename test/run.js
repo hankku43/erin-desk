@@ -922,3 +922,122 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   console.log('好感度測試通過 ✔');
   function TEMPLATESof(k) { return require('../src/main/npc').TEMPLATES[k].map(([x]) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者')); }
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🎓 新手引導、新手任務、🩺 健康檢查、使用者資料夾 ----------
+(async () => {
+  const os = require('os');
+  const S = require('../src/main/setup');
+  const { buildHealth, parseLog } = require('../src/main/health');
+  const { Engine } = require('../src/main/engine');
+  const PP = require('../src/main/planParser');
+  // 沒有記號、沒有日期的任務標題會被當成分組 → 新增任務一定要寫記號
+  const qText = PP.addQuest('# 這週\n', { title: '整理月報', tier: 'major', objectives: ['收齊數字', '寫摘要'] });
+  assert.ok(/## 整理月報 🔧/.test(qText));
+  assert.deepStrictEqual(PP.parsePlan(qText).quests.map((q) => [q.title, q.objectives.length]), [['整理月報', 2]], '一個任務兩個目標');
+  // 依記憶體推薦模型
+  assert.strictEqual(S.recommend(32).model, 'qwen3:4b');
+  assert.strictEqual(S.recommend(16).model, 'qwen3:4b');
+  assert.strictEqual(S.recommend(8).model, 'qwen3:1.7b');
+  assert.strictEqual(S.recommend(4).model, null);
+  assert.ok(S.hasModel(['qwen3:4b'], 'qwen3:4b') && S.hasModel(['qwen3:4b-q4_K_M'], 'qwen3:4b') && !S.hasModel(['qwen3:1.7b'], 'qwen3:4b'));
+  // 偵測：Ollama 有開／沒開
+  const fakeFetch = (models) => async (url) => { if (!models) throw new Error('ECONNREFUSED'); return { ok: true, json: async () => ({ models: models.map((name) => ({ name })) }) }; };
+  let pr = await S.probe({ fetchImpl: fakeFetch(['qwen3:1.7b']), totalmem: 8 * 1024 ** 3 });
+  assert.strictEqual(pr.ollama, 'running'); assert.strictEqual(pr.recommend, 'qwen3:1.7b');
+  assert.ok(pr.choices.find((c) => c.name === 'qwen3:1.7b').installed && !pr.choices.find((c) => c.name === 'qwen3:4b').installed);
+  pr = await S.probe({ fetchImpl: fakeFetch(null), totalmem: 16 * 1024 ** 3 });
+  assert.ok(['missing', 'stopped'].includes(pr.ollama) && pr.recommend === 'qwen3:4b');
+  // 下載：把 Ollama 一行一行的進度合起來算百分比
+  const lines = [{ status: 'pulling manifest' }, { status: 'pulling a', digest: 'a', total: 100, completed: 50 }, { status: 'pulling b', digest: 'b', total: 100, completed: 0 }, { status: 'pulling a', digest: 'a', total: 100, completed: 100 }, { status: 'pulling b', digest: 'b', total: 100, completed: 100 }, { status: 'success' }];
+  const streamFetch = (ls) => async () => {
+    const chunks = ls.map((l) => new TextEncoder().encode(JSON.stringify(l) + '\n'));
+    let i = 0;
+    return { ok: true, body: { getReader: () => ({ read: async () => (i < chunks.length ? { value: chunks[i++], done: false } : { done: true }) }) } };
+  };
+  const seen = [];
+  await S.pull({ model: 'qwen3:1.7b', fetchImpl: streamFetch(lines), onProgress: (p) => seen.push(p.percent) });
+  assert.ok(seen.includes(25) && seen.includes(50) && seen[seen.length - 1] === 100, '進度：' + seen.join(','));
+  await assert.rejects(S.pull({ model: 'x', fetchImpl: streamFetch([{ error: 'pull model manifest: file does not exist' }]) }), /does not exist/);
+  await assert.rejects(S.pull({ model: 'x', fetchImpl: streamFetch([{ status: 'pulling manifest' }]) }), /沒有完成/);
+  // 健康檢查：各種情況的紅綠燈與修法
+  const base = { name: '艾琳', plan: { file: 'p.md', exists: true, quests: 3 }, llm: { enabled: true, model: 'qwen3:4b' }, probe: { ollama: 'running', models: ['qwen3:4b'], embed: { installed: true } }, ramGB: 16, smart: { on: false }, charOK: true, saveOK: true, userDir: '/u' };
+  const st = (x) => Object.fromEntries(buildHealth({ ...base, ...x }).map((i) => [i.id, i]));
+  assert.strictEqual(st({}).ai.status, 'ok');
+  assert.ok(st({ probe: { ollama: 'missing', models: [], embed: {} } }).ai.fixes.some((f) => f.action === 'openOllama'));
+  assert.ok(st({ probe: { ollama: 'stopped', models: [], embed: {} } }).ai.detail.includes('沒有開'));
+  assert.ok(st({ probe: { ollama: 'running', models: [], embed: {} } }).ai.fixes.some((f) => f.action === 'pull:qwen3:4b'));
+  assert.strictEqual(st({ llm: { enabled: false, model: 'qwen3:4b' } }).ai.status, 'info');
+  assert.ok(st({ ramGB: 8 }).ram.fixes.some((f) => f.action === 'useModel:qwen3:1.7b'), '8GB 用 4b → 建議換輕量');
+  assert.strictEqual(st({ configError: 'config.json 格式錯誤：Unexpected token' }).config.status, 'error');
+  assert.strictEqual(st({ plan: { file: 'x.md', exists: false } }).plan.status, 'error');
+  assert.ok(st({ plan: { file: 'x.md', exists: true, quests: 0 } }).plan.fixes.some((f) => f.action === 'ui:newQuest'));
+  const slowLog = parseLog(Array.from({ length: 5 }, () => '9/30 10:00:00\tchat\t60000ms\t載入模型 5ms').join('\n'));
+  assert.strictEqual(st({ log: slowLog }).speed.status, 'warn');
+  assert.strictEqual(st({ log: parseLog('9/30 10:00:00\tpoke\t900ms\t失敗：timeout\n'.repeat(4)) }).fails.status, 'warn');
+  assert.strictEqual(st({ saveOK: false }).save.status, 'error');
+  assert.strictEqual(st({ smart: { on: true, status: 'no-model' }, probe: { ollama: 'running', models: ['qwen3:4b'], embed: { installed: false } } }).smart.status, 'info', '自動模式：語意模型是選用');
+
+  // 使用者資料夾跟程式分開（打包後的樣子）
+  const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-app-'));
+  const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-user-'));
+  fs.mkdirSync(path.join(appDir, 'plans')); fs.mkdirSync(path.join(appDir, 'lore'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(appDir, 'plans', 'week_sample.md'));
+  fs.copyFileSync(path.join(__dirname, '..', 'lore', '艾琳.md'), path.join(appDir, 'lore', '艾琳.md'));
+  fs.copyFileSync(path.join(__dirname, '..', 'config.example.json'), path.join(appDir, 'config.example.json'));
+  const E = new Engine({ appDir, userDir, now: () => new Date(`${new Date().getFullYear()}-09-30T10:00:00`) });
+  E.npc.status.online = false;
+  assert.ok(fs.existsSync(path.join(userDir, 'config.json')) && !fs.existsSync(path.join(appDir, 'config.json')), '設定檔建在使用者資料夾');
+  assert.strictEqual(E.lore.file, path.join(appDir, 'lore', '艾琳.md'), '沒複製出來時用內建的角色設定');
+  assert.strictEqual(E.planFile(), path.join(appDir, 'plans', 'week_sample.md'), '沒複製出來時用內建的範例');
+  assert.ok(E.view().onboarding.needed && !E.view().tutorial, '第一次用：要新手引導');
+  // 建立第一份計畫
+  const cr = await E.createPlan({ quest: { title: '整理月報', tier: 'major', objectives: ['收齊數字', '寫摘要', ''] } });
+  assert.ok(cr.file.startsWith(path.join(userDir, 'plans')) && /我的一週 9_28–10_2\.md$/.test(cr.file), cr.file);
+  assert.deepStrictEqual(E.plan.quests.map((q) => [q.title, q.objectives.length]), [['整理月報', 2]]);
+  assert.ok(!E.config.plan.path.startsWith('/'), '存成相對路徑：' + E.config.plan.path);
+  const cr2 = await E.createPlan({ quest: { title: '另一件事' } });
+  assert.ok(/\(2\)\.md$/.test(cr2.file), '同名不覆蓋');
+  // 範例計畫：複製一份再用
+  E.useSamplePlan();
+  assert.ok(E.planFile().startsWith(userDir) && E.plan.quests.length > 3);
+  // 作息與模型
+  E.saveSchedule({ lunch: '12:30', back: '', wrap: '17:30', weekdaysOnly: false, idle: 0 });
+  assert.deepStrictEqual(E.config.reminders.items, [{ time: '12:30', event: 'lunch' }, { time: '17:30', event: 'wrapup' }]);
+  assert.strictEqual(E.config.reminders.weekdaysOnly, false); assert.strictEqual(E.config.window.idleChatterMinutes, 0);
+  assert.deepStrictEqual(E.view().schedule, { lunch: '12:30', back: '', wrap: '17:30', weekdaysOnly: false, idle: 0 });
+  E.setModel('qwen3:1.7b'); assert.ok(E.config.llm.enabled && E.config.llm.model === 'qwen3:1.7b');
+  E.setModel(null); assert.ok(!E.config.llm.enabled);
+  E.npc.status.online = false;
+  // 完成引導 → 新手任務開始
+  const fin = await E.finishOnboarding();
+  assert.ok(E.state.onboarding.done && E.tutorialInfo().count === 0 && fin.lines.some((l) => /新手任務/.test(l.text)));
+  // 新手任務：每個一次、有獎勵；全部完成畢業
+  const xp0 = E.state.player.xp, g0 = E.state.player.gold;
+  const q0 = E.plan.quests[0];
+  const r1 = await E.setObjective(q0.id, 0, true);
+  assert.ok(r1.lines.some((l) => /新手任務完成|學會了/.test(l.text) && /1\/7/.test(l.text)), '勾目標 → 完成一個');
+  await E.setObjective(q0.id, 0, false); await E.setObjective(q0.id, 0, true);
+  assert.strictEqual(E.tutorialInfo().count, 1, '同一個不重複算');
+  await E.chat('艾琳今天好嗎'); await E.drawFortune(); E.startFocus(0.1); E.cancelFocus();
+  for (const k of ['progress', 'submit']) E.tutorialMark(k);
+  assert.strictEqual(E.tutorialInfo().count, 6);
+  E.tutorialMark('mini');
+  const last = E.settle({ lines: [] });
+  assert.ok(last.lines.some((l) => /畢業/.test(l.text)) && E.tutorialInfo().finished, '全部完成 → 畢業');
+  assert.ok(E.state.history.some((h) => h.reason === '新手村畢業' && h.gold === 50));
+  assert.ok(E.state.history.filter((h) => /^新手任務：/.test(h.reason)).length === 7);
+  assert.ok(E.state.player.gold >= g0 + 7 * 5 + 50 && E.state.player.xp >= xp0 + 7 * 10);
+  E.hideTutorial(); assert.strictEqual(E.view().tutorial, null);
+  // 已經在用的存檔：不跳新手引導
+  const E2 = new Engine({ appDir, userDir });
+  assert.ok(!E2.view().onboarding.needed);
+  const d3 = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-old-'));
+  fs.mkdirSync(path.join(d3, 'data'));
+  fs.writeFileSync(path.join(d3, 'data', 'save.json'), JSON.stringify({ player: { xp: 120, gold: 30 }, history: [{ at: 'x', reason: '完成目標：舊的', xp: 10, gold: 5 }] }));
+  fs.copyFileSync(path.join(__dirname, '..', 'config.example.json'), path.join(d3, 'config.example.json'));
+  const E3 = new Engine({ appDir: d3 });
+  assert.ok(!E3.view().onboarding.needed, '舊存檔直接當作完成引導');
+  E3.restartOnboarding(); assert.ok(E3.view().onboarding.needed, '右鍵選單可以再看一次');
+  for (const d of [appDir, userDir, d3]) fs.rmSync(d, { recursive: true, force: true });
+  console.log('新手引導測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

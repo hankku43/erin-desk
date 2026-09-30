@@ -4,11 +4,19 @@
 const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
 const { Engine } = require('./engine');
 const { EMOTIONS, fillEmotionImages } = require('./npc');
+const SETUP = require('./setup');
+const { buildHealth, parseLog } = require('./health');
 
-const APP_DIR = path.join(__dirname, '..', '..');
-const CHAR_DIR = path.join(APP_DIR, 'assets', 'character');
+const APP_DIR = path.join(__dirname, '..', '..'); // 程式本身（打包後在 app.asar 裡，唯讀）
+// 你的資料（設定、週計畫、存檔、角色設定、自己的角色圖）：
+// 開發時就是程式資料夾；打包給朋友用時放在「文件\艾琳的任務櫃台」，更新程式也不會不見
+let USER_DIR = APP_DIR;
+const charDirs = () => [...new Set([path.join(USER_DIR, 'assets', 'character'), path.join(APP_DIR, 'assets', 'character')])];
+const userCharDir = () => path.join(USER_DIR, 'assets', 'character');
 const WIN_W = 610, WIN_H = 800; // 加寬：狀態面板和角色並排、不重疊
 
 let win, engine, tickTimer, idleTimer, watchTimer, focusTimer;
@@ -19,11 +27,29 @@ if (!app.requestSingleInstanceLock()) app.quit();
 const MINI_SIZE = 140;
 
 function findImage(base) {
-  for (const ext of ['png', 'webp', 'gif', 'apng', 'svg']) {
-    const f = path.join(CHAR_DIR, `${base}.${ext}`);
-    if (fs.existsSync(f)) return 'file:///' + f.replace(/\\/g, '/');
+  for (const dir of charDirs()) { // 自己放的圖優先，沒有就用內建的
+    for (const ext of ['png', 'webp', 'gif', 'apng', 'svg']) {
+      const f = path.join(dir, `${base}.${ext}`);
+      if (fs.existsSync(f)) return 'file:///' + f.replace(/\\/g, '/');
+    }
   }
   return null;
+}
+
+// 打包版第一次啟動：建立使用者資料夾，放一份可以自己改的範本與角色設定
+function prepareUserDir() {
+  if (USER_DIR === APP_DIR) return;
+  for (const d of ['plans', 'lore', 'data', path.join('assets', 'character')]) fs.mkdirSync(path.join(USER_DIR, d), { recursive: true });
+  const copyOnce = (rel) => { const to = path.join(USER_DIR, rel); if (!fs.existsSync(to)) fs.copyFileSync(path.join(APP_DIR, rel), to); };
+  copyOnce(path.join('plans', '_template.md'));
+  copyOnce(path.join('plans', 'week_sample.md')); // 預設的計畫檔（新手教學裡可以換掉）
+  // 角色設定：沒改過的話，程式更新時一起換成新版；改過就保留你的
+  const rel = path.join('lore', '艾琳.md');
+  const src = path.join(APP_DIR, rel), dst = path.join(USER_DIR, rel), mark = `${dst}.builtin`;
+  const hash = (f) => { try { return crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex'); } catch (_) { return null; } };
+  const builtin = hash(src), mine = hash(dst), last = fs.existsSync(mark) ? fs.readFileSync(mark, 'utf8').trim() : null;
+  if (!mine || (mine === last && builtin !== last)) { fs.copyFileSync(src, dst); fs.writeFileSync(mark, builtin || ''); }
+  else if (!last) fs.writeFileSync(mark, mine === builtin ? builtin : '');
 }
 
 function uiImage(base) {
@@ -102,6 +128,9 @@ function inPlaceBounds(cur, d, kind) {
 }
 
 function setMini(on) {
+  if (!on && isMini() && engine.tutorialMark('mini')) { // 🎓 新手任務：變貓咪再叫醒
+    setTimeout(() => { const r = engine.settle({ lines: [] }); if (r.lines.length) push('npc:lines', r.lines); push('view:update', { view: engine.view() }); }, 2600);
+  }
   const d = targetDisplay(); // 先記下「現在在哪台」，再切換大小
   const cur = win && !win.isDestroyed() ? win.getBounds() : null;
   engine.state.ui = { ...(engine.state.ui || {}), mini: !!on };
@@ -212,20 +241,94 @@ function watchPlan() {
   }, 3000);
 }
 
-async function choosePlan() {
+async function choosePlan({ greet = true } = {}) {
   const r = await dialog.showOpenDialog(win, {
     title: '選擇週計畫 Markdown', properties: ['openFile'],
     filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
     defaultPath: path.dirname(engine.planFile()),
   });
-  if (r.canceled || !r.filePaths[0]) return;
-  const chosen = r.filePaths[0];
-  const rel = path.relative(APP_DIR, chosen);
-  engine.saveConfigPatch({ plan: { path: rel.startsWith('..') ? chosen : rel.replace(/\\/g, '/') } });
+  if (r.canceled || !r.filePaths[0]) return { canceled: true, view: engine.view() };
+  engine.usePlanFile(r.filePaths[0]);
   reloadPlan('已切換計畫檔');
   watchPlan();
-  const g = await engine.greet();
-  push('npc:lines', g.lines);
+  if (greet) { const g = await engine.greet(); push('npc:lines', g.lines); }
+  return { chosen: r.filePaths[0], view: engine.view() };
+}
+
+// ---- 🎓 新手引導：偵測 Ollama、下載模型（進度推給畫面）、打開 Ollama ----
+const pulls = new Map(); // model → AbortController
+function startPull(model) {
+  if (pulls.has(model)) return { started: false, already: true };
+  const ctl = new AbortController();
+  pulls.set(model, ctl);
+  const send = (p) => push('setup:progress', { model, ...p });
+  send({ status: 'starting', percent: 0 });
+  SETUP.pull({ baseUrl: engine.config.llm.baseUrl, model, signal: ctl.signal, onProgress: send })
+    .then(async () => {
+      send({ status: 'success', percent: 100, done: true });
+      if (model === engine.config.llm.model) { const st = await engine.npc.checkStatus(); if (st.online) engine.npc.warmUp(); }
+      if (model === engine.lore.embedModel && engine.lore.smartOn()) engine.lore.prepareEmbeddings();
+      push('view:update', { view: engine.view() });
+    })
+    .catch((e) => send({ status: 'error', error: ctl.signal.aborted ? '已取消' : e.message, done: true }))
+    .finally(() => pulls.delete(model));
+  return { started: true };
+}
+function openOllama() {
+  const exe = SETUP.findOllamaApp();
+  if (exe) { try { spawn(exe, [], { detached: true, stdio: 'ignore' }).unref(); return { opened: 'app' }; } catch (_) { /* 改開下載頁 */ } }
+  shell.openExternal(SETUP.OLLAMA_DOWNLOAD);
+  return { opened: 'download' };
+}
+
+// ---- 🩺 健康檢查 ----
+async function healthCheck() {
+  const probe = await SETUP.probe({ baseUrl: engine.config.llm.baseUrl });
+  const planFile = engine.planFile();
+  let saveOK = true;
+  try { const f = path.join(engine.dataDir, '.write-test'); fs.writeFileSync(f, 'ok'); fs.unlinkSync(f); } catch (_) { saveOK = false; }
+  let log = [];
+  try { log = parseLog(fs.readFileSync(path.join(engine.dataDir, 'llm.log'), 'utf8')); } catch (_) { /* 還沒有紀錄 */ }
+  const items = buildHealth({
+    name: engine.config.npc.name,
+    configError: engine.configError,
+    plan: { file: planFile, exists: fs.existsSync(planFile), quests: engine.plan.quests.length, legacy: engine.legacy },
+    llm: { enabled: !!engine.config.llm.enabled, model: engine.config.llm.model },
+    probe, ramGB: probe.ramGB, log,
+    smart: { on: engine.lore.smartOn(), status: engine.lore.embedStatus, explicit: (engine.config.lore || {}).embeddings === true },
+    charOK: !!findImage('normal'), saveOK, userDir: USER_DIR,
+  });
+  return { items, probe, view: engine.view() };
+}
+async function healthFix(action) {
+  const a = String(action || '');
+  if (a === 'resetConfig') {
+    const f = engine.configFile();
+    if (fs.existsSync(f)) fs.copyFileSync(f, f.replace(/\.json$/, `.broken-${Date.now()}.json`));
+    fs.copyFileSync(path.join(APP_DIR, 'config.example.json'), f);
+    engine.configError = null; engine.loadConfig(); engine.loadPlan(); watchPlan();
+    return { reason: '⚙ 設定檔已還原成預設（舊的另存一份在旁邊）' };
+  }
+  if (a === 'openConfig') { shell.openPath(engine.configFile()); return {}; }
+  if (a === 'openFolder') { shell.openPath(USER_DIR); return {}; }
+  if (a === 'openChar') { fs.mkdirSync(userCharDir(), { recursive: true }); shell.openPath(userCharDir()); return {}; }
+  if (a === 'choosePlan') return choosePlan({ greet: false });
+  if (a === 'openOllama') return { ...openOllama(), reason: SETUP.findOllamaApp() ? '正在打開 Ollama…' : '已打開 Ollama 下載頁，裝好後回來按「再檢查一次」' };
+  if (a === 'enableAI') { await setAI(true); return {}; }
+  if (a === 'disableAI') { await setAI(false); return {}; }
+  if (a === 'reconnect') { engine.npc.backoffUntil = 0; await engine.npc.checkStatus(); return {}; }
+  if (a === 'smartOn') return setSmart(true);
+  if (a === 'smartOff') return setSmart(false);
+  if (a.startsWith('pull:')) return startPull(a.slice(5));
+  if (a.startsWith('useModel:')) {
+    const model = a.slice(9);
+    engine.setModel(model);
+    const pr = await SETUP.probe({ baseUrl: engine.config.llm.baseUrl });
+    if (pr.ollama === 'running' && !SETUP.hasModel(pr.models, model)) startPull(model);
+    else await engine.npc.checkStatus();
+    return { reason: `🤖 改用 ${model}` };
+  }
+  throw new Error(`不認得的動作：${a}`);
 }
 
 // 行事曆匯入／匯出（Google／Outlook 的 .ics）
@@ -282,7 +385,8 @@ function showMenu() {
     { label: '📤 匯出本週成行事曆（.ics）…', click: menuSafe(exportIcs) },
     { label: '重新載入計畫檔', click: () => reloadPlan('已重新載入') },
     { label: '開啟計畫檔', click: () => shell.openPath(engine.planFile()) },
-    { label: '開啟設定檔 config.json', click: () => shell.openPath(path.join(APP_DIR, 'config.json')) },
+    { label: '開啟設定檔 config.json', click: () => shell.openPath(engine.configFile()) },
+    { label: '📁 打開我的資料夾', click: () => shell.openPath(USER_DIR) },
     { label: '開啟角色設定檔（艾琳的故事）', click: () => shell.openPath(engine.lore.file) },
     { label: '重新讀取設定', click: async () => { engine.loadConfig(); await engine.npc.checkStatus(); push('view:update', { view: engine.view(), reason: '設定已重新讀取' }); } },
     { type: 'separator' },
@@ -291,7 +395,10 @@ function showMenu() {
     { label: '　立刻重新連線', enabled: !!engine.config.llm.enabled, click: async () => { engine.npc.backoffUntil = 0; const st = await engine.npc.checkStatus(); push('view:update', { view: engine.view(), reason: st.online ? `🟢 AI 已連線（${engine.config.llm.model}）` : `⚪ ${st.message}` }); } },
     { label: `🧠 聰明${npcName}（向量搜尋）`, type: 'checkbox', checked: engine.lore.smartOn(), click: (m) => menuSafe(() => setSmart(m.checked))() },
     { label: `　${engine.lore.statusText()}`, enabled: false },
-    { label: '開啟角色圖片資料夾', click: () => shell.openPath(CHAR_DIR) },
+    { label: '開啟角色圖片資料夾', click: () => { fs.mkdirSync(userCharDir(), { recursive: true }); shell.openPath(userCharDir()); } },
+    { type: 'separator' },
+    { label: '🩺 健康檢查（哪裡怪怪的？）', click: () => { if (mini) setMini(false); push('ui:open', 'health'); } },
+    { label: '🎓 新手教學（再看一次）', click: () => { if (mini) setMini(false); push('ui:open', 'onboard'); } },
     { type: 'separator' },
     { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
     { label: '縮到工作列', click: () => win.minimize() },
@@ -382,7 +489,10 @@ function scheduleIdle() {
 }
 
 app.whenReady().then(async () => {
-  engine = new Engine({ appDir: APP_DIR });
+  if (process.env.QUEST_NPC_HOME) USER_DIR = path.resolve(process.env.QUEST_NPC_HOME);
+  else if (app.isPackaged) USER_DIR = path.join(app.getPath('documents'), '艾琳的任務櫃台');
+  prepareUserDir();
+  engine = new Engine({ appDir: APP_DIR, userDir: USER_DIR });
 
   ipcMain.handle('view:get', wrap(async () => ({ view: engine.view(), character: characterImages(), mini: isMini() })));
   ipcMain.on('win:mini', (_e, on) => setMini(on));
@@ -419,6 +529,26 @@ app.whenReady().then(async () => {
   ipcMain.handle('divine:cast', wrap((opts) => engine.divineCast(opts || {})));
   ipcMain.handle('divine:read', wrap((id) => engine.divineRead(id)));
   ipcMain.handle('ics:export', wrap(() => exportIcs()));
+  // 🎓 新手引導
+  ipcMain.handle('setup:probe', wrap(async () => ({ probe: await SETUP.probe({ baseUrl: engine.config.llm.baseUrl }) })));
+  ipcMain.handle('setup:pull', wrap((model) => startPull(String(model))));
+  ipcMain.handle('setup:cancelPull', wrap((model) => { const c = pulls.get(String(model)); if (c) c.abort(); return {}; }));
+  ipcMain.handle('setup:openOllama', wrap(() => openOllama()));
+  ipcMain.handle('setup:setModel', wrap(async (model) => { const r = engine.setModel(model || null); const st = await engine.npc.setEnabled(!!model); if (st && st.online) engine.npc.warmUp(); return { ...r, view: engine.view() }; }));
+  ipcMain.handle('setup:createPlan', wrap(async (f) => { const r = await engine.createPlan(f || {}); watchPlan(); return r; }));
+  ipcMain.handle('setup:samplePlan', wrap(() => { const r = engine.useSamplePlan(); watchPlan(); return r; }));
+  ipcMain.handle('setup:choosePlan', wrap(() => choosePlan({ greet: false })));
+  ipcMain.handle('setup:importIcs', wrap(async () => {
+    if (!fs.existsSync(engine.planFile()) || engine.planError) { await engine.createPlan({}); watchPlan(); } // 還沒有計畫：先開一份空的這週再匯入
+    return importIcs();
+  }));
+  ipcMain.handle('setup:schedule', wrap((f) => { const r = engine.saveSchedule(f || {}); scheduleIdle(); return r; }));
+  ipcMain.handle('setup:finish', wrap(() => engine.finishOnboarding()));
+  ipcMain.handle('setup:restart', wrap(() => engine.restartOnboarding()));
+  ipcMain.handle('tutorial:hide', wrap(() => engine.hideTutorial()));
+  // 🩺 健康檢查
+  ipcMain.handle('health:check', wrap(() => healthCheck()));
+  ipcMain.handle('health:fix', wrap(async (action) => { const r = await healthFix(action); return { ...r, view: engine.view() }; }));
   ipcMain.on('win:ignore', (_e, ignore) => { if (win) win.setIgnoreMouseEvents(!!ignore, { forward: true }); });
   ipcMain.on('win:move', (_e, { dx, dy }) => {
     if (!win) return;

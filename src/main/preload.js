@@ -37,13 +37,30 @@ contextBridge.exposeInMainWorld('api', {
   divineCheck: (q) => ipcRenderer.invoke('divine:check', q),
   divineCast: (opts) => ipcRenderer.invoke('divine:cast', opts),
   divineRead: (id) => ipcRenderer.invoke('divine:read', id),
+  // 🎓 新手引導
+  setupProbe: () => ipcRenderer.invoke('setup:probe'),
+  setupPull: (model) => ipcRenderer.invoke('setup:pull', model),
+  setupCancelPull: (model) => ipcRenderer.invoke('setup:cancelPull', model),
+  setupOpenOllama: () => ipcRenderer.invoke('setup:openOllama'),
+  setupSetModel: (model) => ipcRenderer.invoke('setup:setModel', model),
+  setupCreatePlan: (f) => ipcRenderer.invoke('setup:createPlan', f),
+  setupSamplePlan: () => ipcRenderer.invoke('setup:samplePlan'),
+  setupChoosePlan: () => ipcRenderer.invoke('setup:choosePlan'),
+  setupImportIcs: () => ipcRenderer.invoke('setup:importIcs'),
+  setupSchedule: (f) => ipcRenderer.invoke('setup:schedule', f),
+  setupFinish: () => ipcRenderer.invoke('setup:finish'),
+  setupRestart: () => ipcRenderer.invoke('setup:restart'),
+  hideTutorial: () => ipcRenderer.invoke('tutorial:hide'),
+  // 🩺 健康檢查
+  healthCheck: () => ipcRenderer.invoke('health:check'),
+  healthFix: (action) => ipcRenderer.invoke('health:fix', action),
   setIgnoreMouse: (ignore) => ipcRenderer.send('win:ignore', ignore),
   moveWindow: (dx, dy) => ipcRenderer.send('win:move', { dx, dy }),
   dragEnd: () => ipcRenderer.send('win:dragEnd'),
   openMenu: () => ipcRenderer.send('win:menu'),
   setMini: (on) => ipcRenderer.send('win:mini', on),
   on: (channel, fn) => {
-    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward'];
+    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward', 'setup:progress'];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, payload) => fn(payload));
   },
