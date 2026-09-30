@@ -350,6 +350,9 @@ function applyView(v) {
   $('#xpfill').style.width = `${Math.min(100, (p.xpInLevel / p.xpForNext) * 100)}%`;
   $('#xptext').textContent = `${p.xpInLevel} / ${p.xpForNext} XP`;
   $('#npcName').textContent = v.npc.name;
+  const cold = !!(v.affection && v.affection.cold); // 冷戰中：名牌上一片雪花（好感度本身不顯示）
+  $('#npcName').classList.toggle('cold', cold);
+  $('#npcName').title = cold ? `${v.npc.name}好像還在生氣……` : '';
   
   const dot = $('#aiDot');
   const online = !!(v.npc.status && v.npc.status.online);

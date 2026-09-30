@@ -503,3 +503,7 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .dv-detail-btn:hover { text-decoration: underline; }
 .dv-detail { font-size: 11.5px; line-height: 1.65; background: #fff; border: 1px dashed var(--line); border-radius: 8px; padding: 6px 9px; color: var(--ink-soft); }
 .dv-detail b { color: var(--ink); }
+
+/* 💗 隱藏好感度：冷戰中名牌變冷色＋雪花 */
+.nameplate.cold { background: linear-gradient(135deg, #7d8fa8, #a9b8cc); }
+.nameplate.cold::after { content: ' ❄'; }

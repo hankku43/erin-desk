@@ -624,10 +624,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(EMOTIONS.includes('shy') && EMOTIONS.includes('disdain'));
   const loreSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'lore.js'), 'utf8');
   assert.strictEqual(loreSrc.match(/const EMOTIONS = (\[[^\]]*\])/)[1], JSON.stringify(EMOTIONS).replace(/"/g, "'").replace(/,/g, ', '), 'lore.js 的表情清單要跟 npc.js 一樣');
-  // 角色設定檔裡的 shy／disdain 讀得到
+  // 角色設定檔裡的 shy 讀得到；disdain 只留給失禮、騷擾（設定裡不能有）
   const byTitle = Object.fromEntries(L.entries.map((e) => [e.title, e.emotion]));
   assert.strictEqual(byTitle['稱讚與感謝'], 'shy');
-  assert.strictEqual(byTitle['討厭的東西'], 'disdain');
+  assert.ok(!L.entries.some((e) => e.emotion === 'disdain'), '角色設定不能標 disdain');
   // 內建台詞只用存在的表情，而且新表情真的有被用到
   const used = new Set();
   for (const arr of Object.values(TEMPLATES)) for (const [, emo] of arr) { assert.ok(EMOTIONS.includes(emo), `不存在的表情：${emo}`); used.add(emo); }
@@ -687,10 +687,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const { Engine } = require('../src/main/engine');
   const { refineEmotion, dropRepeats, MOODS } = require('../src/main/npc');
   const I = require('../src/main/intent');
-  // 台詞在害羞／嫌棄，表情卻是笑的 → 修正；模型自己選了別的表情就不動
+  // 台詞在害羞，表情卻是笑的 → 修正；模型自己選了別的表情就不動；鄙視不靠台詞推測（只在失禮時出現）
   assert.strictEqual(refineEmotion('艾、艾琳才沒有害羞！', 'happy'), 'shy');
   assert.strictEqual(refineEmotion('（突然低下頭）……謝謝你。', 'happy'), 'shy');
-  assert.strictEqual(refineEmotion('黃瓜？艾琳冷冷地看著它。', 'normal'), 'disdain');
+  assert.strictEqual(refineEmotion('黃瓜？艾琳冷冷地看著它。', 'normal'), 'normal');
   assert.strictEqual(refineEmotion('嗯哼～今天也一起加油吧！', 'happy'), 'happy');
   assert.strictEqual(refineEmotion('艾、艾琳嚇到了！', 'surprised'), 'surprised');
   // 重複前幾句的句子會被拿掉；整句都重複時保留並標記
@@ -714,7 +714,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.npc.status.online = true;
   E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify(reply) } }; };
   const sys = () => sent.messages[0].content;
-  assert.strictEqual(E.emotionChance(), 0.5, '預設一半的機率');
+  assert.strictEqual(E.emotionChance(), 0.2, '好感第 1 階：害羞機率 0.2');
   // 骰到了：請模型害羞、表情固定 shy、這句不要提任務
   E.rand = () => 0.1;
   reply = { line: '欸？！艾琳才、才不是……尾巴自己在動啦。', emotion: 'shy', actions: [] };
@@ -757,7 +757,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(sent.messages.filter((m) => m.role !== 'system').length <= 5, '最多帶 4 句舊對話');
   // 戳一下：骰到就害羞，戳太多下骰到就鄙視
   E.saveConfigPatch({ lore: { emotionChance: 0.5 } }); E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify(reply) } }; }; E.npc.status.online = true;
-  E.rand = () => 0.1; E.pokeTimes = [];
+  E.rand = () => 0.05; E.pokeTimes = [];
   reply = { line: '尾、尾巴不可以抓啦……', emotion: 'shy' };
   r = await E.poke(); assert.strictEqual(r.lines[0].emotion, 'shy'); assert.ok(/這次的情緒：害羞/.test(sys()));
   await E.poke();
@@ -766,7 +766,150 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   // AI 關著時，骰到害羞就挑害羞的內建台詞
   E.npc.status.online = false; E.pokeTimes = [];
   for (let i = 0; i < 5; i++) { E.pokeTimes = []; r = await E.poke(); assert.strictEqual(r.lines[0].emotion, 'shy', '離線也挑害羞的句子：' + r.lines[0].text); }
-  assert.ok(MOODS.shy('冒險者').includes('冒險者'));
+  assert.ok(MOODS.shy('冒險者', '艾琳').includes('艾、艾琳'));
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('害羞與重複測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 💗 隱藏好感度 ----------
+(async () => {
+  const os = require('os');
+  const A = require('../src/main/affection');
+  const { Engine } = require('../src/main/engine');
+  // 判斷：要針對艾琳才算；抱怨工作、台灣口語、說自己很痛苦都不算
+  const cls = { '你是白癡': 'rude', '白癡': 'rude', '給我去死': 'rude', '你很煩': 'rude', '你媽的': 'rude', '滾': 'rude',
+    '這個bug白癡': null, '你看這垃圾code': null, '幹得好': null, '靠北這個bug又來了': null, '這專案煩死了': null, '他媽的這個bug': null, '笨蛋': null,
+    '給我看你的胸部': 'harass', '你的屁股好翹': 'harass', '今晚陪我睡': 'harass', '胸部X光的報告寫好了': null, '我摸摸你的頭': null,
+    '對不起啦': 'apology', '不好意思，請問一下': null, '謝謝艾琳': 'kind', '我好想去死': 'care', '累死我了': null };
+  for (const [t, k] of Object.entries(cls)) assert.strictEqual(A.classify(t), k, `「${t}」應該是 ${k}`);
+  assert.strictEqual(A.classify('你這個爛東西', { rude: ['爛東西'] }), 'rude', '自己加的關鍵字');
+  const t0 = Date.now();
+  assert.strictEqual(A.spamCheck('asdfgh', [], t0), 'mash');
+  assert.strictEqual(A.spamCheck('jjjjjjj', [], t0), 'repeat');
+  assert.strictEqual(A.spamCheck('哈哈哈哈哈哈', [], t0), null, '笑聲不算洗版');
+  assert.strictEqual(A.spamCheck('你好', [{ text: '你好', at: t0 - 1000 }], t0), null, '重複一次還不算');
+  assert.strictEqual(A.spamCheck('你好', [{ text: '你好', at: t0 - 1000 }, { text: '你好！', at: t0 - 2000 }], t0), 'same', '同一句第三次');
+  assert.strictEqual(A.spamCheck('新的一句', Array.from({ length: 6 }, (_, i) => ({ text: `第${i}句`, at: t0 - i * 5000 })), t0), 'flood');
+  assert.deepStrictEqual([0, 29, 30, 80, 160, 280, 999].map((p) => A.stageOf(p)), [1, 1, 2, 3, 4, 5, 5]);
+  assert.strictEqual(A.stageOf(27, 2), 2, '差一點點不降');
+  assert.strictEqual(A.stageOf(24, 2), 1);
+  assert.strictEqual(A.guardAttitude('rude', '這專案爛透了'), 'rude', '短句、沒有工作內容 → 採信');
+  assert.strictEqual(A.guardAttitude('rude', '幫我把那個模型跑完然後整理一下結果給我看看好嗎這樣可以嗎'), 'ok', '長句又沒有針對艾琳 → 不採信');
+  assert.strictEqual(A.guardAttitude('rude', '你真的很爛欸', { hasWork: true }), 'ok', '同一句在回報進度 → 不扣');
+  assert.strictEqual(A.guardAttitude('harass', '我好想死'), 'ok');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-aff-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  let t = new Date(`${new Date().getFullYear()}-09-30T10:00:00`).getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  let sent = null, reply = { line: '嗯哼～', emotion: 'happy', actions: [], attitude: 'ok' }, calls = 0;
+  const online = () => { E.npc.status.online = true; E.npc.fetchJSON = async (_p, body) => { calls++; sent = body; return { message: { content: JSON.stringify(reply) } }; }; };
+  online();
+  E.rand = () => 0.99; // 預設不擲出害羞／鄙視
+  const sys = () => sent.messages[0].content;
+  const a = () => E.state.affection || E.aff();
+  const next = (ms = 60000) => { t += ms; };
+  // 一開始：第 1 階，系統提示有關係、沒有數字
+  await E.greet();
+  assert.strictEqual(a().points, 1, '今天第一次見面 +1');
+  assert.ok(/登記簿上的名字/.test(sys()) && !/好感\s*\d/.test(sys()), '系統提示有關係描述、沒有數字');
+  assert.strictEqual(E.view().affection.cold, false);
+  assert.ok(!('points' in E.view().affection), '畫面拿不到好感數字');
+  next(); await E.greet(); assert.strictEqual(a().points, 1, '同一天再打招呼不加');
+  // 完成目標 +1，取消再勾不會重複加
+  const q = E.plan.quests[0];
+  await E.setObjective(q.id, 0, true); assert.strictEqual(a().points, 2);
+  await E.setObjective(q.id, 0, false); await E.setObjective(q.id, 0, true); assert.strictEqual(a().points, 2, '同一個目標只加一次');
+  // 稱讚一天最多算 3 次
+  for (const w of ['艾琳謝謝你', '你好可愛喔', '辛苦了艾琳', '艾琳最棒了']) { next(); await E.chat(w); }
+  assert.strictEqual(a().points, 5, '稱讚最多 +3');
+  // 每日上限 10
+  a().gainedToday = 9; await E.dailyReport({ done: '整理了試吃菜單', blocker: '', next: '' });
+  assert.strictEqual(a().points, 6, '下班回報 +2，但到上限只加到 10');
+  // 失禮（關鍵字）：鄙視的臉、不處理進度；−3 再因為鄙視 −2
+  a().points = 50; next();
+  reply = { line: '……這樣講話，艾琳不喜歡。', emotion: 'happy', actions: [{ type: 'check', target: 'q2-0' }], attitude: 'ok' };
+  let r = await E.chat('你是白癡');
+  assert.ok(/這次的情緒：鄙視/.test(sys()) && sent.format.properties.emotion.enum.join() === 'disdain');
+  assert.strictEqual(r.lines[0].emotion, 'disdain'); assert.strictEqual(r.proposal, null, '罵人的那句不處理進度');
+  assert.strictEqual(a().points, 45, '失禮 −3、鄙視 −2');
+  assert.ok(a().log.some((x) => x.reason === '失禮') && a().log.some((x) => x.reason === '露出鄙視的眼神'));
+  // AI 說失禮，但只是在抱怨工作的長句 → 不扣，也不擺臉色
+  next(); reply = { line: '辛苦了，先喝口奶茶吧。', emotion: 'disdain', actions: [], attitude: 'rude' };
+  r = await E.chat('今天這份報告又要改第五版了真的很想把電腦丟出去');
+  assert.strictEqual(a().points, 45); assert.strictEqual(r.lines[0].emotion, 'thinking');
+  // 說自己很痛苦：就算 AI 誤判也不扣，而且請 AI 溫柔關心
+  next(); reply = { line: '冒險者，先休息一下好嗎？', emotion: 'worried', actions: [], attitude: 'rude' };
+  await E.chat('我好想去死');
+  assert.strictEqual(a().points, 45); assert.ok(/溫柔地關心/.test(sys()));
+  // AI 判斷的騷擾（短句）：−5、鄙視 −2
+  next(); reply = { line: '……請自重。', emotion: 'normal', actions: [], attitude: 'harass' };
+  r = await E.chat('今晚來我房間');
+  assert.strictEqual(r.lines[0].emotion, 'disdain'); assert.strictEqual(a().points, 38);
+  // 10 分鐘內第三次 → 冷戰
+  next(); reply = { line: '……', emotion: 'normal', actions: [], attitude: 'ok' };
+  r = await E.chat('閉嘴啦');
+  assert.ok(r.lines.some((l) => /整理委託書/.test(l.text)), '冷戰開始的台詞');
+  assert.ok(E.isCold() && E.view().affection.cold, '冷戰中');
+  const before = a().points; calls = 0; E.pokeTimes = [];
+  r = await E.poke();
+  assert.strictEqual(calls, 0, '冷戰中戳她不問 AI'); assert.strictEqual(a().points, before, '也不再扣');
+  assert.ok(TEMPLATESof('poke_cold').includes(r.lines[0].text));
+  next(); reply = { line: '嗯。有公事就說。', emotion: 'happy', actions: [], attitude: 'ok' };
+  r = await E.chat('今天天氣不錯');
+  assert.ok(/冷戰中/.test(sys()) && sent.format.properties.emotion.enum.join() === 'normal', '冷戰：冷淡、表情固定 normal');
+  // 道歉：+2、和好；一天只算一次
+  next(); reply = { line: '……好啦，原諒你。', emotion: 'shy', actions: [], attitude: 'apology' };
+  const p0 = a().points;
+  await E.chat('對不起，剛剛是我不好');
+  assert.ok(/【道歉】/.test(sys())); assert.strictEqual(a().points, p0 + 2); assert.ok(!E.isCold(), '和好了');
+  next(); await E.chat('真的對不起'); assert.strictEqual(a().points, p0 + 2, '道歉一天只算一次');
+  // 洗版：不問 AI；第三次開始扣（−1，鄙視再 −2）
+  calls = 0; const p1 = a().points;
+  for (const w of ['asdfgh', 'qwerty', 'zxcvbn']) { next(5000); r = await E.chat(w); }
+  assert.strictEqual(calls, 0, '洗版不問 AI'); assert.strictEqual(r.lines[0].emotion, 'disdain'); assert.strictEqual(a().points, p1 - 3);
+  // 連戳：第 3、4 下 −1；骰到鄙視再 −2；第 5 下 −2
+  t += 3600000; a().offenses = []; a().coldUntil = 0;
+  E.pokeTimes = []; reply = { line: '嗯？', emotion: 'normal' };
+  const p2 = a().points;
+  await E.poke(); await E.poke(); assert.strictEqual(a().points, p2, '前兩下不扣');
+  await E.poke(); assert.strictEqual(a().points, p2 - 1, '第三下 −1（沒骰到鄙視）');
+  E.rand = () => 0.05; reply = { line: '……你是不是很閒？', emotion: 'disdain' };
+  r = await E.poke(); assert.strictEqual(r.lines[0].emotion, 'disdain'); assert.strictEqual(a().points, p2 - 4, '第四下 −1、鄙視 −2');
+  E.rand = () => 0.99; reply = { line: '喵！', emotion: 'surprised' };
+  await E.poke(); assert.strictEqual(a().points, p2 - 6, '第五下 −2');
+  // 升階：跨過門檻 → 專屬台詞＋心意金幣（只有第一次）；掉下去 → 生疏；再升回來不再送
+  t += 86400000; a().offenses = []; a().coldUntil = 0;
+  a().points = 28; a().stage = 1; a().maxStage = 1;
+  const g0 = E.state.player.gold;
+  r = await E.setObjective(q.id, 1, true);
+  r = await E.setObjective(q.id, 2, true);
+  assert.ok(r.lines.some((l) => /常客才有/.test(l.text)), '升到第 2 階的台詞');
+  assert.strictEqual(a().stage, 2); assert.ok(E.state.player.gold >= g0 + 20, '心意：20 金幣');
+  assert.ok(/「常客」/.test((await E.chat('今天好忙'), sys())), '系統提示換成常客');
+  a().points = 20; E.pokeTimes = [];
+  r = await E.poke(); assert.ok(r.lines.some((l) => /生疏/.test(l.text)) && a().stage === 1, '掉回第 1 階');
+  const g1 = E.state.player.gold; a().points = 35; r = await E.poke();
+  assert.ok(r.lines.some((l) => /常客才有/.test(l.text)) && E.state.player.gold === g1, '再升回來不再送');
+  // 解鎖劇情：第 3 階以上才聊得到小本子；問關係照階段回答（AI 關著）
+  E.npc.status.online = false;
+  const book = E.lore.entries.find((x) => x.title === '艾琳的小本子').reply;
+  next(); r = await E.chat('你的小本子寫了什麼'); assert.notStrictEqual(r.lines[0].text, book, '第 2 階還聊不到');
+  a().points = 90; next(); r = await E.chat('你的小本子寫了什麼'); assert.strictEqual(r.lines[0].text, book, '第 3 階解鎖');
+  next(); r = await E.chat('我們是什麼關係'); assert.ok(/奶茶要幾分糖/.test(r.lines[0].text), '問關係：第 3 階的回答');
+  assert.strictEqual(E.emotionChance(), 0.5, '第 3 階害羞機率 0.5');
+  // 離線罵人：用內建的鄙視台詞
+  next(); r = await E.chat('你這個垃圾貓'); assert.strictEqual(r.lines[0].emotion, 'disdain'); assert.ok(/不喜歡|沒聽到/.test(r.lines[0].text));
+  // 鄙視只在扣分時出現：非聊天事件的 schema 不給選
+  online(); reply = { line: '早安！', emotion: 'normal' }; await E.daily();
+  assert.ok(!sent.format.properties.emotion.enum.includes('disdain'));
+  // 關掉好感度
+  E.saveConfigPatch({ affection: { enabled: false } }); online();
+  const p3 = (E.state.affection || {}).points;
+  next(); reply = { line: '……', emotion: 'normal', actions: [], attitude: 'rude' }; await E.chat('你是白癡');
+  assert.strictEqual(E.state.affection.points, p3, '關掉後不扣'); assert.ok(!/【關係】/.test(sys())); assert.strictEqual(E.emotionChance(), 0.5);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('好感度測試通過 ✔');
+  function TEMPLATESof(k) { return require('../src/main/npc').TEMPLATES[k].map(([x]) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者')); }
 })().catch((e) => { console.error(e); process.exit(1); });

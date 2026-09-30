@@ -21,6 +21,7 @@ const I = require('./intent');
 const { Lore } = require('./lore');
 const ICS = require('./ics');
 const MH = require('./meihua');
+const A = require('./affection');
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -76,6 +77,7 @@ class Engine {
     this.npc.setLogFile(path.join(this.dataDir, 'llm.log')); // 每次呼叫 AI 的耗時，AI 常回不出來時看這裡
     this.loadState();
     this.backedUp = false;
+    this.affPending = []; // 好感度事件（冷戰開始…），settle() 時變成台詞
     this.loadPlan();
   }
 
@@ -88,7 +90,7 @@ class Engine {
       llm: { enabled: true, baseUrl: 'http://127.0.0.1:11434', model: 'qwen3:4b', noThinkPrefix: '/no_think\n' },
       rewards: G.DEFAULT_REWARDS,
       window: { alwaysOnTop: true, idleChatterMinutes: 45 },
-      lore: { path: 'lore/艾琳.md', topK: 3, embeddings: 'auto', embedModel: 'qwen3-embedding:0.6b', emotionChance: 0.5 },
+      lore: { path: 'lore/艾琳.md', topK: 3, embeddings: 'auto', embedModel: 'qwen3-embedding:0.6b' },
       focus: { minutes: 25, rest: 5, xp: 15, gold: 3 }, // 🍅 專注模式
       divination: { cost: 10, repeatHours: 24 }, // ✨ 占卜魔法：每次花費的金幣、一事不二占的時間
       reminders: {
@@ -430,6 +432,7 @@ class Engine {
       focus: this.focusInfo(),
       divination: this.divineInfo(),
       fortune: this.fortuneToday(),
+      affection: { cold: this.isCold() }, // 好感度本身不給畫面看
     };
   }
 
@@ -465,6 +468,7 @@ class Engine {
   }
 
   async say(event, extra = {}, opts = {}) {
+    this.npc.relation = this.relationInfo();
     const line = await this.npc.say(event, this.facts(extra), opts);
     return { ...line, event };
   }
@@ -494,13 +498,14 @@ class Engine {
     if (this.state.lastGreetDate !== today) {
       // 今天第一次啟動：早安問候
       this.state.lastGreetDate = today;
+      this.affect(this.affCfg().gain.greet, '今天第一次見面');
       this.saveState();
       lines.push(await this.say('morning', { dayGreet: this.dayGreet(now), todayLine: this.todayLine(), eventDetail: `今天第一次見面，${this.todayLine()}` }));
     } else {
       lines.push(await this.say('greet'));
     }
     if (overdue.length) lines.push(await this.say('overdue', { questView: overdue[0], eventDetail: `逾期任務：${overdue.map((q) => q.title).join('、')}` }));
-    return { lines, view: this.view() };
+    return this.settle({ lines, view: this.view() });
   }
 
   // 點一下角色：符合個性的小反應。短時間內連戳會越來越無奈，戳五下會喵
@@ -510,17 +515,25 @@ class Engine {
     this.pokeTimes.push(now);
     const pokeCount = this.pokeTimes.length;
     const event = pokeCount >= 5 ? 'poke_meow' : pokeCount >= 3 ? 'poke_annoyed' : 'poke';
-    // 從角色設定裡隨機抽一條當靈感，AI 的閒聊才不會每次都一樣
-    const e = this.lore.entries.length ? this.lore.entries[Math.floor(Math.random() * this.lore.entries.length)] : null;
+    // 冷戰中：不理你（不問 AI、也不再扣）
+    if (this.isCold()) return { lines: [{ ...this.affTpl('poke_cold'), event: 'poke' }], view: this.view() };
+    const stage = this.affStage();
+    // 從角色設定裡隨機抽一條當靈感，AI 的閒聊才不會每次都一樣（還沒解鎖的不抽）
+    const pool = this.lore.entries.filter((x) => (x.minStage || 0) <= stage);
+    const e = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
     const inspiration = e ? `${e.title}：${e.text.split(/[。！？\n]/)[0]}。` : '';
     const recent = (this.state.recentQuips || []);
-    // 偶爾害羞、戳太多下偶爾鄙視（機率見 lore.emotionChance）
+    // 偶爾害羞；戳太多下偶爾露出鄙視的眼神（越熟越包容）
     const chance = this.emotionChance();
-    const mood = event === 'poke' ? (this.rnd() < chance * 0.4 ? 'shy' : null) : event === 'poke_annoyed' ? (this.rnd() < chance ? 'disdain' : null) : null;
+    const disdainChance = this.affOn() ? A.pick(this.affCfg().pokeDisdain, stage) : chance;
+    const mood = event === 'poke' ? (this.rnd() < chance * 0.4 ? 'shy' : null) : event === 'poke_annoyed' ? (this.rnd() < disdainChance ? 'disdain' : null) : null;
     const line = await this.say(event, { pokeCount, inspiration, recent, eventDetail: `冒險者戳了你（12 秒內第 ${pokeCount} 次）` }, { mood });
     if (line.tpl) { this.state.recentQuips = [line.tpl, ...recent].slice(0, 10); this.saveState(); }
     delete line.tpl;
-    return { lines: [line], view: this.view() };
+    const loss = this.affCfg().loss;
+    if (event === 'poke_annoyed') this.affect(-loss.poke_annoyed, '一直戳艾琳');
+    if (event === 'poke_meow') { this.affect(-loss.poke_meow, '一直戳艾琳'); this.offense('poke'); }
+    return this.settle({ lines: [line], view: this.view() });
   }
 
   async setObjective(questId, index, done) {
@@ -534,11 +547,13 @@ class Engine {
       lines.push(await this.say('objective', { questView: qv, eventDetail: `完成目標「${q.objectives[index].text}」` }));
       if (reward && reward.levelUp) lines.push(await this.say('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }));
     }
-    return { reward, lines, view: this.view() };
+    if (reward) this.affect(this.affCfg().gain.objective, '完成目標'); // 第一次完成才有（跟星屑一樣）
+    return this.settle({ reward, lines, view: this.view() });
   }
 
   async submit(questId, report = '') {
     const r = G.submitQuest(this.state, this.ps, this.plan, questId, report, this.now(), this.config.rewards);
+    this.affect(this.affCfg().gain.submit + (r.onTime ? this.affCfg().gain.onTime : 0), r.onTime ? '準時交付任務' : '交付任務');
     this.saveState();
     const lines = [];
     lines.push(await this.say('submit', {
@@ -552,7 +567,7 @@ class Engine {
     } else {
       lines.push(await this.say('all_clear'));
     }
-    return { reward: r, lines, view: this.view() };
+    return this.settle({ reward: r, lines, view: this.view() });
   }
 
   // ---- 🍅 專注模式：艾琳變回貓咪陪你，時間到叫你休息並給星屑 ----
@@ -601,18 +616,85 @@ class Engine {
     this.state.focusStats = stats;
     this.state.focus = null;
     const reward = G.grant(this.state, { xp: c.xp, gold: c.gold }, `完成專注 ${Math.round(f.minutes)} 分鐘（今天第 ${stats.count} 顆🍅）`, this.config.rewards);
+    if (f.minutes >= 10) this.affect(this.affCfg().gain.focus, '完成專注');
     this.saveState();
     const lines = [this.focusLine('focus_done', { minutes: Math.round(f.minutes), count: stats.count })];
     if (reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
-    return { reward, lines, focus: this.focusInfo(), view: this.view() };
+    return this.settle({ reward, lines, focus: this.focusInfo(), view: this.view() });
   }
 
   // ---- 🔮 今日運勢：每天第一次抽有一點獎勵，之後再點就是再看一次 ----
   // ---- ✨ 占卜魔法（艾琳的「星環占」＝梅花易數）----
   divCfg() { return { cost: 10, repeatHours: 24, ...(this.config.divination || {}) }; }
   rnd() { return (this.rand || Math.random)(); }
-  // 命中標了害羞／鄙視的設定（或戳她）時，這次真的害羞／鄙視的機率 0～1（config 的 lore.emotionChance）
-  emotionChance() { const c = Number((this.config.lore || {}).emotionChance); return Number.isFinite(c) ? Math.min(1, Math.max(0, c)) : 0.5; }
+  // 聊到稱讚／感情／秘密（或戳她）時，這次真的害羞的機率 0～1：
+  // config 的 lore.emotionChance 有填就固定用它，沒填就看好感階段（越熟越容易害羞）
+  emotionChance() {
+    const raw = (this.config.lore || {}).emotionChance;
+    const c = Number(raw);
+    if (raw !== undefined && raw !== null && raw !== '' && Number.isFinite(c)) return Math.min(1, Math.max(0, c));
+    return this.affOn() ? A.pick(this.affCfg().shyChance, this.affStage()) : 0.5;
+  }
+
+  // ---- 💗 隱藏好感度：畫面上沒有數字，只會從艾琳的態度感覺出來 ----
+  affCfg() { return A.config(this.config.affection || {}); }
+  affOn() { return this.affCfg().enabled !== false; }
+  aff() {
+    const today = G.todayISO(this.now());
+    let a = this.state.affection;
+    if (!a) a = this.state.affection = { points: 0, stage: 1, maxStage: 1, day: today, gainedToday: 0, kindToday: 0, apologyDay: null, coldUntil: 0, offenses: [], spam: [], log: [] };
+    if (a.day !== today) { a.day = today; a.gainedToday = 0; a.kindToday = 0; }
+    return a;
+  }
+  affStage() { if (!this.affOn()) return 99; const a = this.aff(); return A.stageOf(a.points, a.stage, this.affCfg().thresholds); }
+  isCold() { return this.affOn() && this.aff().coldUntil > this.now().getTime(); }
+  // 加減好感：加分有每日上限（道歉這種「挽回」不算），扣分沒有；最低 0
+  affect(delta, reason, { uncapped = false } = {}) {
+    if (!this.affOn() || !delta) return 0;
+    const a = this.aff();
+    if (delta > 0 && !uncapped) { delta = Math.min(delta, Math.max(0, this.affCfg().dailyCap - a.gainedToday)); a.gainedToday += delta; }
+    if (!delta) return 0;
+    const before = a.points;
+    a.points = Math.max(0, a.points + delta);
+    a.log = [{ at: this.now().toISOString(), delta: a.points - before, reason }, ...(a.log || [])].slice(0, 60);
+    this.saveState();
+    return a.points - before;
+  }
+  // 記一次失禮：10 分鐘內三次（或騷擾兩次）就冷戰
+  offense(kind) {
+    const a = this.aff();
+    const at = this.now().getTime();
+    a.offenses = [...(a.offenses || []), { at, kind }].filter((o) => at - o.at < 24 * 3600000).slice(-30);
+    const recent = a.offenses.filter((o) => at - o.at < 10 * 60000);
+    if (!this.isCold() && (recent.length >= 3 || recent.filter((o) => o.kind === 'harass').length >= 2)) {
+      a.coldUntil = at + this.affCfg().coldMinutes * 60000;
+      this.affPending.push('cold_start');
+    }
+  }
+  relationInfo() {
+    if (!this.affOn()) return null;
+    const st = A.stageInfo(this.affStage());
+    return { stage: st.n, name: st.name, desc: st.desc, cold: this.isCold() };
+  }
+  affTpl(key, extra = {}) { const l = { ...this.npc.template(key, extra), event: 'affection' }; delete l.tpl; return l; }
+  // 每個動作結束前呼叫：露出鄙視的臉要多扣；升降階、冷戰開始的台詞接在後面
+  settle(res) {
+    if (!res || !this.affOn()) return res;
+    const lines = res.lines || [];
+    for (const l of lines) if (l && l.emotion === 'disdain') this.affect(-this.affCfg().loss.disdain, '露出鄙視的眼神');
+    const a = this.aff();
+    const extra = this.affPending.splice(0).map((k) => this.affTpl(k));
+    const st = A.stageOf(a.points, a.stage, this.affCfg().thresholds);
+    if (st > a.stage) {
+      extra.push(this.affTpl(`stageup_${st}`));
+      if (st > (a.maxStage || 1)) { G.grant(this.state, { xp: 0, gold: 10 * st }, '艾琳的心意', this.config.rewards); a.maxStage = st; }
+    } else if (st < a.stage) extra.push(this.affTpl('stagedown'));
+    a.stage = st;
+    this.saveState();
+    if (extra.length) res.lines = [...lines, ...extra];
+    if (res.view) res.view = this.view();
+    return res;
+  }
   divineInfo() {
     const L = MH.lunarInfo(this.now());
     const recent = (this.state.divinations || []).slice(0, 5).map((d) => ({ id: d.id, at: d.at, question: d.question, ben: d.result.ben.name, tag: d.result.verdict.tag, level: d.result.verdict.level }));
@@ -740,66 +822,125 @@ class Engine {
     let writeError = null;
     try { this.writePlan(this.P.setProgress(this.planText, date, fields)); } catch (e) { writeError = e.message; }
     const reward = G.onDailyReport(this.state, this.ps, date, fields, this.config.rewards);
+    if (reward) this.affect(this.affCfg().gain.report, '下班回報');
     this.saveState();
     const report = [fields.done, fields.blocker && `卡點：${fields.blocker}`, fields.next && `明天：${fields.next}`].filter(Boolean).join('；');
     const lines = [await this.say('daily_report', { report })];
     if (reward && reward.levelUp) lines.push(await this.say('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }));
-    return { reward, lines, writeError, view: this.view() };
+    return this.settle({ reward, lines, writeError, view: this.view() });
   }
 
   async chat(text) {
     const now = this.now();
+    const at = now.getTime();
+    const today = G.todayISO(now);
     const cat = I.buildCatalog(this.plan, this.ps, this.todayInfo(), now);
-    const hits = await this.lore.retrieve(text, (this.config.lore || {}).topK || 3); // 跟這句話相關的角色設定
-    // 對話紀錄只給 AI 看「同一個當前任務、30 分鐘內」的：換了任務之後，舊對話裡的任務名會讓小模型講錯
     const quest = this.ps.activeQuestId || null;
-    const at = this.now().getTime();
+    const aOn = this.affOn();
+    const acfg = this.affCfg();
+    const { self, call } = this.npc.names();
+    // 洗版（亂打鍵盤、同一句第三次、一分鐘丟一堆）：不問 AI 直接回，10 分鐘內第三次開始扣好感
+    if (aOn) {
+      const a = this.aff();
+      const said = this.state.chat.filter((h) => h.role === 'user' && h.at).map((h) => ({ text: h.content, at: h.at }));
+      if (A.spamCheck(text, [...said, ...(a.spam || [])], at)) {
+        a.spam = [...(a.spam || []), { text, at }].filter((x) => at - x.at < 10 * 60000).slice(-20);
+        const mad = a.spam.length >= 3;
+        if (mad) { this.affect(-acfg.loss.spam, '洗版'); this.offense('spam'); }
+        this.saveState();
+        return this.settle({ lines: [{ ...this.affTpl(mad ? 'spam_mad' : 'spam'), event: 'chat' }], proposal: null, view: this.view() });
+      }
+    }
+    const stage = this.affStage();
+    const hits = await this.lore.retrieve(text, (this.config.lore || {}).topK || 3, { stage }); // 跟這句話相關的角色設定（還沒解鎖的不算）
+    // 對話紀錄只給 AI 看「同一個當前任務、30 分鐘內」的：換了任務之後，舊對話裡的任務名會讓小模型講錯
     const recent = this.state.chat.filter((h) => h.quest === quest && h.at && at - h.at < 30 * 60000);
     this.state.chat.push({ role: 'user', content: text, quest, at });
-    // 命中「稱讚／秘密／感情」這類標了害羞（或鄙視）的設定時，先擲骰決定這次要不要真的害羞；
-    // 要的話請模型照這個情緒說話、表情固定。同一句話在回報進度時不套用（那時要好好確認）
-    const strong = hits.find((h) => h.strong);
-    const hint = strong && strong.entry.emotion;
-    const mood = (hint === 'shy' || hint === 'disdain') && !I.ruleParse(text, cat).length && this.rnd() < this.emotionChance() ? hint : null;
+    const workItems = I.ruleParse(text, cat);
+    // 好感：先用關鍵字看這句話（騷擾／失禮／道歉／稱讚／說自己很痛苦），AI 開著時再請它判斷一次
+    const kw = aOn ? A.classify(text, acfg.words) : null;
+    const offenseKw = kw === 'rude' || kw === 'harass' ? kw : null;
+    const a = aOn ? this.aff() : null;
+    const recentOffense = aOn && (a.offenses || []).some((o) => at - o.at < 24 * 3600000);
+    const canApologize = aOn && (this.isCold() || recentOffense) && a.apologyDay !== today;
+    const apologizing = kw === 'apology' && canApologize;
+    const relationQ = aOn && A.RELATION.test(text);
+    const extra = [I.ACTION_RULES];
+    if (aOn) extra.push(A.attitudeRules(call, self));
+    if (apologizing) extra.push(`【道歉】${call}在為剛才的失禮道歉：接受道歉，可以小小抱怨一句，最後原諒他。`);
+    if (relationQ) extra.push(`【關係問題】${call}在問你們現在是什麼關係：照【關係】的親近程度，用角色口吻回答一兩句。`);
+    if (kw === 'care') extra.push(`${call}現在很痛苦：先溫柔地關心他，建議他找信任的人或專業的人聊聊，這句不要提任務。`);
+    // 這次的情緒：失禮→鄙視；冷戰→冷淡；命中標了害羞的設定（稱讚、秘密、感情）→ 依好感階段擲骰
+    // 同一句話在回報進度時不害羞（那時要好好確認）
+    let mood = null;
+    if (offenseKw) mood = 'disdain';
+    else if (!apologizing && this.isCold()) mood = 'cold';
+    else if (!apologizing && kw !== 'care' && !workItems.length) {
+      const strong0 = hits.find((h) => h.strong);
+      if (((strong0 && strong0.entry.emotion === 'shy') || (relationQ && stage >= 4)) && this.rnd() < this.emotionChance()) mood = 'shy';
+    }
     const line = await this.say('chat', {}, {
       mood,
       userText: text,
-      history: recent, // npc 會再濾掉備援台詞那幾輪，取最後 6 句
-      extraSystem: I.ACTION_RULES,
-      extraProps: I.ACTION_SCHEMA,
+      history: recent, // npc 會再濾掉備援台詞那幾輪，取最後 4 句
+      extraSystem: extra.join('\n'),
+      extraProps: aOn ? { ...I.ACTION_SCHEMA, attitude: { type: 'string', enum: A.ATTITUDES } } : I.ACTION_SCHEMA,
       extraUser: [I.catalogText(cat), this.lore.contextText(hits)].filter(Boolean).join('\n\n'),
       maxTokens: 320,
     });
     if (line.source === 'llm') line.text = I.decodeKeys(line.text, cat); // 台詞裡的 q4-0 換回名字
-    // AI 給的動作；AI 離線時改用關鍵字解析
-    const raw = line.source === 'llm' ? ((line.data && line.data.actions) || []) : I.ruleParse(text, cat);
+    const llmAtt = line.source === 'llm' && line.data ? line.data.attitude : null;
+    // AI 給的動作；AI 離線時改用關鍵字解析。被騷擾、罵的那句不處理進度
+    const raw = offenseKw ? [] : line.source === 'llm' ? ((line.data && line.data.actions) || []) : workItems;
     const items = I.validate(raw, cat);
+    const strong = hits.find((h) => h.strong);
     let proposal = null;
     if (items.length) {
       proposal = { id: `p${Date.now()}`, items, text };
       this.pendingProposal = proposal;
       if (line.source !== 'llm') {
-        line.text = items.length === 1 ? `要幫你${items[0].label}嗎？` : `${this.npc.names().self}整理了 ${items.length} 項變更，確認一下喔～`;
+        line.text = items.length === 1 ? `要幫你${items[0].label}嗎？` : `${self}整理了 ${items.length} 項變更，確認一下喔～`;
         line.emotion = 'thinking';
       }
     } else if (line.source !== 'llm') {
       const noop = I.explainNoop(text, cat);
       const lore = hits.find((h) => h.strong && h.entry.reply); // 離線：關鍵字直接命中的設定，用預寫台詞回
-      if (noop) { line.text = noop; line.emotion = 'happy'; }
+      const tpl = (k) => { const t = this.affTpl(k); line.text = t.text; line.emotion = t.emotion; line.source = 'template'; };
+      if (offenseKw) tpl(offenseKw === 'harass' ? 'offense_harass' : 'offense_rude');
+      else if (apologizing) tpl('apology_accept');
+      else if (this.isCold()) tpl('cold_chat');
+      else if (relationQ) tpl(`relation_${Math.min(5, stage)}`);
+      else if (noop) { line.text = noop; line.emotion = 'happy'; }
       else if (lore) { line.text = lore.entry.reply; line.emotion = lore.entry.emotion || 'normal'; line.source = 'lore'; }
       else if (/(完|好了|搞定|取消|交付|提交|勾)/.test(text)) {
-        line.text = `嗯……${this.npc.names().self}找不到你說的是哪一項。可以說得更具體一點，或直接到任務板勾選喔。`;
+        line.text = `嗯……${self}找不到你說的是哪一項。可以說得更具體一點，或直接到任務板勾選喔。`;
         line.emotion = 'thinking';
       }
     }
     // 模型整句都在重複前幾句（小模型的老毛病）：這個話題有預寫的台詞就改用它
-    if (line.repeated && !items.length && strong && strong.entry.reply) { line.text = strong.entry.reply; line.emotion = strong.entry.emotion || 'normal'; line.source = 'lore'; }
+    if (line.repeated && !items.length && !mood && strong && strong.entry.reply) { line.text = strong.entry.reply; line.emotion = strong.entry.emotion || 'normal'; line.source = 'lore'; }
     delete line.repeated;
     delete line.data;
+    // 💗 好感：失禮／騷擾扣分（AI 判斷的要再過一次關）；道歉、稱讚加分
+    if (aOn) {
+      const att = offenseKw || (kw === 'care' ? 'ok' : A.guardAttitude(llmAtt, text, { hasWork: items.length > 0 || workItems.length > 0 }));
+      if (att === 'rude' || att === 'harass') {
+        line.emotion = 'disdain';
+        this.affect(-acfg.loss[att], att === 'harass' ? '騷擾' : '失禮');
+        this.offense(att);
+      } else {
+        if (line.emotion === 'disdain') line.emotion = 'thinking'; // 沒有失禮就不擺臉色
+        if (apologizing || (att === 'apology' && canApologize)) {
+          this.affect(acfg.gain.apology, '道歉', { uncapped: true }); a.apologyDay = today; a.coldUntil = 0;
+        } else if ((kw === 'kind' || att === 'kind') && (a.kindToday || 0) < 3 && !this.isCold()) {
+          a.kindToday = (a.kindToday || 0) + 1; this.affect(acfg.gain.kind, '稱讚艾琳');
+        }
+      }
+    }
     this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest, at: this.now().getTime() }); // source=template 的不會再給模型看
     this.state.chat = this.state.chat.slice(-20);
     this.saveState();
-    return { lines: [line], proposal, view: this.view() };
+    return this.settle({ lines: [line], proposal, view: this.view() });
   }
 
   cancelProposal() {
@@ -827,17 +968,22 @@ class Engine {
       try {
         if (it.type === 'check' || it.type === 'uncheck') {
           const q = this.plan.quests.find((x) => x.id === it.questId);
-          add(G.onObjective(this.state, this.ps, it.questId, q.objectives[it.index], it.type === 'check', this.config.rewards));
+          const r0 = G.onObjective(this.state, this.ps, it.questId, q.objectives[it.index], it.type === 'check', this.config.rewards);
+          if (r0) this.affect(this.affCfg().gain.objective, '完成目標');
+          add(r0);
         } else if (it.type === 'activate') {
           this.ps.activeQuestId = it.questId;
         } else if (it.type === 'daily_done' || it.type === 'daily_undo') {
           add(G.onDailyRow(this.state, this.ps, it.rowId, it.label, it.type === 'daily_done', this.config.rewards));
         } else if (it.type === 'report') {
           try { this.writePlan(this.P.setProgress(this.planText, G.todayISO(this.now()), it.fields)); } catch (e) { writeError = e.message; }
-          add(G.onDailyReport(this.state, this.ps, G.todayISO(this.now()), it.fields, this.config.rewards));
+          const r1 = G.onDailyReport(this.state, this.ps, G.todayISO(this.now()), it.fields, this.config.rewards);
+          if (r1) this.affect(this.affCfg().gain.report, '下班回報');
+          add(r1);
         } else if (it.type === 'submit') {
           const r = G.submitQuest(this.state, this.ps, this.plan, it.questId, it.report || p.text, this.now(), this.config.rewards);
           add(r); submitted = r;
+          this.affect(this.affCfg().gain.submit + (r.onTime ? this.affCfg().gain.onTime : 0), r.onTime ? '準時交付任務' : '交付任務');
         }
         done.push(it.label);
       } catch (e) { failed.push(`${it.label}（${e.message}）`); }
@@ -862,7 +1008,7 @@ class Engine {
     } else if (items.some((x) => x.type === 'activate')) {
       G.ensureActive(this.plan, this.ps, this.now());
     }
-    return { reward: total.xp ? total : null, lines, writeError, view: this.view() };
+    return this.settle({ reward: total.xp ? total : null, lines, writeError, view: this.view() });
   }
 
   // 每分鐘呼叫：作息提醒（午休／上班／下班）＋決策點提醒

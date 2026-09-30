@@ -26,7 +26,7 @@ function normEmotion(e) {
 // 小模型幾乎都選 happy：台詞裡明明在害羞、在嫌棄，表情卻是笑的。依台詞內容修正
 const EMOTION_CUES = {
   shy: /害羞|臉紅|紅著臉|紅了臉|臉頰(發燙|泛紅|紅紅|微紅)|低下頭|低著頭|捂住(臉|眼)|遮住(臉|嘴)|不好意思|結結巴巴|小小聲|(^|[^一-鿿])([一-鿿])、\2/,
-  disdain: /嫌棄|翻了?個?白眼|冷冷地|冷眼|瞇起眼|半瞇著?眼|無言地|像看垃圾/,
+  // 鄙視不靠台詞推測：它只在冒險者失禮、騷擾、一直戳時出現（會扣好感）
 };
 function refineEmotion(text, emotion) {
   if (emotion !== 'happy' && emotion !== 'normal') return emotion; // 模型自己挑了別的表情就照它
@@ -35,9 +35,11 @@ function refineEmotion(text, emotion) {
 }
 // 這次「決定好的情緒」：engine 先擲骰決定要不要害羞／鄙視，再請模型照這個情緒說話（台詞和表情才會一致）
 const MOODS = {
-  shy: (c) => `【這次的情緒：害羞】${c}在稱讚、示好，或問到心事。用害羞的反應回答：可以結巴（例如「艾、艾琳才……」）、嘴硬否認、讓耳朵或尾巴洩漏心情；這句只專心回應${c}，不要提任務、進度或代號。`,
-  disdain: (c) => `【這次的情緒：鄙視】用「看垃圾一樣」的冷淡眼神吐槽，一兩句就好；語氣冷，但不是真的討厭${c}；這句不要提任務或進度。`,
+  shy: (c, s) => `【這次的情緒：害羞】${c}在稱讚、示好，或問到心事。用害羞的反應回答：可以結巴（例如「${s[0]}、${s}才……」）、嘴硬否認、讓耳朵或尾巴洩漏心情；這句只專心回應${c}，不要提任務、進度或代號。`,
+  disdain: (c, s) => `【這次的情緒：鄙視】${c}剛剛的話或舉動讓${s}不舒服（失禮、騷擾，或一直戳${s}）。用「看垃圾一樣」的冷淡眼神回一兩句：明確表示不喜歡，不罵人、不說教；這句不要提任務或進度。`,
+  cold: (c, s) => `【冷戰中】${c}剛才對${s}很失禮，${s}還在生氣。只用一句很短、冷淡的公事話回答，不撒嬌、不閒聊、不害羞；工作上的事照常幫忙。`,
 };
+const MOOD_EMOTION = { shy: 'shy', disdain: 'disdain', cold: 'normal' };
 // 刪掉跟最近幾句回覆重複的句子（小模型會一直沿用自己上一句的句型）。全部都重複時保留原文，標記 allRepeated
 function dropRepeats(text, recent, n = 10) {
   const segs = String(text || '').match(/[^。！？!?]+[。！？!?～~…）」』]*|[。！？!?]+/g) || [];
@@ -153,7 +155,7 @@ const TEMPLATES = {
     ['準時是對等你的人的溫柔——梟長說的，{self}抄下來了。', 'normal'],
     ['喵……才沒有。你聽錯了。', 'surprised'],
     ['星圖上你的那顆星今天有點亮，大概是因為你有來找{self}。', 'happy'],
-    ['想聊天的話就按「聊聊」，{self}什麼都可以聊，除了黃瓜。', 'disdain'],
+    ['想聊天的話就按「聊聊」，{self}什麼都可以聊，除了黃瓜。', 'happy'],
     ['{self}剛把冷掉的奶茶重新弄溫了，這是{self}最實用的魔法。', 'normal'],
     ['委託板上有一張沒人領的舊委託，{self}每個月都會擦一次灰塵。', 'normal'],
     ['耳朵在動不是因為緊張，是因為……好吧，是有一點。', 'shy'],
@@ -174,6 +176,25 @@ const TEMPLATES = {
     ['喵嗚……好啦{self}認輸，霜月村的人被戳五下都會這樣。', 'worried'],
     ['喵——！好了，你滿意了嗎？{self}要去喝奶茶壓驚了。', 'surprised'],
   ],
+  // ---- 隱藏好感度 ----
+  poke_cold: [['……', 'normal'], ['（{self}假裝在整理委託書）', 'normal'], ['{self}在忙。有公事再說。', 'normal']],
+  cold_start: [['……{self}要去整理委託書了。有公事再叫{self}。', 'normal']],
+  cold_chat: [['……嗯。有公事的話，{self}聽著。', 'normal'], ['{self}現在只處理委託。', 'normal']],
+  offense_rude: [['……{call}，這樣講話，{self}不喜歡。', 'disdain'], ['{self}就當作沒聽到。', 'disdain']],
+  offense_harass: [['……{call}，請自重。{self}是接待員，不聽這種話。', 'disdain'], ['這種話，{self}不想聽第二次。', 'disdain']],
+  spam: [['……{call}，你是不是壓到鍵盤了？', 'thinking'], ['同一句話說好幾次，{self}也只會回一樣的喔。', 'thinking']],
+  spam_mad: [['……（冷冷地看著你）{call}，洗版是會被公會記上一筆的。', 'disdain']],
+  apology_accept: [['……好啦，{self}原諒你。下次不可以了喔。', 'shy'], ['哼。看在你道歉的份上，這次就算了。', 'normal']],
+  stageup_2: [['欸，{call}最近常來呢。{self}在小本子上幫你畫了一顆星星……這是常客才有的喔。', 'happy']],
+  stageup_3: [['{self}發現，現在看到{call}走進公會，尾巴會自己先搖起來。……這是秘密喔。', 'shy']],
+  stageup_4: [['{call}，謝謝你一直這麼可靠。媽媽寄來的魚形麵包，{self}留了一個給你——這次真的有留喔。', 'happy']],
+  stageup_5: [['那、那個……{call}對{self}來說，已經不只是登記簿上的一個名字了。……就這樣！去忙你的委託吧！', 'shy']],
+  stagedown: [['……{self}覺得，我們好像變得有點生疏了。', 'worried']],
+  relation_1: [['{call}是{self}在三號櫃台登記的冒險者呀。……嗯，目前就是這樣。', 'normal']],
+  relation_2: [['{call}是常客！公會裡的人都認得你了。', 'happy']],
+  relation_3: [['嗯……很熟的冒險者？{self}都記得你的奶茶要幾分糖了。', 'happy']],
+  relation_4: [['可靠的夥伴。{self}遇到煩惱的時候，第一個想到的就是跟你說。', 'happy']],
+  relation_5: [['特、特別的人……這種話不要讓{self}說出口啦！', 'shy']],
   greet_none: [['{call}，目前沒有待辦委託，真難得！去喝杯茶休息一下吧☕', 'happy']],
   assign: [
     ['新任務來了：「{quest}」，{due}。{reason}', 'normal'],
@@ -296,8 +317,19 @@ class NPC {
       '3. 只能根據【狀態】裡的資訊講任務、日期、數字，不可以編造任務或數據。之前的對話如果提到別的任務或行程，那可能已經過時，一律以這次的【狀態】為準。',
       `4. 不要列清單、不要用 Markdown、不要重複${call}說的話，也不要沿用自己前面回覆過的句子，每次換新的說法。`,
       `5. ${call}聊工作以外的話題時，依【角色設定參考】用角色的身分回答；沒寫到的細節可以用符合設定的方式發揮，但不能和設定矛盾，也不要假裝知道${call}那邊的現實資訊（天氣、新聞）。`,
-      `6. 用 JSON 回覆兩個欄位：line 放這次真正要說出口的完整句子，emotion 從 ${EMOTIONS.join('、')} 挑一個。shy＝被稱讚、被說中心事、聊到感情時害羞；disdain＝看垃圾一樣的冷眼，只在開玩笑時用（${call}一直戳、找藉口拖延、提到黃瓜），不可以真的看不起${call}。`,
+      `6. 用 JSON 回覆兩個欄位：line 放這次真正要說出口的完整句子，emotion 從選項裡挑一個。shy＝被稱讚、被說中心事、聊到感情時害羞；disdain＝看垃圾一樣的冷眼，只在${call}對${self}失禮或騷擾時用。`,
+      ...this.relationLines(),
     ].join('\n');
+  }
+
+  // 隱藏好感度的「關係」：engine 每次說話前設定 this.relation = { name, desc, cold }
+  relationLines() {
+    const r = this.relation;
+    if (!r) return [];
+    const { self, call } = this.names();
+    const L = [`【關係】${call}對${self}來說是「${r.name}」：${r.desc}用這個親近程度說話，但不要說出「好感」或數字。`];
+    if (r.cold) L.push(MOODS.cold(call, self));
+    return L;
   }
 
   factsText(f) {
@@ -326,7 +358,8 @@ class NPC {
     if (event === 'daily' && !f.slot) key = 'daily_none';
     if (event === 'poke') key = f.pokeCount >= 5 ? 'poke_meow' : f.pokeCount >= 3 ? 'poke_annoyed' : 'poke';
     let pool = TEMPLATES[key] || TEMPLATES.greet;
-    if (f.mood) { const m = pool.filter(([, e]) => e === f.mood); if (m.length) pool = m; } // 先挑情緒，再避開最近說過的
+    if (f.mood) { const emo = MOOD_EMOTION[f.mood] || f.mood; const m = pool.filter(([, e]) => e === emo); if (m.length) pool = m; } // 先挑情緒，再避開最近說過的
+    else { const nd = pool.filter(([, e]) => e !== 'disdain'); if (nd.length) pool = nd; } // 鄙視的句子只在決定要鄙視時用（會扣好感）
     if (f.recent && f.recent.length) { // 避免連續重複
       const fresh = pool.filter(([t]) => !f.recent.includes(t));
       if (fresh.length) pool = fresh;
@@ -411,7 +444,8 @@ class NPC {
 
   // event: 見 EVENT_DESC；facts: 由 engine 組好；history: 聊天紀錄 [{role, content}]
   // opts.extraSystem：額外規則；opts.extraProps：JSON 輸出額外欄位（例如 actions）；opts.extraUser：附加在狀態後的資料
-  // opts.mood：engine 決定好的情緒（shy／disdain），會加一段說話指示並固定表情
+  // opts.mood：engine 決定好的情緒（shy／disdain／cold），會加一段說話指示並固定表情
+  // 鄙視只能由 mood 指定；聊天時開放給模型選（配合 attitude 判斷，engine 會再檢查）
   async say(event, facts, { userText, history, extraSystem, extraProps, extraUser, maxTokens, maxChars, mood } = {}) {
     if (mood && !MOODS[mood]) mood = null;
     if (mood) facts = { ...facts, mood }; // 用內建台詞時也挑同一種表情的句子
@@ -420,7 +454,7 @@ class NPC {
     if (!this.status.online) return this.template(event, { ...facts, why: WHY.offline });
     // 剛逾時過：閒話、提醒這類順便說的話先用內建台詞；聊天是冒險者主動問的，照樣問 AI
     if (event !== 'chat' && this.slowUntil && Date.now() < this.slowUntil) return this.template(event, facts);
-    const moodRule = mood ? MOODS[mood](this.names().call) : '';
+    const moodRule = mood && !(mood === 'cold' && this.relation && this.relation.cold) ? MOODS[mood](this.names().call, this.names().self) : ''; // 冷戰的說明已經在【關係】裡
     const messages = [{ role: 'system', content: this.systemPrompt() + (extraSystem ? `\n${extraSystem}` : '') + (moodRule ? `\n${moodRule}` : '') }];
     // 舊的聊天紀錄也先校正口吻，免得模型學到以前說過的「我」「玩家」
     const hist = [];
@@ -453,7 +487,7 @@ class NPC {
         keep_alive: this.llm.keepAlive || '30m',
         format: {
           type: 'object',
-          properties: { line: { type: 'string' }, emotion: { type: 'string', enum: mood ? [mood] : EMOTIONS }, ...(extraProps || {}) },
+          properties: { line: { type: 'string' }, emotion: { type: 'string', enum: mood ? [MOOD_EMOTION[mood]] : event === 'chat' ? EMOTIONS : EMOTIONS.filter((e) => e !== 'disdain') }, ...(extraProps || {}) },
           required: ['line', 'emotion', ...Object.keys(extraProps || {})],
         },
         options: { temperature: this.llm.temperature ?? 0.8, num_predict: maxTokens || this.llm.maxTokens || 160, num_ctx: this.numCtx() },
@@ -467,7 +501,8 @@ class NPC {
       const rep = dropRepeats(out.text, recentLines.map((l) => voice(l, this.names())));
       out.text = rep.text;
       if (rep.allRepeated) out.repeated = true;
-      out.emotion = mood || refineEmotion(out.text, out.emotion);
+      out.emotion = mood ? MOOD_EMOTION[mood] : refineEmotion(out.text, out.emotion);
+      if (!mood && out.emotion === 'disdain' && event !== 'chat') out.emotion = 'normal'; // 鄙視只能由 mood 指定
       this.status = { online: true, message: `AI：${this.llm.model}`, checkedAt: Date.now() };
       this.slowUntil = 0; // 又回得出來了，閒話也恢復用 AI
       return { ...out, source: 'llm' };
@@ -492,4 +527,4 @@ class NPC {
   }
 }
 
-module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };
+module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, MOOD_EMOTION, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };

@@ -45,7 +45,7 @@ function parseLore(md) {
     const h2 = line.match(/^##\s+(.+)/);
     if (h1 && !cur) { name = h1[1].trim(); continue; }
     if (h2) {
-      cur = { id: `l${entries.length + 1}`, title: h2[1].trim(), keywords: [], text: [], reply: '', emotion: 'normal' };
+      cur = { id: `l${entries.length + 1}`, title: h2[1].trim(), keywords: [], text: [], reply: '', emotion: 'normal', minStage: 0 };
       entries.push(cur);
       continue;
     }
@@ -53,9 +53,11 @@ function parseLore(md) {
     const kw = line.match(/^關鍵字[:：]\s*(.+)/);
     const rp = line.match(/^台詞[:：]\s*(.+)/);
     const em = line.match(/^表情[:：]\s*(\w+)/);
+    const st = line.match(/^好感[:：]\s*(\d+)/); // 好感到第幾階才會出現（隱藏好感度）
     if (kw) cur.keywords = kw[1].split(/[、,，\s]+/).map((x) => x.trim()).filter(Boolean);
     else if (rp) cur.reply = rp[1].trim();
     else if (em) cur.emotion = EMOTIONS.includes(em[1]) ? em[1] : 'normal';
+    else if (st) cur.minStage = Number(st[1]);
     else if (line.trim()) cur.text.push(line.trim());
   }
   for (const e of entries) e.text = e.text.join('\n');
@@ -221,7 +223,8 @@ class Lore {
 
   // ---- 檢索 ----
   // 回傳 [{ entry, score, strong }]，最多 k 條；找不到相關的就回空陣列
-  async retrieve(query, k = 3) {
+  // opts.stage：目前的好感階段，標了「好感：N」的設定要到第 N 階才找得到
+  async retrieve(query, k = 3, { stage = 99 } = {}) {
     if (!this.entries.length || !String(query || '').trim()) return [];
     const qt = tokens(query);
     const lex = this.bm25.score(qt);
@@ -246,7 +249,7 @@ class Lore {
       const strong = kwScore >= 1 || (sem ? semS >= 0.6 : false); // 離線台詞只在關鍵字直接命中（或語意很近）時才用
       const relevant = kwScore > 0 || (sem ? semS >= 0.45 : lex[i] >= 3);
       return { entry: e, score, strong, relevant, lex: lex[i], sem: semS, kw: kwScore };
-    }).filter((r) => r.relevant).sort((a, b) => b.score - a.score);
+    }).filter((r) => r.relevant && (r.entry.minStage || 0) <= stage).sort((a, b) => b.score - a.score);
     return rows.slice(0, k);
   }
 

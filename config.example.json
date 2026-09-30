@@ -76,8 +76,13 @@
     "path": "lore/艾琳.md",
     "topK": 3,
     "embeddings": "auto",
-    "embedModel": "qwen3-embedding:0.6b",
-    "emotionChance": 0.5
+    "embedModel": "qwen3-embedding:0.6b"
+  },
+  "affection": {
+    "enabled": true,
+    "dailyCap": 10,
+    "coldMinutes": 15,
+    "words": { "harass": [], "rude": [] }
   },
   "reminders": {
     "weekdaysOnly": true,
