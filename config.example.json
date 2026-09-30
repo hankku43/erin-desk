@@ -64,6 +64,10 @@
     "xp": 15,
     "gold": 3
   },
+  "divination": {
+    "cost": 10,
+    "repeatHours": 24
+  },
   "window": {
     "alwaysOnTop": true,
     "idleChatterMinutes": 45

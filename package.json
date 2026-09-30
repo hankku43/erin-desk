@@ -8,6 +8,7 @@
     "test": "node test/run.js"
   },
   "dependencies": {
+    "lunar-javascript": "^1.7.7",
     "opencc-js": "^1.0.5"
   },
   "devDependencies": {

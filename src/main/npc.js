@@ -33,6 +33,7 @@ const EVENT_DESC = {
   daily: '冒險者查看今天的行程。點出現在這個時段該做什麼。',
   daily_report: '冒險者剛交了下班日報。回應他今天的成果與卡點，給一句明天的打氣。',
   all_clear: '本週所有任務都完成了！大肆慶祝。',
+  divine: '冒險者請你用奶奶教的「星環占」占卜一件事（其實就是梅花易數）。依【卦象】用角色口吻解讀：先說整體傾向（依體用生剋），再說過程（互卦）和結果（變卦），最後給一個具體、做得到的小建議，最好跟他問的事情有關。卦名可以直接說，體用、五行這些術語少用，改用星環、星象的說法包裝。不要說得太絕對，占卜只是星星的建議；如果問的是健康、法律、金錢這類重大決定，溫柔提醒他還是要問專業的人。',
   chat: '冒險者在跟你聊天。依照狀態回答，若問該做什麼就依【當前任務】與【今日行程】建議。',
 };
 
@@ -76,6 +77,9 @@ const TEMPLATES = {
   ],
   fortune: [['🔮 今天的運勢是……「{rank}」！{advice}。幸運物是「{item}」，公會送你 {gold} 金幣～', 'cheer']],
   fortune_again: [['今天已經抽過囉，是「{rank}」。記得：{advice}～', 'happy']],
+  divine: [['✨ 星環停在「{ben}」——{benMeaning}。星象說{verdictText}；{flow}。{self}的建議：{advice}。', 'thinking']],
+  divine_repeat: [['這件事星環已經回答過了喔——一事不二占。上次是「{ben}」（{verdictTag}），先照那時的指引走走看吧～', 'normal']],
+  divine_poor: [['星粉不夠了……一次占卜要 {cost} 金幣，你現在有 {gold}。先去完成幾個委託再來吧～', 'worried']],
   smart_on: [['{self}戴上思考帽了！換個說法問，{self}也聽得懂喔～', 'cheer']],
   smart_off: [['思考帽先收起來，{self}改翻小本子上的關鍵字找～', 'normal']],
   smart_missing: [['欸，{self}的思考帽戴不上……要先開著 Ollama、裝好 {model} 才行喔。在那之前先用關鍵字找。', 'worried']],
@@ -186,7 +190,7 @@ function voice(text, { self = '艾琳', call = '冒險者', protect = [] } = {})
 }
 // 事實裡來自冒險者的文字（任務名、目標、行程、提醒、回報、聊天原句）：口吻校正時不要動
 function protectedTexts(f = {}, userText = '') {
-  return [f.quest, f.block, f.output, f.label, f.action, f.report, f.theme, f.reason, userText, ...(f.remaining || [])].filter((x) => typeof x === 'string');
+  return [f.quest, f.block, f.output, f.label, f.action, f.report, f.theme, f.reason, f.question, userText, ...(f.remaining || [])].filter((x) => typeof x === 'string');
 }
 
 class NPC {
@@ -201,7 +205,7 @@ class NPC {
   // 每次呼叫都用同一個 context 長度：Ollama 遇到 num_ctx 不同會整個重載模型，CPU 上要好幾秒
   numCtx() { return this.llm.numCtx || 4096; }
   // 聊天的提示最長（任務清單＋角色設定＋對話紀錄），給久一點
-  timeoutFor(event) { const base = this.llm.timeoutMs || 45000; return event === 'chat' ? Math.max(base, this.llm.chatTimeoutMs || 90000) : base; }
+  timeoutFor(event) { const base = this.llm.timeoutMs || 45000; return event === 'chat' || event === 'divine' ? Math.max(base, this.llm.chatTimeoutMs || 90000) : base; }
 
   // 每次呼叫 AI 的耗時記到 data/llm.log（最多留 300 行），AI 常常回不出來時看這裡
   setLogFile(file) { this.logFile = file; }
@@ -337,7 +341,7 @@ class NPC {
     } finally { clearTimeout(t); }
   }
 
-  parseReply(content) {
+  parseReply(content, maxChars) {
     let line = '', emotion = 'normal', data = null;
     const cleaned = String(content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     try {
@@ -349,7 +353,7 @@ class NPC {
       line = cleaned.replace(/^["「]|["」]$/g, '');
     }
     line = toTW(String(line)).replace(/\s*\n+\s*/g, ' ').trim();
-    const max = (this.llm.maxChars || 90) + 30;
+    const max = maxChars || (this.llm.maxChars || 90) + 30;
     if (line.length > max) line = line.slice(0, max).replace(/[，、；]?[^。！？!?]*$/, '') + '…';
     if (!EMOTIONS.includes(emotion)) emotion = 'normal';
     return { text: line, emotion, data };
@@ -357,7 +361,7 @@ class NPC {
 
   // event: 見 EVENT_DESC；facts: 由 engine 組好；history: 聊天紀錄 [{role, content}]
   // opts.extraSystem：額外規則；opts.extraProps：JSON 輸出額外欄位（例如 actions）；opts.extraUser：附加在狀態後的資料
-  async say(event, facts, { userText, history, extraSystem, extraProps, extraUser, maxTokens } = {}) {
+  async say(event, facts, { userText, history, extraSystem, extraProps, extraUser, maxTokens, maxChars } = {}) {
     if (!this.llm.enabled) return this.template(event, { ...facts, why: WHY.off });
     // 離線時直接用內建台詞；重連交給主程式每 20 秒一次的健康檢查，使用者的操作不會被逾時卡住
     if (!this.status.online) return this.template(event, { ...facts, why: WHY.offline });
@@ -400,7 +404,7 @@ class NPC {
         options: { temperature: this.llm.temperature ?? 0.8, num_predict: maxTokens || this.llm.maxTokens || 160, num_ctx: this.numCtx() },
       }, this.timeoutFor(event));
       this.logCall(event, t0, r);
-      const out = this.parseReply(r.message && r.message.content);
+      const out = this.parseReply(r.message && r.message.content, maxChars);
       out.text = out.text.replace(RE_FALLBACK, '').trim(); // 模型照抄了舊的備援句子
       if (!out.text) throw new Error('空白回覆');
       out.text = voice(out.text, { ...this.names(), protect: protectedTexts(facts, userText) });

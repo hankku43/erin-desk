@@ -20,6 +20,7 @@ const { NPC } = require('./npc');
 const I = require('./intent');
 const { Lore } = require('./lore');
 const ICS = require('./ics');
+const MH = require('./meihua');
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -89,6 +90,7 @@ class Engine {
       window: { alwaysOnTop: true, idleChatterMinutes: 45 },
       lore: { path: 'lore/艾琳.md', topK: 3, embeddings: 'auto', embedModel: 'qwen3-embedding:0.6b' },
       focus: { minutes: 25, rest: 5, xp: 15, gold: 3 }, // 🍅 專注模式
+      divination: { cost: 10, repeatHours: 24 }, // ✨ 占卜魔法：每次花費的金幣、一事不二占的時間
       reminders: {
         weekdaysOnly: true, graceMinutes: 15,
         items: [
@@ -426,6 +428,7 @@ class Engine {
       editable: !this.legacy && !!this.planText,
       smart: { on: this.lore.smartOn(), status: this.lore.embedStatus },
       focus: this.focusInfo(),
+      divination: this.divineInfo(),
       fortune: this.fortuneToday(),
     };
   }
@@ -602,6 +605,76 @@ class Engine {
   }
 
   // ---- 🔮 今日運勢：每天第一次抽有一點獎勵，之後再點就是再看一次 ----
+  // ---- ✨ 占卜魔法（艾琳的「星環占」＝梅花易數）----
+  divCfg() { return { cost: 10, repeatHours: 24, ...(this.config.divination || {}) }; }
+  divineInfo() {
+    const L = MH.lunarInfo(this.now());
+    const recent = (this.state.divinations || []).slice(0, 5).map((d) => ({ id: d.id, at: d.at, question: d.question, ben: d.result.ben.name, tag: d.result.verdict.tag, level: d.result.verdict.level }));
+    return { cost: this.divCfg().cost, repeatHours: this.divCfg().repeatHours, gold: this.state.player.gold, timeAvailable: !!L, timeText: L ? L.text : '', recent };
+  }
+  // 「同一件事」：去掉標點與「請問／嗎」之後一樣、互相包含，或兩字詞重疊夠多
+  normQuestion(q) {
+    return String(q || '').toLowerCase().replace(/[\s，。、；：！？!?,.;:()（）「」『』【】\[\]"'～~…\-]/g, '').replace(/^(請問|我想問|想問|幫我|可以|能不能|想知道)+/, '').replace(/(嗎|呢|啊|呀|嘛|吧)+$/, '');
+  }
+  sameQuestion(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) return true;
+    const bg = (s) => { const o = new Set(); for (let i = 0; i < s.length - 1; i++) o.add(s.slice(i, i + 2)); return o; };
+    const A = bg(a), B = bg(b);
+    if (!A.size || !B.size) return false;
+    let n = 0; for (const x of A) if (B.has(x)) n++;
+    return n / (A.size + B.size - n) >= 0.6;
+  }
+  divineFacts(rec) {
+    const r = rec.result;
+    // 過程和結果是同一卦時不要講兩次
+    const flow = r.hu.name === r.bian.name ? `過程和結果都是「${r.hu.name}」（${r.hu.meaning}）` : `過程像「${r.hu.name}」（${r.hu.meaning}），最後走向「${r.bian.name}」（${r.bian.meaning}）`;
+    return { question: rec.question, ben: r.ben.name, benMeaning: r.ben.meaning, hu: r.hu.name, huMeaning: r.hu.meaning, bian: r.bian.name, bianMeaning: r.bian.meaning, flow, relation: r.relation, verdictTag: r.verdict.tag, verdictText: r.verdict.text, advice: r.advice, cost: this.divCfg().cost };
+  }
+  divineCheck(question) {
+    const q = String(question || '').trim();
+    if (!q) throw new Error('先寫下想問的事');
+    const c = this.divCfg(), now = this.now().getTime(), norm = this.normQuestion(q);
+    const prev = (this.state.divinations || []).find((d) => now - d.at < c.repeatHours * 3600000 && this.sameQuestion(d.norm, norm));
+    if (prev) return { repeat: true, record: prev, lines: [{ ...this.npc.template('divine_repeat', this.divineFacts(prev)), event: 'divine' }] };
+    if (this.state.player.gold < c.cost) return { poor: true, lines: [{ ...this.npc.template('divine_poor', { cost: c.cost, gold: this.state.player.gold }), event: 'divine' }] };
+    return { ok: true };
+  }
+  // 起卦：先檢查一事不二占、金幣，再扣錢存紀錄；解讀另外呼叫 divineRead（畫面可以先放施法動畫）
+  divineCast({ question, method, a, b } = {}) {
+    const q = String(question || '').trim().slice(0, 80);
+    if (!q) throw new Error('先寫下想問的事');
+    const c = this.divCfg();
+    const now = this.now().getTime();
+    const norm = this.normQuestion(q);
+    const list = this.state.divinations || (this.state.divinations = []);
+    const prev = list.find((d) => now - d.at < c.repeatHours * 3600000 && this.sameQuestion(d.norm, norm));
+    if (prev) return { repeat: true, record: prev, lines: [{ ...this.npc.template('divine_repeat', this.divineFacts(prev)), event: 'divine' }], view: this.view() };
+    if (this.state.player.gold < c.cost) return { poor: true, lines: [{ ...this.npc.template('divine_poor', { cost: c.cost, gold: this.state.player.gold }), event: 'divine' }], view: this.view() };
+    const r = method === 'time' ? MH.castByTime(this.now()) : MH.castByNumbers(a, b, this.now(), method === 'circle' ? 'circle' : 'numbers');
+    G.grant(this.state, { xp: 0, gold: -c.cost }, `占卜魔法：${r.ben.name}`, this.config.rewards);
+    const record = { id: `dv${now}`, at: now, question: q, norm, method: r.method, result: r, reading: null };
+    list.unshift(record);
+    this.state.divinations = list.slice(0, 30);
+    this.saveState();
+    return { record, cost: c.cost, view: this.view() };
+  }
+  async divineRead(id) {
+    const rec = (this.state.divinations || []).find((d) => d.id === id);
+    if (!rec) throw new Error('找不到這一卦');
+    if (rec.reading) return { lines: [{ text: rec.reading.text, emotion: rec.reading.emotion, event: 'divine' }], record: rec, view: this.view() };
+    const f = this.divineFacts(rec);
+    const line = await this.say('divine', { ...f, eventDetail: `冒險者花了 ${f.cost} 金幣請你用星環占占卜：「${rec.question}」` }, {
+      extraUser: MH.describe(rec.result, rec.question),
+      extraSystem: '這次是占卜解讀，規則 2 例外：可以說 2～4 句、不超過 160 字。',
+      maxTokens: 320, maxChars: 170,
+    });
+    rec.reading = { text: line.text, emotion: line.emotion, source: line.source };
+    this.saveState();
+    return { lines: [line], record: rec, view: this.view() };
+  }
+
   fortuneToday() {
     const f = this.state.fortune;
     return f && f.date === G.todayISO(this.now()) ? f : null;

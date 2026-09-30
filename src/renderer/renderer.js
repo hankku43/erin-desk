@@ -3,7 +3,7 @@
 const $ = (s) => document.querySelector(s);
 const GREET_COOLDOWN = 30 * 60000; // 半小時內再點她，就不重複報告任務，改成閒聊
 const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null, starSeen: {}, flMode: 'auto', flSlotId: null, flFlashUntil: 0, lastActive: null };
-const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm']); // 表單面板：畫面更新時不重畫，免得打到一半的字不見
+const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine']); // 表單面板：畫面更新時不重畫，免得打到一半的字不見
 
 // 未捕捉的錯誤印到主程式終端機（啟動.bat 的視窗看得到）
 window.addEventListener('error', (e) => console.error('[renderer error]', e.message, e.filename, e.lineno));
@@ -24,11 +24,19 @@ const TIER_ICON = { main: '👑', major: '⚔️', side: '🌿' };
 function tierBadge(q) { return `<span class="badge ${q.tier}">${TIER_ICON[q.tier] || ''} ${q.tierName}</span>`; }
 function hhmm(iso) { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
 function histIcon(reason) {
+  if (/^占卜魔法/.test(reason)) return '✨';
+  if (/^今日運勢/.test(reason)) return '🔮';
+  if (/^完成專注/.test(reason)) return '🍅';
   if (/^交付任務/.test(reason)) return '🏆';
   if (/^完成目標/.test(reason)) return '☑️';
   if (/^完成行程/.test(reason)) return '⏰';
   if (/下班回報/.test(reason)) return '📝';
   return '✨';
+}
+// 紀錄的獎勵欄：占卜是花錢（負數），沒有經驗值就不顯示 XP
+function gainHtml(h) {
+  const g = h.gold < 0 ? `<small class="spend">🪙 −${-h.gold}</small>` : `<small>🪙 +${h.gold}</small>`;
+  return h.xp ? `+${h.xp} XP${g}` : g;
 }
 function toast(msg, ms = 2600) {
   const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
@@ -547,6 +555,190 @@ function hideFortuneCard() { const c = $('#fortuneCard'); c.classList.add('bye')
 $('#fortuneCard').addEventListener('click', hideFortuneCard);
 $('#hudTop').addEventListener('click', (e) => { if (e.target.closest('button')) return; drawFortune(); });
 
+// ---------- ✨ 占卜魔法（星環占＝梅花易數）----------
+const DV_METHODS = [
+  { key: 'circle', icon: '🌀', name: '魔法陣', hint: '點兩下讓星環停下' },
+  { key: 'numbers', icon: '🔢', name: '報數', hint: '自己想兩個數字' },
+  { key: 'time', icon: '🕰', name: '此刻', hint: '用現在的年月日時' },
+];
+const DV_METHOD_NAME = { circle: '魔法陣', numbers: '報數', time: '此刻起卦' };
+function openDivine(arg) {
+  const prev = state.dv;
+  state.dv = { step: 'ask', method: (prev && prev.method) || 'circle', question: (arg && arg.question) || '', a: '', b: '', info: null, notice: '' };
+  api.divineInfo().then((r) => { if (r && r.ok && state.panel === 'divine' && state.dv.step === 'ask') { state.dv.info = r.info; renderPanel(); const q = $('#dvQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } } });
+}
+function guaHtml(hex, moving) {
+  let h = '';
+  for (let i = 5; i >= 0; i--) h += `<i class="yao ${hex.lines[i] ? 'yang' : 'yin'} ${moving === i + 1 ? 'mv' : ''}" style="--d:${i}"><b></b><b></b></i>`;
+  return `<div class="gua" title="${esc(hex.upper.name)}上${esc(hex.lower.name)}下">${h}</div>`;
+}
+function dvCol(k, label, role, hex, moving) {
+  return `<div class="dv-col" style="--col:${k}"><div class="dv-lab">${label}<small>${role}</small></div>${guaHtml(hex, moving)}<div class="dv-name">${esc(hex.name)}</div><div class="dv-mean">${esc(hex.meaning)}</div></div>`;
+}
+function dvDetail(r) {
+  const t = (x) => `<b>${esc(x.name)}${x.sym}</b>（${esc(x.nature)}・${esc(x.el)}）`;
+  return `<div class="dv-detail">
+    <div>🌀 起卦：${esc(r.formula.source)}</div>
+    <div>上卦：${esc(r.formula.upper)}</div><div>下卦：${esc(r.formula.lower)}</div><div>動爻：${esc(r.formula.moving)}</div>
+    <div>體卦 ${t(r.ti)}・用卦 ${t(r.yong)}（有動爻的是用）</div>
+    <div>體用：<b>${esc(r.relation)}</b> → ${esc(r.verdict.tag)}，${esc(r.verdict.text)}</div>
+    <div>過程（互卦 ${esc(r.hu.upper.name)}${esc(r.hu.upper.el)}・${esc(r.hu.lower.name)}${esc(r.hu.lower.el)} 對體）：${esc(r.huRel.join('、'))}</div>
+    <div>結果（用卦變成 ${t(r.bianYong)} 對體）：${esc(r.bianRel)}</div>
+  </div>`;
+}
+function renderDivine(el, v) {
+  const d = state.dv; if (!d) return;
+  const info = d.info || v.divination || { cost: 10, repeatHours: 24, recent: [] };
+  const goldChip = `<span class="dv-gold">🪙 ${v.player.gold}</span>`;
+  if (d.step === 'ask') {
+    const tiles = DV_METHODS.map((m) => {
+      const off = m.key === 'time' && !info.timeAvailable;
+      const sub = m.key === 'time' ? (info.timeAvailable ? esc(info.timeText) : '要先重跑一次安裝.bat') : m.hint;
+      return `<label class="dv-m ${d.method === m.key ? 'on' : ''} ${off ? 'off' : ''}"><input type="radio" name="dvm" value="${m.key}" ${d.method === m.key ? 'checked' : ''} ${off ? 'disabled' : ''}><span class="ic">${m.icon}</span><b>${m.name}</b><small>${sub}</small></label>`;
+    }).join('');
+    const nums = d.method === 'numbers' ? `<div class="field-row"><div class="field">第一個數字（上卦）<input id="dvA" type="number" min="1" max="9999" value="${esc(d.a)}" placeholder="例如 17"></div><div class="field">第二個數字（下卦）<input id="dvB" type="number" min="1" max="9999" value="${esc(d.b)}" placeholder="例如 6"></div></div>` : '';
+    const recent = (info.recent || []).slice(0, 3);
+    const rec = recent.length ? `<div class="dv-recent"><div class="dv-rtitle">🌙 最近的占卜（點一下再看一次，不花錢）</div>${recent.map((r) => `<button class="dv-ritem" data-dv-recent="${r.id}"><span class="dv-tag l${r.level}">${esc(r.tag)}</span><b>${esc(r.ben)}</b><span class="q">${esc(r.question)}</span></button>`).join('')}</div>` : '';
+    el.innerHTML = head('✨ 占卜魔法', '星環占・梅花易數', goldChip) + `<div class="panel-body form dv-ask">
+      ${d.notice ? `<div class="dv-notice">${rich(d.notice)}</div>` : ''}
+      <div class="field">🌙 想問什麼？<input id="dvQ" maxlength="60" value="${esc(d.question)}" placeholder="例如：這週的發表會會順利嗎？"></div>
+      <div class="field">🔮 起卦方式<div class="dv-methods">${tiles}</div></div>
+      ${nums}${rec}
+    </div>
+    <div class="panel-foot"><span class="spacer">一次 ${info.cost} 金幣・同一件事 ${info.repeatHours} 小時內只占一次（一事不二占）</span><button class="btn ghost" data-close>取消</button><button class="btn gold" id="dvStart">✨ 開始施法</button></div>`;
+    return;
+  }
+  if (d.step === 'circle') {
+    const ring = (n, r) => Array.from({ length: n }, (_, i) => `<span style="transform:rotate(${(i * 360) / n}deg) translateY(-${r}px)">${i + 1}</span>`).join('');
+    const tri = '☰☱☲☳☴☵☶☷'.split('').map((x, i) => `<span style="transform:rotate(${i * 45}deg) translateY(-30px)">${x}</span>`).join('');
+    el.innerHTML = head('✨ 占卜魔法', '心裡默念你的問題', goldChip) + `<div class="panel-body dv-circle-body">
+      <div class="dv-q">「${esc(d.question)}」</div>
+      <div class="mc" id="dvCircle"><div class="mc-ring outer" id="mcOuter">${ring(24, 103)}</div><div class="mc-ring inner" id="mcInner">${ring(16, 66)}</div>
+        <div class="mc-core"><div class="mc-tri">${tri}</div><div class="mc-star">✦</div></div><div class="mc-pointer">▼</div></div>
+      <div class="dv-hint" id="dvHint">點一下，讓外環停下</div>
+      <div class="dv-nums"><span>外環 <b id="dvNa">？</b></span><span>內環 <b id="dvNb">？</b></span></div>
+    </div>
+    <div class="panel-foot dark"><span class="spacer">點魔法陣任何地方都可以</span><button class="btn ghost" data-dv-back>換個方法</button></div>`;
+    startCircle();
+    return;
+  }
+  // 結果
+  const r = d.rec.result;
+  const sub = d.mode === 'repeat' ? '一事不二占・上次的結果' : d.mode === 'history' ? '之前的占卜' : `${DV_METHOD_NAME[d.rec.method] || ''}・${r.hour ? `${r.hour.name}時` : ''}`;
+  el.innerHTML = head('✨ 占卜魔法', sub, goldChip) + `<div class="panel-body dv-result ${d.fresh ? 'casting' : ''}">
+    <div class="dv-q">「${esc(d.rec.question)}」${d.mode === 'repeat' ? '<span class="dv-stamp">一事不二占</span>' : ''}</div>
+    <div class="dv-guas">${dvCol(0, '本卦', '現在', r.ben, r.moving)}<span class="dv-arrow">➜</span>${dvCol(1, '互卦', '過程', r.hu, 0)}<span class="dv-arrow">➜</span>${dvCol(2, '變卦', '結果', r.bian, r.moving)}</div>
+    <div class="dv-verdict"><span class="dv-tag big l${r.verdict.level}">${esc(r.verdict.tag)}</span><span>${esc(r.verdict.text)}</span></div>
+    <div class="dv-reading" id="dvReading"><div class="dv-rh">💬 ${esc(v.npc.name)}的解讀</div><div class="dv-rt">${d.reading ? rich(d.reading) : '<span class="thinking-dots"><span></span><span></span><span></span></span>'}</div></div>
+    <button class="dv-detail-btn" id="dvDetail">📖 ${d.showDetail ? '收起解析' : '看解析（體用、五行、動爻）'}</button>
+    ${d.showDetail ? dvDetail(r) : ''}
+  </div>
+  <div class="panel-foot"><span class="spacer">${d.mode ? '這次沒有花金幣' : `花了 ${info.cost} 金幣`}・${esc(r.movingName)}動</span><button class="btn ghost" id="dvAgain" ${d.reading ? '' : 'disabled'}>🌙 再問別的事</button><button class="btn gold" data-close>完成</button></div>`;
+  d.fresh = false;
+}
+// 魔法陣：外環 24 格順時針、內環 16 格逆時針；點一下就減速停在某一格（指針在正上方）
+function startCircle() {
+  const c = state.dv.circle = {
+    rings: [
+      { el: $('#mcOuter'), n: 24, angle: Math.random() * 360, speed: 110 + Math.random() * 70, stop: null, value: null },
+      { el: $('#mcInner'), n: 16, angle: Math.random() * 360, speed: -(140 + Math.random() * 80), stop: null, value: null },
+    ],
+    next: 0, last: performance.now(),
+  };
+  cancelAnimationFrame(state.dvRaf);
+  const tick = (t) => {
+    if (state.panel !== 'divine' || !state.dv || state.dv.step !== 'circle' || state.dv.circle !== c) return;
+    const dt = Math.min(0.05, (t - c.last) / 1000); c.last = t;
+    for (const r of c.rings) {
+      if (r.value !== null) continue;
+      if (r.stop) {
+        const p = Math.min(1, (t - r.stop.t0) / r.stop.dur), e = 1 - Math.pow(1 - p, 3);
+        r.angle = r.stop.from + (r.stop.to - r.stop.from) * e;
+        if (p >= 1) { r.angle = r.stop.to; r.value = slotAtTop(r); ringStopped(r); }
+      } else r.angle += r.speed * dt;
+      r.el.style.transform = `rotate(${r.angle}deg)`;
+    }
+    state.dvRaf = requestAnimationFrame(tick);
+  };
+  state.dvRaf = requestAnimationFrame(tick);
+}
+function slotAtTop(r) { const step = 360 / r.n; return ((((Math.round(-r.angle / step)) % r.n) + r.n) % r.n) + 1; }
+function stopRing() {
+  const c = state.dv && state.dv.circle; if (!c) return;
+  const r = c.rings[c.next]; if (!r || r.stop) return;
+  const step = 360 / r.n, extra = 2 + Math.floor(Math.random() * 2);
+  const to = r.speed > 0 ? (Math.floor(r.angle / step) + extra) * step : (Math.ceil(r.angle / step) - extra) * step;
+  r.stop = { t0: performance.now(), dur: 900, from: r.angle, to };
+  c.next++;
+  $('#dvHint').textContent = c.next === 1 ? '外環慢下來了……' : '內環也慢下來了……';
+}
+function ringStopped(r) {
+  const spans = r.el.querySelectorAll('span');
+  if (spans[r.value - 1]) spans[r.value - 1].classList.add('hit');
+  const c = state.dv.circle, [o, i] = c.rings;
+  if (r === o) { $('#dvNa').textContent = o.value; $('#dvHint').textContent = '再點一下，讓內環停下'; }
+  if (r === i) $('#dvNb').textContent = i.value;
+  if (o.value !== null && i.value !== null) {
+    state.dv.a = o.value; state.dv.b = i.value;
+    $('#dvHint').textContent = '✨ 星象成形……';
+    $('#dvCircle').classList.add('done');
+    setTimeout(divineCast, 900);
+  }
+}
+async function divineStart() {
+  const d = state.dv;
+  d.question = ($('#dvQ') && $('#dvQ').value.trim()) || d.question.trim();
+  if (!d.question) { toast('⚠ 先寫下想問的事'); const q = $('#dvQ'); if (q) q.focus(); return; }
+  if (d.method === 'numbers') {
+    d.a = $('#dvA').value; d.b = $('#dvB').value;
+    if (!(+d.a >= 1) || !(+d.b >= 1)) { toast('⚠ 請填兩個大於 0 的整數'); return; }
+  }
+  // 先確認：同一件事問過了？金幣夠嗎？（都不扣錢）
+  const chk = await run(() => api.divineCheck(d.question), { thinking: false });
+  if (!chk || !chk.ok) return;
+  if (chk.repeat) { Object.assign(d, { step: 'result', rec: chk.record, mode: 'repeat', reading: chk.lines[0].text, fresh: true, showDetail: false }); renderPanel(); return; }
+  if (chk.poor) { d.notice = chk.lines[0].text; renderPanel(); return; }
+  d.notice = '';
+  if (d.method === 'circle') { d.step = 'circle'; renderPanel(); return; }
+  await divineCast();
+}
+async function divineCast() {
+  const d = state.dv;
+  const r = await run(() => api.divineCast({ question: d.question, method: d.method, a: d.a, b: d.b }), { thinking: false });
+  if (!r || !r.ok) { d.step = 'ask'; renderPanel(); return; }
+  if (r.poor || r.repeat) { d.step = 'ask'; d.notice = r.lines[0].text; renderPanel(); return; }
+  Object.assign(d, { step: 'result', rec: r.record, mode: '', reading: '', fresh: true, showDetail: false });
+  renderPanel();
+  const id = r.record.id;
+  const rr = await run(() => api.divineRead(id), { thinking: false }); // 艾琳解讀（AI 可能要想一下）
+  if (!rr || !rr.ok || !state.dv || !state.dv.rec || state.dv.rec.id !== id) return;
+  state.dv.reading = rr.lines[0].text;
+  if (state.panel === 'divine' && state.dv.step === 'result') {
+    const rt = document.querySelector('#dvReading .dv-rt'); if (rt) rt.innerHTML = rich(state.dv.reading);
+    const again = $('#dvAgain'); if (again) again.disabled = false;
+  }
+}
+async function divineClick(e) {
+  const t = e.target, d = state.dv;
+  if (!d) return false;
+  if (t.closest('#dvStart')) { await divineStart(); return true; }
+  if (t.closest('#dvCircle')) { stopRing(); return true; }
+  if (t.closest('[data-dv-back]')) { d.step = 'ask'; renderPanel(); return true; }
+  if (t.closest('#dvDetail')) {
+    d.showDetail = !d.showDetail; renderPanel();
+    if (d.showDetail) { const dt = document.querySelector('.dv-detail'); if (dt) dt.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    return true;
+  }
+  if (t.closest('#dvAgain')) { openDivine(); renderPanel(); return true; }
+  const ri = t.closest('[data-dv-recent]');
+  if (ri) {
+    const rr = await run(() => api.divineRead(ri.dataset.dvRecent), { thinking: false });
+    if (rr && rr.ok) { Object.assign(d, { step: 'result', rec: rr.record, mode: 'history', reading: rr.lines[0].text, fresh: true, showDetail: false }); renderPanel(); }
+    return true;
+  }
+  return false;
+}
+
 // ---------- 🍅 專注模式 ----------
 const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
 function renderFocus() {
@@ -611,12 +803,19 @@ $('#choices').addEventListener('click', async (e) => {
   if (act === 'daily') { openPanel('daily'); run(() => api.daily()); }
   if (act === 'report') openPanel('report');
   if (act === 'chat') { $('#chatRow').classList.toggle('hidden'); $('#chatInput').focus(); }
-  if (act === 'bye') { closePanel(); closeDialog(); }
+  if (act === 'divine') openPanel('divine');
 });
+// 聊天裡說「幫我占卜…」「算一卦」就直接打開占卜面板（問「梅花易數是什麼」這種還是聊天）
+const DV_RE = /(占卜|算一卦|卜一卦|卜個卦|起一?卦|算個卦)/;
+function questionFromChat(t) {
+  const q = t.replace(/(請|幫我|幫忙|可以|能不能|用梅花易數|梅花易數|占卜|算一卦|卜一卦|卜個卦|起一?卦|算個卦|一下|看看|關於|艾琳)/g, '').replace(/^[，,：:、\s]+|[，,：:、\s]+$/g, '').trim();
+  return q.length >= 2 ? q : '';
+}
 async function sendChat() {
   const inp = $('#chatInput');
   const text = inp.value.trim();
   if (!text || state.busy) return;
+  if (DV_RE.test(text) && !/(是什麼|什麼是|怎麼算|原理|準不準)/.test(text)) { inp.value = ''; openPanel('divine', { question: questionFromChat(text) }); return; }
   inp.value = '';
   await run(() => api.chat(text));
   inp.focus();
@@ -627,11 +826,13 @@ $('#chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e
 // ---------- 面板 ----------
 // 表單面板比較高：開著的時候先把對話框收起來，關掉表單再放回來
 function openPanel(kind, arg) {
+  if (kind === 'divine') openDivine(arg);
   state.panel = kind; state.panelArg = arg; state.confirmDel = null; state.addingObj = null;
   if (FORM_PANELS.has(kind)) $('#dialog').classList.add('hidden'); else openDialog();
   $('#dialog').classList.add('compact'); renderPanel();
 }
 function closePanel() {
+  cancelAnimationFrame(state.dvRaf);
   const wasForm = FORM_PANELS.has(state.panel);
   state.panel = null; state.panelBack = null; state.confirmDel = null; state.addingObj = null;
   $('#panel').classList.add('hidden'); $('#dialog').classList.remove('compact');
@@ -650,8 +851,9 @@ function renderPanel() {
   const body = el.querySelector('.panel-body');
   if (body && keepScroll) body.scrollTop = keepScroll;
 }
+// 面板標題列（所有面板共用）
+const head = (title, sub, extra = '') => `<div class="panel-head"><h2>${title}</h2>${sub ? `<span class="sub">${sub}</span>` : ''}${extra}<button class="icon-btn" data-close>✕</button></div>`;
 function renderPanelInner(el, v) {
-  const head = (title, sub, extra = '') => `<div class="panel-head"><h2>${title}</h2>${sub ? `<span class="sub">${sub}</span>` : ''}${extra}<button class="icon-btn" data-close>✕</button></div>`;
   if (state.panel === 'board') {
     const addBtn = v.editable && state.boardTab === 'quests' ? '<button class="tab add" data-new="quest" title="登記一筆新委託">＋ 新任務</button>' : '';
     const tabs = `<div class="tabs"><button class="tab ${state.boardTab === 'quests' ? 'on' : ''}" data-tab="quests">任務</button><button class="tab ${state.boardTab === 'hist' ? 'on' : ''}" data-tab="hist">紀錄</button>${addBtn}</div>`;
@@ -684,7 +886,7 @@ function renderPanelInner(el, v) {
       else if (!v.editable) body += '<p class="hint">🔒 這份計畫檔是舊版表格格式，程式裡不能直接新增／編輯。用 <code>node tools/convert_plan.js</code> 轉成新格式就可以了。</p>';
     } else {
       body = '<div class="hist">' + (v.history.length
-        ? v.history.map((h) => `<div class="hist-item"><span class="ico">${histIcon(h.reason)}</span><span><span class="when">${hhmm(h.at)}</span>${rich(h.reason)}</span><span class="gain">+${h.xp} XP<small>🪙 +${h.gold}</small></span></div>`).join('')
+        ? v.history.map((h) => `<div class="hist-item"><span class="ico">${histIcon(h.reason)}</span><span><span class="when">${hhmm(h.at)}</span>${rich(h.reason)}</span><span class="gain">${gainHtml(h)}</span></div>`).join('')
         : '<p class="hint">還沒有紀錄。完成第一個目標，就會出現在這裡！</p>') + '</div>';
     }
     const done = v.quests.filter((q) => q.status === 'done').length;
@@ -764,6 +966,8 @@ function renderPanelInner(el, v) {
     setTimeout(() => { const i = $('#mfText'); if (i) i.focus(); }, 30);
   }
 
+  if (state.panel === 'divine') renderDivine(el, v);
+
   if (state.panel === 'report') {
     const t = v.today;
     const doneRows = t.rows.filter((r) => r.done).map((r) => (t.branch && t.chosenBranch === 'b' ? r.b : r.a));
@@ -837,6 +1041,7 @@ async function saveRemForm() {
 
 $('#panel').addEventListener('click', async (e) => {
   const t = e.target;
+  if (state.panel === 'divine' && await divineClick(e)) return;
   if (t.closest('[data-close]')) { closePanel(); return; }
   if (t.closest('[data-back]')) { backFromForm(); return; }
   const tab = t.closest('[data-tab]'); if (tab) { state.boardTab = tab.dataset.tab; renderPanel(); return; }
@@ -900,9 +1105,17 @@ async function saveObjective(qid) {
   state.addingObj = qid; renderPanel(); // 留在輸入狀態，方便連續加好幾個
   const again = document.querySelector(`[data-obj-input="${qid}"]`); if (again) again.focus();
 }
+$('#panel').addEventListener('input', (e) => {
+  const d = state.dv, t = e.target;
+  if (!d) return;
+  if (t.id === 'dvQ') d.question = t.value;
+  if (t.id === 'dvA') d.a = t.value;
+  if (t.id === 'dvB') d.b = t.value;
+});
 $('#panel').addEventListener('keydown', async (e) => {
   const t = e.target;
   if (e.isComposing) return;
+  if (e.key === 'Enter' && state.panel === 'divine' && state.dv && state.dv.step === 'ask' && t.tagName === 'INPUT') { e.preventDefault(); divineStart(); return; }
   if (e.key === 'Escape') { if (state.addingObj) { state.addingObj = null; renderPanel(); } else if (FORM_PANELS.has(state.panel)) backFromForm(); return; }
   if (e.key !== 'Enter') return;
   if (t.dataset.objInput) { e.preventDefault(); await saveObjective(t.dataset.objInput); return; }
@@ -912,6 +1125,7 @@ $('#panel').addEventListener('keydown', async (e) => {
 });
 $('#panel').addEventListener('change', async (e) => {
   const t = e.target;
+  if (t.name === 'dvm' && state.dv) { state.dv.method = t.value; renderPanel(); return; }
   if (t.name === 'qfTier') { document.querySelectorAll('.tp').forEach((l) => l.classList.toggle('on', l.querySelector('input').checked)); return; }
   if (t.dataset.obj) {
     const r = await run(() => api.setObjective(t.dataset.obj, Number(t.dataset.idx), t.checked), { thinking: false });

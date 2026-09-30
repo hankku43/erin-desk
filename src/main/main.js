@@ -275,6 +275,7 @@ function showMenu() {
       ? { label: `🍅 結束專注（還剩 ${engine.focusInfo().leftMin} 分鐘）`, click: stopFocus }
       : { label: `🍅 專注 ${engine.focusCfg().minutes} 分鐘`, click: () => { if (mini) setMini(false); push('ui:focus'); } },
     { label: engine.fortuneToday() ? `🔮 今日運勢：${engine.fortuneToday().rank}` : '🔮 抽今日運勢', click: () => { if (mini) setMini(false); push('ui:fortune'); } },
+    { label: `✨ 占卜魔法（${engine.divCfg().cost} 金幣）…`, click: () => { if (mini) setMini(false); push('ui:open', 'divine'); } },
     { type: 'separator' },
     { label: '選擇週計畫檔…', click: choosePlan },
     { label: '📥 匯入行事曆（.ics）到本週…', click: menuSafe(importIcs) },
@@ -413,6 +414,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('focus:cancel', wrap(() => { clearTimeout(focusTimer); return engine.cancelFocus(); }));
   ipcMain.handle('focus:peek', wrap(() => engine.focusPeek()));
   ipcMain.handle('fortune:draw', wrap(() => engine.drawFortune()));
+  ipcMain.handle('divine:info', wrap(() => ({ info: engine.divineInfo() })));
+  ipcMain.handle('divine:check', wrap((q) => engine.divineCheck(q)));
+  ipcMain.handle('divine:cast', wrap((opts) => engine.divineCast(opts || {})));
+  ipcMain.handle('divine:read', wrap((id) => engine.divineRead(id)));
   ipcMain.handle('ics:export', wrap(() => exportIcs()));
   ipcMain.on('win:ignore', (_e, ignore) => { if (win) win.setIgnoreMouseEvents(!!ignore, { forward: true }); });
   ipcMain.on('win:move', (_e, { dx, dy }) => {

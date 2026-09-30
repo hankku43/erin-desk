@@ -528,3 +528,92 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('今日運勢與專注模式測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ✨ 占卜魔法：梅花易數的卦表、起卦、互變、體用；引擎的花費、一事不二占、金幣不夠、內建解讀
+(async () => {
+  const os = require('os');
+  const MH = require('../src/main/meihua');
+  const { Engine } = require('../src/main/engine');
+  const { TEMPLATES } = require('../src/main/npc');
+  // 64 卦：卦序各一次、卦名的上下卦和八卦的象一致
+  const seen = new Set();
+  for (let u = 1; u <= 8; u++) for (let l = 1; l <= 8; l++) {
+    const h = MH.hexagram(u, l); seen.add(h.no);
+    if (u === l) assert.ok(h.name.startsWith(h.upper.name) && h.name.includes('為'), h.name);
+    else assert.ok(h.name[0] === h.upper.nature && h.name[1] === h.lower.nature, `${h.name} 應為 ${h.upper.nature}${h.lower.nature}`);
+    assert.ok(h.meaning, `${h.name} 缺卦義`);
+  }
+  assert.strictEqual(seen.size, 64);
+  assert.deepStrictEqual([MH.hexagram(1, 1).no, MH.hexagram(8, 8).no, MH.hexagram(6, 4).no, MH.hexagram(6, 3).no, MH.hexagram(3, 6).no], [1, 2, 3, 63, 64], '乾1 坤2 屯3 既濟63 未濟64');
+  // 經典例子：天水訟 五爻動 → 互 風火家人、變 火水未濟；體坎水、用乾金 → 用生體
+  const song = MH.cast(1, 6, 5);
+  assert.deepStrictEqual([song.ben.name, song.hu.name, song.bian.name, song.ti.name, song.yong.name, song.relation, song.verdict.tag], ['天水訟', '風火家人', '火水未濟', '坎', '乾', '用生體', '大吉']);
+  // 地天泰 初爻動 → 互 雷澤歸妹、變 地風升；動在下卦 → 體坤土、用乾金 → 體生用
+  const tai = MH.cast(8, 1, 1);
+  assert.deepStrictEqual([tai.hu.name, tai.bian.name, tai.ti.name, tai.relation], ['雷澤歸妹', '地風升', '坤', '體生用']);
+  // 餘數為 0 → 算 8／算 6
+  const z = MH.cast(16, 8, 12);
+  assert.deepStrictEqual([z.ben.upper.name, z.ben.lower.name, z.moving], ['坤', '坤', 6]);
+  assert.ok(/算 8/.test(z.formula.upper) && /算 6/.test(z.formula.moving));
+  // 五行生剋
+  assert.deepStrictEqual(['木火', '火木', '金木', '木金', '土土'].map(([t, o]) => MH.relation(t, o)), ['體生用', '用生體', '體剋用', '用剋體', '比和']);
+  // 時辰：23:00 與 00:30 是子、11:00 是午、22:59 是亥
+  assert.deepStrictEqual(['23:00', '00:30', '11:00', '22:59'].map((t) => MH.hourBranch(new Date(`2026-09-30T${t}:00`)).name), ['子', '子', '午', '亥']);
+  // 報數：3、8 在午時（7）→ 上離下坤 火地晉；動爻 3+8+7=18 → 上爻
+  const jin = MH.castByNumbers(3, 8, new Date('2026-09-30T11:30:00'));
+  assert.deepStrictEqual([jin.ben.name, jin.moving, jin.hour.name], ['火地晉', 6, '午']);
+  assert.throws(() => MH.castByNumbers(0, 5), /大於 0/);
+  // 時間起卦：2026-09-30 10:30 ＝ 丙午年八月二十巳時 → 午7＋8＋20＝35 → 離；35＋6＝41 → 乾；41÷6 餘 5 → 五爻 → 火天大有
+  assert.ok(MH.hasLunar(), '農曆套件已安裝');
+  const t1 = MH.castByTime(new Date('2026-09-30T10:30:00'));
+  assert.deepStrictEqual([t1.lunar.text, t1.ben.name, t1.moving], ['丙午年 八月二十 巳時', '火天大有', 5]);
+  assert.strictEqual(MH.lunarInfo(new Date('2026-02-17T09:00:00')).text, '丙午年 正月初一 巳時', '2026 春節');
+  assert.ok(/本卦：天水訟/.test(MH.describe(song, '測試')) && /用生體/.test(MH.describe(song, '測試')));
+  // 內建台詞口吻
+  for (const k of ['divine', 'divine_repeat', 'divine_poor']) for (const [t] of TEMPLATES[k]) assert.ok(!/我(?!們)|玩家|您/.test(t), `${k}：${t}`);
+
+  // 引擎
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-dv-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  let t = new Date('2026-09-30T10:30:00').getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.player.gold = 25;
+  assert.deepStrictEqual([E.view().divination.cost, E.view().divination.timeAvailable], [10, true]);
+  assert.throws(() => E.divineCast({ question: '  ', method: 'circle', a: 1, b: 1 }), /想問的事/);
+  const c1 = E.divineCast({ question: '這週的發表會會順利嗎？', method: 'circle', a: 17, b: 6 });
+  assert.strictEqual(E.state.player.gold, 15, '扣 10 金幣');
+  assert.deepStrictEqual([c1.record.result.ben.name, c1.record.method, E.state.history[0].reason, E.state.history[0].gold], ['天水訟', 'circle', '占卜魔法：天水訟', -10]);
+  const read = await E.divineRead(c1.record.id);
+  assert.ok(/天水訟/.test(read.lines[0].text) && /艾琳的建議/.test(read.lines[0].text) && !/我(?!們)/.test(read.lines[0].text), read.lines[0].text);
+  assert.strictEqual((await E.divineRead(c1.record.id)).lines[0].text, read.lines[0].text, '再看一次用同一段解讀');
+  // 一事不二占：換個說法、24 小時內 → 不扣錢，給上次的結果
+  for (const q of ['請問這週發表會會順利嗎', '這週的發表會會順利嗎']) {
+    const rp = E.divineCast({ question: q, method: 'numbers', a: 3, b: 4 });
+    assert.ok(rp.repeat && rp.record.id === c1.record.id && /一事不二占/.test(rp.lines[0].text), q);
+  }
+  assert.ok(E.divineCheck('這週的發表會會順利嗎').repeat && !E.divineCheck('下週的旅行').repeat);
+  assert.strictEqual(E.state.player.gold, 15, '重複問不扣錢');
+  // 不同的事可以問；時間起卦
+  const c2 = E.divineCast({ question: '下週的旅行好不好', method: 'time' });
+  assert.deepStrictEqual([c2.record.result.ben.name, E.state.player.gold], ['火天大有', 5]);
+  // 金幣不夠：不扣錢、不起卦
+  const poor = E.divineCast({ question: '午餐要吃什麼', method: 'numbers', a: 1, b: 2 });
+  assert.ok(poor.poor && /星粉不夠/.test(poor.lines[0].text) && E.state.player.gold === 5 && E.state.divinations.length === 2);
+  assert.ok(E.divineCheck('午餐要吃什麼').poor);
+  // 24 小時後同一件事可以再問
+  t += 25 * 3600000; E.state.player.gold = 30;
+  assert.ok(!E.divineCast({ question: '這週的發表會會順利嗎？', method: 'numbers', a: 5, b: 5 }).repeat, '過了 24 小時可以再問');
+  // 設定可以改價錢
+  E.saveConfigPatch({ divination: { cost: 3 } });
+  E.divineCast({ question: '新的問題', method: 'numbers', a: 2, b: 2 });
+  assert.strictEqual(E.state.player.gold, 17, '改成 3 金幣');
+  // 最近的占卜
+  assert.deepStrictEqual(E.view().divination.recent.map((r) => r.question).slice(0, 2), ['新的問題', '這週的發表會會順利嗎？']);
+  // 過程與結果同一卦時，內建解讀只講一次
+  const same = E.divineCast({ question: '會不會下雨', method: 'numbers', a: 2, b: 9 }); // 午時 → 澤天夬，互、變都是乾為天
+  const sameRead = await E.divineRead(same.record.id);
+  assert.ok(/過程和結果都是「乾為天」/.test(sameRead.lines[0].text), sameRead.lines[0].text);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('占卜魔法測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
