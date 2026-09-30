@@ -91,15 +91,24 @@ def add_to(names, ref_name='normal'):
     ref = np.asarray(Image.open(os.path.join(OUT, ref_name + '.png')).convert('RGBA'))
     H, W = ref.shape[:2]
     rb = np.where(ref[..., 3].max(axis=1) > 8)[0]
+    ref_raw = None  # 定裝照原圖 → 成品的變換：改圖通常保留構圖，姿勢差太多對不齊時沿用它
     for n in names:
         src = matte(n)[0]
         M, s, ninl, ng = align(src, ref, 0)
         info = f'scale={s:.3f} inliers={ninl}/{ng} t=({M[0,2]:.0f},{M[1,2]:.0f})'
-        if ninl < 25:  # 對不齊時退回：角色高度跟 normal 一樣、底部置中
-            sb = np.where(src[..., 3].max(axis=1) > 8)[0]
-            sc = (rb.max() - rb.min()) / max(1, sb.max() - sb.min())
-            M = np.float32([[sc, 0, (W - src.shape[1] * sc) / 2], [0, sc, H - sb.max() * sc]])
-            info += ' → 對不齊，改用高度＋置中'
+        if ninl < 25:
+            if ref_raw is None and has_raw(ref_name):
+                rr = matte(ref_name)[0]
+                RM, _, rin, _ = align(rr, ref, 0)
+                ref_raw = (rr.shape[:2], RM if rin >= 25 else False)
+            if ref_raw and ref_raw[1] is not False and ref_raw[0] == src.shape[:2]:
+                M = ref_raw[1].copy()
+                info += f' → 姿勢差比較多，沿用 {ref_name} 原圖的位置'
+            else:  # 最後的退路：角色高度跟 normal 一樣、底部置中
+                sb = np.where(src[..., 3].max(axis=1) > 8)[0]
+                sc = (rb.max() - rb.min()) / max(1, sb.max() - sb.min())
+                M = np.float32([[sc, 0, (W - src.shape[1] * sc) / 2], [0, sc, H - sb.max() * sc]])
+                info += ' → 對不齊，改用高度＋置中'
         out = cv2.warpAffine(src, M, (W, H), flags=cv2.INTER_LANCZOS4, borderValue=(0, 0, 0, 0))
         # 半身圖的底部要貼齊畫布，不然角色會浮起來；差一點點就往下推
         gap = H - 1 - np.where(out[..., 3].max(axis=1) > 8)[0].max()
