@@ -1,6 +1,8 @@
 // NPC 對話：Ollama 本機模型 + 模板台詞備援
 'use strict';
 
+const fs = require('fs');
+
 let toTW = (s) => s;
 try {
   const OpenCC = require('opencc-js');
@@ -133,7 +135,7 @@ const TEMPLATES = {
   daily_none: [['現在不在排定的時段內，可以處理當前任務「{quest}」。', 'normal']],
   daily_report: [['日報收到了📝 今天辛苦了，明天也一起加油吧！', 'happy']],
   all_clear: [['🎊 本週委託全部完成！{call}，你是公會的驕傲！', 'cheer']],
-  chat: [['（AI 對話離線中，先用內建台詞）當前委託是「{quest}」，{due}。想更新進度的話，直接告訴{self}做完了什麼喔。', 'thinking']],
+  chat: [['{why}當前委託是「{quest}」，{due}。想更新進度的話，直接告訴{self}做完了什麼喔。', 'thinking']],
 };
 
 function fill(tpl, f) {
@@ -141,6 +143,16 @@ function fill(tpl, f) {
 }
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+// 聊天備援時放在句首的說明；模型如果照抄這種句子（台／臺都算），就拿掉
+const WHY = {
+  off: '（AI 對話已關閉，先用內建台詞）',
+  offline: '（連不到 AI，先用內建台詞）',
+  timeout: '（AI 想太久了，這次先用內建台詞）',
+  error: '（AI 這次沒回好，先用內建台詞）',
+};
+const RE_FALLBACK = /[（(]\s*(AI|ＡＩ)[^）)]{0,20}(內建|内建)[台臺]詞[）)]\s*/g;
+function isFallbackText(t) { RE_FALLBACK.lastIndex = 0; const r = RE_FALLBACK.test(String(t || '')); RE_FALLBACK.lastIndex = 0; return r; }
 
 const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // 口吻校正（小模型常常不聽話）：自稱「我」→ self、「玩家／使用者／主人…」→ call、「您」→「你」。
@@ -175,6 +187,29 @@ class NPC {
     this.cfg = config;
     this.persona = config.npc;
     this.llm = config.llm;
+  }
+
+  // 每次呼叫都用同一個 context 長度：Ollama 遇到 num_ctx 不同會整個重載模型，CPU 上要好幾秒
+  numCtx() { return this.llm.numCtx || 4096; }
+  // 聊天的提示最長（任務清單＋角色設定＋對話紀錄），給久一點
+  timeoutFor(event) { const base = this.llm.timeoutMs || 45000; return event === 'chat' ? Math.max(base, this.llm.chatTimeoutMs || 90000) : base; }
+
+  // 每次呼叫 AI 的耗時記到 data/llm.log（最多留 300 行），AI 常常回不出來時看這裡
+  setLogFile(file) { this.logFile = file; }
+  logCall(event, t0, r, err) {
+    if (!this.logFile) return;
+    const ms = (ns) => (ns ? Math.round(ns / 1e6) : 0);
+    const d = new Date();
+    const stamp = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    const line = err
+      ? `${stamp}\t${event}\t${Date.now() - t0}ms\t失敗：${err}`
+      : `${stamp}\t${event}\t${Date.now() - t0}ms\t載入模型 ${ms(r.load_duration)}ms｜讀提示 ${r.prompt_eval_count || 0} tok ${ms(r.prompt_eval_duration)}ms｜產生 ${r.eval_count || 0} tok ${ms(r.eval_duration)}ms`;
+    try {
+      let lines = [];
+      try { lines = fs.readFileSync(this.logFile, 'utf8').split('\n').filter(Boolean); } catch (_) { /* 新檔 */ }
+      lines.push(line);
+      fs.writeFileSync(this.logFile, lines.slice(-300).join('\n') + '\n', 'utf8');
+    } catch (_) { /* 寫不進去就算了 */ }
   }
 
   // 角色的自稱與對玩家的稱呼（config 的 npc.selfName／npc.callName）
@@ -267,7 +302,7 @@ class NPC {
   warmUp() {
     if (!this.llm.enabled || this.warming) return;
     this.warming = true;
-    this.fetchJSON('/api/chat', { model: this.llm.model, messages: [], keep_alive: this.llm.keepAlive || '30m' }, 180000)
+    this.fetchJSON('/api/chat', { model: this.llm.model, messages: [], keep_alive: this.llm.keepAlive || '30m', options: { num_ctx: this.numCtx() } }, 180000)
       .catch(() => {})
       .finally(() => { this.warming = false; });
   }
@@ -314,12 +349,24 @@ class NPC {
   // event: 見 EVENT_DESC；facts: 由 engine 組好；history: 聊天紀錄 [{role, content}]
   // opts.extraSystem：額外規則；opts.extraProps：JSON 輸出額外欄位（例如 actions）；opts.extraUser：附加在狀態後的資料
   async say(event, facts, { userText, history, extraSystem, extraProps, extraUser, maxTokens } = {}) {
-    if (!this.llm.enabled) return this.template(event, facts);
+    if (!this.llm.enabled) return this.template(event, { ...facts, why: WHY.off });
     // 離線時直接用內建台詞；重連交給主程式每 20 秒一次的健康檢查，使用者的操作不會被逾時卡住
-    if (!this.status.online) return this.template(event, facts);
+    if (!this.status.online) return this.template(event, { ...facts, why: WHY.offline });
+    // 剛逾時過：閒話、提醒這類順便說的話先用內建台詞；聊天是冒險者主動問的，照樣問 AI
+    if (event !== 'chat' && this.slowUntil && Date.now() < this.slowUntil) return this.template(event, facts);
     const messages = [{ role: 'system', content: this.systemPrompt() + (extraSystem ? `\n${extraSystem}` : '') }];
     // 舊的聊天紀錄也先校正口吻，免得模型學到以前說過的「我」「玩家」
-    for (const h of (history || []).slice(-6)) {
+    const hist = [];
+    for (const h of history || []) {
+      let line = h.content;
+      if (h.role === 'assistant') { try { line = JSON.parse(h.content).line; } catch (_) { /* 純文字 */ } }
+      if (h.role === 'assistant' && (h.source === 'template' || isFallbackText(line))) {
+        if (hist.length && hist[hist.length - 1].role === 'user') hist.pop(); // 那一輪整個不給模型看，免得它學著說「離線中」
+        continue;
+      }
+      hist.push(h);
+    }
+    for (const h of hist.slice(-6)) {
       let content = h.content;
       if (h.role === 'assistant') {
         try { const j = JSON.parse(content); j.line = voice(j.line, this.names()); content = JSON.stringify(j); } catch (_) { content = voice(content, this.names()); }
@@ -328,6 +375,7 @@ class NPC {
     }
     const task = `${this.llm.noThinkPrefix || ''}【狀態】\n${this.factsText(facts)}${extraUser ? `\n\n${extraUser}` : ''}\n\n【情境】${EVENT_DESC[event] || EVENT_DESC.chat}`;
     messages.push({ role: 'user', content: userText ? `${task}\n\n${this.names().call}說：「${userText}」` : task });
+    const t0 = Date.now();
     try {
       const r = await this.fetchJSON('/api/chat', {
         model: this.llm.model,
@@ -340,20 +388,35 @@ class NPC {
           properties: { line: { type: 'string' }, emotion: { type: 'string', enum: EMOTIONS }, ...(extraProps || {}) },
           required: ['line', 'emotion', ...Object.keys(extraProps || {})],
         },
-        options: { temperature: this.llm.temperature ?? 0.8, num_predict: maxTokens || this.llm.maxTokens || 160, num_ctx: extraUser ? 4096 : 2048 },
-      }, this.llm.timeoutMs || 45000);
+        options: { temperature: this.llm.temperature ?? 0.8, num_predict: maxTokens || this.llm.maxTokens || 160, num_ctx: this.numCtx() },
+      }, this.timeoutFor(event));
+      this.logCall(event, t0, r);
       const out = this.parseReply(r.message && r.message.content);
+      out.text = out.text.replace(RE_FALLBACK, '').trim(); // 模型照抄了舊的備援句子
       if (!out.text) throw new Error('空白回覆');
       out.text = voice(out.text, { ...this.names(), protect: protectedTexts(facts, userText) });
       this.status = { online: true, message: `AI：${this.llm.model}`, checkedAt: Date.now() };
+      this.slowUntil = 0; // 又回得出來了，閒話也恢復用 AI
       return { ...out, source: 'llm' };
     } catch (e) {
       const timeout = e.name === 'AbortError';
-      this.status = { online: false, message: `AI 暫時無回應（${timeout ? '逾時' : e.message.slice(0, 60)}），改用內建台詞`, checkedAt: Date.now() };
-      this.backoffUntil = Date.now() + (timeout ? 120000 : 20000); // 逾時：兩分鐘內不重試；連線失敗：20 秒
-      return this.template(event, facts);
+      this.logCall(event, t0, null, timeout ? 'timeout' : e.message);
+      if (timeout) {
+        // 逾時不是斷線：Ollama 還在，只是這台電腦算太慢。狀態保持連線，兩分鐘內閒話先用內建台詞
+        this.slowUntil = Date.now() + 120000;
+        this.status = { online: true, slow: true, message: `AI：${this.llm.model}（上一句超過 ${Math.round(this.timeoutFor(event) / 1000)} 秒，這次先用內建台詞）`, checkedAt: Date.now() };
+        return this.template(event, { ...facts, why: WHY.timeout });
+      }
+      const conn = /fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|socket/i.test(`${e.message} ${e.cause && e.cause.code}`);
+      if (conn) {
+        this.status = { online: false, message: '連不到 Ollama（使用內建台詞）', checkedAt: Date.now() };
+        this.backoffUntil = Date.now() + 20000; // 20 秒後健康檢查再試
+      } else {
+        this.status = { online: true, message: `AI：${this.llm.model}（上一句出錯：${String(e.message).slice(0, 40)}）`, checkedAt: Date.now() };
+      }
+      return this.template(event, { ...facts, why: conn ? WHY.offline : WHY.error });
     }
   }
 }
 
-module.exports = { NPC, EMOTIONS, TEMPLATES, voice };
+module.exports = { NPC, EMOTIONS, TEMPLATES, voice, WHY, isFallbackText };

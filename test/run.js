@@ -357,3 +357,84 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
     console.log('聰明艾琳開關測試通過 ✔');
   } finally { Lore.prototype.fetchJSON = realFetch; }
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// 聊天備援：備援句子不進歷史、照抄的前綴會被拿掉、逾時不當斷線、context 長度固定、耗時紀錄
+(async () => {
+  const os = require('os');
+  const { NPC, WHY } = require('../src/main/npc');
+  const { Engine } = require('../src/main/engine');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-chat-'));
+  const cfg = () => ({ npc: { name: '艾琳', role: '接待員', callName: '冒險者' }, llm: { enabled: true, baseUrl: 'http://x', model: 'm', timeoutMs: 45000 } });
+  const facts = { quest: '週報', due: '還有 2 天', level: 1, title: '見習', xpInLevel: 0, xpForNext: 120, goldTotal: 0, streak: 0, now: '9/30' };
+  let calls = [], reply = null, fail = null;
+  const mk = () => {
+    const n = new NPC(cfg()); n.status.online = true; n.setLogFile(path.join(dir, 'llm.log'));
+    n.fetchJSON = async (_p, body, timeout) => { calls.push({ body, timeout }); if (fail) throw fail(); return { message: { content: JSON.stringify(reply) }, load_duration: 3e9, prompt_eval_count: 900, prompt_eval_duration: 2e10, eval_count: 60, eval_duration: 8e9 }; };
+    return n;
+  };
+  // 1. 你遇到的情況：歷史裡有一句舊的「AI 對話離線中」→ 不能送給模型
+  const npc = mk();
+  reply = { line: '（AI 對話離線中，先用內建臺詞）當前委託是「週報」。', emotion: 'normal' };
+  const hist = [
+    { role: 'user', content: '可以幫我加油嗎?' },
+    { role: 'assistant', content: JSON.stringify({ line: '（AI 對話離線中，先用內建台詞）當前委託是「週報」…直接告訴我做完了什麼喔。', emotion: 'thinking' }) }, // 舊存檔沒有 source
+    { role: 'user', content: '你是誰' },
+    { role: 'assistant', content: JSON.stringify({ line: '這裡是艾琳！', emotion: 'happy' }), source: 'llm' },
+    { role: 'user', content: '生氣' },
+    { role: 'assistant', content: JSON.stringify({ line: '要幫你勾選嗎？', emotion: 'thinking' }), source: 'template' },
+  ];
+  const r1 = await npc.say('chat', facts, { userText: '不開心', history: hist, extraUser: '【可操作項目】' });
+  const sentText = JSON.stringify(calls[0].body.messages);
+  assert.ok(!/離線中|內建[台臺]詞/.test(sentText), '備援句子不能出現在送給模型的歷史裡');
+  assert.ok(!/可以幫我加油嗎|"生氣"/.test(sentText.replace(/不開心/, '')), '被拿掉的那一輪，冒險者的那句也一起拿掉');
+  assert.ok(/這裡是艾琳/.test(sentText) && /你是誰/.test(sentText), '正常的那一輪保留');
+  assert.strictEqual(r1.text, '當前委託是「週報」。', '模型照抄的備援前綴要拿掉');
+  assert.strictEqual(r1.source, 'llm');
+  // 2. context 長度：聊天、閒話、暖機都一樣（不同的話 Ollama 會重載模型）；聊天的逾時比較長
+  reply = { line: '嗯哼～', emotion: 'happy' };
+  await npc.say('poke', facts);
+  assert.deepStrictEqual(calls.map((c) => c.body.options.num_ctx), [4096, 4096]);
+  assert.ok(calls[0].timeout >= 90000 && calls[1].timeout === 45000, `聊天 ${calls[0].timeout}ms、閒話 ${calls[1].timeout}ms`);
+  npc.warmUp(); await new Promise((r) => setTimeout(r, 10));
+  assert.strictEqual(calls.at(-1).body.options.num_ctx, 4096, '暖機也用同一個 num_ctx');
+  // 3. 逾時：不當斷線；閒話 2 分鐘內用內建台詞，聊天照樣問 AI
+  calls = [];
+  fail = () => Object.assign(new Error('aborted'), { name: 'AbortError' });
+  const r2 = await npc.say('chat', facts, { userText: '生氣' });
+  assert.ok(npc.status.online && npc.status.slow, '逾時後還是連線中');
+  assert.ok(r2.text.startsWith(WHY.timeout) && r2.source === 'template', r2.text);
+  const before = calls.length;
+  const r3 = await npc.say('poke', facts);
+  assert.strictEqual(calls.length, before, '剛逾時：閒話不呼叫 AI');
+  assert.ok(!/內建/.test(r3.text), '閒話的內建台詞不帶說明');
+  fail = null; reply = { line: '冒險者，艾琳在這裡～', emotion: 'happy' };
+  const r4 = await npc.say('chat', facts, { userText: '不開心' });
+  assert.ok(r4.source === 'llm' && !npc.slowUntil, '聊天照樣問 AI，成功後恢復');
+  // 4. 真的連不到：標成離線，說明是「連不到 AI」
+  fail = () => Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+  const r5 = await npc.say('chat', facts, { userText: '哈囉' });
+  assert.ok(!npc.status.online && r5.text.startsWith(WHY.offline));
+  const r6 = await new NPC({ ...cfg(), llm: { enabled: false } }).say('chat', facts, { userText: '哈囉' });
+  assert.ok(r6.text.startsWith(WHY.off));
+  // 5. 耗時紀錄
+  const log = fs.readFileSync(path.join(dir, 'llm.log'), 'utf8').trim().split('\n');
+  assert.ok(log.some((l) => /\tchat\t\d+ms\t載入模型 3000ms｜讀提示 900 tok 20000ms｜產生 60 tok 8000ms/.test(l)), log[0]);
+  assert.ok(log.some((l) => /失敗：timeout/.test(l)) && log.some((l) => /失敗：fetch failed/.test(l)));
+  // 6. 引擎：備援那一輪存成 source=template，下一句不會被送給模型
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data') });
+  E.npc.status.online = false;
+  const c1 = await E.chat('生氣');
+  assert.ok(c1.lines[0].text.startsWith(WHY.offline), c1.lines[0].text);
+  assert.strictEqual(E.state.chat.at(-1).source, 'template');
+  let sent = null;
+  E.npc.status.online = true;
+  E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '冒險者，先深呼吸，艾琳陪你～', emotion: 'worried', actions: [] }) } }; };
+  const c2 = await E.chat('不開心');
+  assert.strictEqual(c2.lines[0].text, '冒險者，先深呼吸，艾琳陪你～');
+  assert.ok(!/連不到 AI|內建台詞/.test(JSON.stringify(sent.messages.slice(1, -1))) && !sent.messages.slice(1, -1).some((m) => /生氣/.test(m.content)), '上一輪備援沒有送給模型');
+  assert.ok(fs.existsSync(path.join(dir, 'data', 'llm.log')), '引擎把紀錄寫在 data/llm.log');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('聊天備援測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

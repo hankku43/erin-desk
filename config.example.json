@@ -24,6 +24,8 @@
     "maxTokens": 160,
     "maxChars": 90,
     "timeoutMs": 45000,
+    "chatTimeoutMs": 90000,
+    "numCtx": 4096,
     "keepAlive": "30m"
   },
   "rewards": {

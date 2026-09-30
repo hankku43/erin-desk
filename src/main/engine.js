@@ -48,6 +48,7 @@ class Engine {
     this.loadConfig();
     this.loadLore();
     this.npc = new NPC(this.config);
+    this.npc.setLogFile(path.join(this.dataDir, 'llm.log')); // 每次呼叫 AI 的耗時，AI 常回不出來時看這裡
     this.loadState();
     this.backedUp = false;
     this.loadPlan();
@@ -573,7 +574,7 @@ class Engine {
     this.state.chat.push({ role: 'user', content: text });
     const line = await this.say('chat', {}, {
       userText: text,
-      history: this.state.chat.slice(-7, -1),
+      history: this.state.chat.slice(0, -1), // npc 會濾掉備援台詞那幾輪，再取最後 6 句
       extraSystem: I.ACTION_RULES,
       extraProps: I.ACTION_SCHEMA,
       extraUser: [I.catalogText(cat), this.lore.contextText(hits)].filter(Boolean).join('\n\n'),
@@ -601,7 +602,7 @@ class Engine {
       }
     }
     delete line.data;
-    this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }) });
+    this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source }); // source=template 的不會再給模型看
     this.state.chat = this.state.chat.slice(-20);
     this.saveState();
     return { lines: [line], proposal, view: this.view() };
