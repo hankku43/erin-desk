@@ -186,6 +186,9 @@ const WHY = {
   error: '（AI 這次沒回好，先用內建台詞）',
 };
 const RE_FALLBACK = /[（(]\s*(AI|ＡＩ)[^）)]{0,20}(內建|内建)[台臺]詞[）)]\s*/g;
+// 模型偶爾會把格式說明當成答案（line 只回「台詞」），這種回覆當作這次沒回好
+const RE_PLACEHOLDER = /^[「『"'（(]?\s*(台詞|臺詞|台词|台詞內容|臺詞內容|要說的話|你要說的話|說的話|回覆|line|text|\.\.\.|…+)\s*[」』"'）)]?[。.！!]?$/i;
+function isPlaceholder(t) { return RE_PLACEHOLDER.test(String(t || '').trim()); }
 function isFallbackText(t) { RE_FALLBACK.lastIndex = 0; const r = RE_FALLBACK.test(String(t || '')); RE_FALLBACK.lastIndex = 0; return r; }
 
 const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -267,7 +270,7 @@ class NPC {
       '3. 只能根據【狀態】裡的資訊講任務、日期、數字，不可以編造任務或數據。之前的對話如果提到別的任務或行程，那可能已經過時，一律以這次的【狀態】為準。',
       `4. 不要列清單、不要用 Markdown、不要重複${call}說的話。`,
       `5. ${call}聊工作以外的話題時，依【角色設定參考】用角色的身分回答；沒寫到的細節可以用符合設定的方式發揮，但不能和設定矛盾，也不要假裝知道${call}那邊的現實資訊（天氣、新聞）。`,
-      `6. 以 JSON 回覆：{"line":"台詞","emotion":"${EMOTIONS.join('|')}"}。shy＝被稱讚、被說中心事、聊到感情時害羞；disdain＝看垃圾一樣的冷眼，只在開玩笑時用（${call}一直戳、找藉口拖延、提到黃瓜），不可以真的看不起${call}。`,
+      `6. 用 JSON 回覆兩個欄位：line 放這次真正要說出口的完整句子，emotion 從 ${EMOTIONS.join('、')} 挑一個。shy＝被稱讚、被說中心事、聊到感情時害羞；disdain＝看垃圾一樣的冷眼，只在開玩笑時用（${call}一直戳、找藉口拖延、提到黃瓜），不可以真的看不起${call}。`,
     ].join('\n');
   }
 
@@ -427,6 +430,7 @@ class NPC {
       const out = this.parseReply(r.message && r.message.content, maxChars);
       out.text = out.text.replace(RE_FALLBACK, '').trim(); // 模型照抄了舊的備援句子
       if (!out.text) throw new Error('空白回覆');
+      if (isPlaceholder(out.text)) throw new Error(`照抄了格式說明「${out.text}」`);
       out.text = voice(out.text, { ...this.names(), protect: protectedTexts(facts, userText) });
       this.status = { online: true, message: `AI：${this.llm.model}`, checkedAt: Date.now() };
       this.slowUntil = 0; // 又回得出來了，閒話也恢復用 AI
@@ -452,4 +456,4 @@ class NPC {
   }
 }
 
-module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, normEmotion, fillEmotionImages, TEMPLATES, voice, WHY, isFallbackText };
+module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, normEmotion, fillEmotionImages, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };

@@ -656,3 +656,27 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(sent.format.properties.emotion.enum.includes('disdain'), 'schema 有 disdain');
   console.log('表情測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 模型照抄格式說明（戳一下回「臺詞」） ----------
+(async () => {
+  const { NPC, TEMPLATES } = require('../src/main/npc');
+  const npc = new NPC({ npc: { name: '艾琳', role: '接待員', callName: '冒險者' }, llm: { enabled: true, baseUrl: 'http://x', model: 'm', maxChars: 90 } });
+  npc.status.online = true;
+  let reply = null;
+  npc.fetchJSON = async () => ({ message: { content: JSON.stringify(reply) } });
+  const facts = { level: 1, title: '見習', xpInLevel: 0, xpForNext: 120, goldTotal: 0, streak: 0, now: '9/30', pokeCount: 1 };
+  assert.ok(!/台詞/.test(npc.systemPrompt()), '系統提示完全不提「台詞」這個字');
+  const pokeTexts = TEMPLATES.poke.map(([t]) => t.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者'));
+  for (const bad of ['台詞', '臺詞', '台词', '「台詞」', '…']) {
+    reply = { line: bad, emotion: 'shy' };
+    const r = await npc.say('poke', facts);
+    assert.strictEqual(r.source, 'template', `「${bad}」要改用內建台詞`);
+    assert.ok(pokeTexts.includes(r.text), `換成戳一下的內建台詞：${r.text}`);
+    assert.ok(npc.status.online && /照抄了格式說明/.test(npc.status.message), '狀態仍是連線，並寫明原因：' + npc.status.message);
+  }
+  reply = { line: '尾巴又被抓到了……好啦，輕輕的可以。', emotion: 'shy' };
+  const ok = await npc.say('poke', facts);
+  assert.strictEqual(ok.source, 'llm'); assert.strictEqual(ok.emotion, 'shy');
+  assert.ok(/AI：m$/.test(npc.status.message), '下一句正常就恢復');
+  console.log('格式說明照抄測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
