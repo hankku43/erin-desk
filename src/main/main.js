@@ -1,7 +1,7 @@
 // Electron 主程式：透明置頂的桌面 NPC 視窗
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -521,17 +521,22 @@ function stopFocus() {
   if (isMini()) setMini(false);
 }
 
+// 主動找冒險者聊天：每分鐘看一次該不該開口（間隔、好感、有沒有在電腦前，都在 engine.proactiveDue 裡判斷）
+let proactiveBusy = false;
+async function runProactive() {
+  if (proactiveBusy || !win || win.isDestroyed()) return;
+  proactiveBusy = true;
+  try {
+    let idleSec = 0, locked = false;
+    try { idleSec = powerMonitor.getSystemIdleTime(); locked = powerMonitor.getSystemIdleState(60) === 'locked'; } catch (_) { /* 有些系統拿不到 */ }
+    const r = await engine.proactive({ idleSec, locked });
+    if (r && r.lines.length) push('npc:lines', r.lines);
+  } catch (e) { console.error(e); } finally { proactiveBusy = false; }
+}
 function scheduleIdle() {
   clearInterval(idleTimer);
-  const min = Number(engine.config.window.idleChatterMinutes || 0);
-  if (!min) return;
-  idleTimer = setInterval(async () => {
-    if (engine.state.focus) return; // 專注中不主動搭話
-    const t = engine.todayInfo();
-    if (!t.current) return; // 只在排定時段內主動搭話
-    const r = await engine.daily();
-    push('npc:lines', r.lines.map((l) => ({ ...l, ambient: true })));
-  }, min * 60000);
+  if (!Number(engine.config.window.idleChatterMinutes || 0)) return;
+  idleTimer = setInterval(runProactive, 60000);
 }
 
 app.whenReady().then(async () => {
@@ -606,6 +611,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.on('win:menu', showMenu);
   ipcMain.on('ai:toggle', () => setAI(!engine.config.llm.enabled));
+  ipcMain.on('npc:touch', () => engine.touch()); // 冒險者碰了視窗：主動聊天的計時重來
   ipcMain.on('win:dragEnd', onDragEnd);
 
   createWindow();
@@ -622,7 +628,7 @@ app.whenReady().then(async () => {
   scheduleFocus(4000); // 上次關程式時還在專注：時間到了就補結算（等畫面載好）
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
-  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate });
+  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive });
 });
 
 app.on('second-instance', () => { if (win) { win.restore(); win.focus(); } });

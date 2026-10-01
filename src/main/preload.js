@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   cancelProposal: () => ipcRenderer.invoke('npc:cancel'),
   checkStatus: () => ipcRenderer.invoke('npc:status'),
   toggleAI: () => ipcRenderer.send('ai:toggle'),
+  touch: () => ipcRenderer.send('npc:touch'),
   setObjective: (qid, idx, done) => ipcRenderer.invoke('quest:objective', qid, idx, done),
   submit: (qid, report) => ipcRenderer.invoke('quest:submit', qid, report),
   setActive: (qid) => ipcRenderer.invoke('quest:active', qid),

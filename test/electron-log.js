@@ -6,6 +6,7 @@ const BG = process.env.SHOT_BG || 'linear-gradient(135deg,#5b7fa6,#9bb7cf)';
 
 module.exports = ({ win, engine, app }) => {
   engine.state.onboarding = { ...(engine.state.onboarding || {}), done: true }; // 跳過新手教學
+  engine.config.reminders = { ...(engine.config.reminders || {}), items: [] }; // 不要讓午餐、下班提醒在測試中間插話
   const wc = win.webContents;
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const js = (code) => wc.executeJavaScript(code);

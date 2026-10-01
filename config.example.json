@@ -70,7 +70,7 @@
   },
   "window": {
     "alwaysOnTop": true,
-    "idleChatterMinutes": 45
+    "idleChatterMinutes": 30
   },
   "lore": {
     "path": "lore/艾琳.md",

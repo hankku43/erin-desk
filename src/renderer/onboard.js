@@ -137,7 +137,7 @@ function renderOnboard(el, v) {
       + row('obBack', '☀', '午休結束、下午開工', s.back, '13:00')
       + row('obWrap', '🌇', '快下班了，來交日報', s.wrap, '16:50')
       + `<label class="ob-opt"><input type="checkbox" id="obWeekdays" ${s.weekdaysOnly !== false ? 'checked' : ''}> 只在平日（週一～五）提醒</label>`
-      + `<div class="field ob-idle">💬 工作時段裡，${esc(name)}主動找你聊天<select id="obIdle">${opt(30, '每 30 分鐘')}${opt(45, '每 45 分鐘')}${opt(60, '每 1 小時')}${opt(0, '不要主動找我')}</select></div>`;
+      + `<div class="field ob-idle">💬 ${esc(name)}主動找你聊天（越熟越常來）<select id="obIdle">${opt(30, '常常（約半小時）')}${opt(45, '偶爾（約 45 分鐘）')}${opt(60, '很少（約 1 小時）')}${opt(0, '不要主動找我')}</select></div>`;
     foot = `${back}<span class="spacer"></span><button class="btn gold" data-ob-schedule>儲存，下一步 →</button>`;
   }
   if (ob.step === 'done') {

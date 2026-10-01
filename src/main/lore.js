@@ -45,7 +45,7 @@ function parseLore(md) {
     const h2 = line.match(/^##\s+(.+)/);
     if (h1 && !cur) { name = h1[1].trim(); continue; }
     if (h2) {
-      cur = { id: `l${entries.length + 1}`, title: h2[1].trim(), keywords: [], text: [], reply: '', emotion: 'normal', minStage: 0 };
+      cur = { id: `l${entries.length + 1}`, title: h2[1].trim(), keywords: [], text: [], reply: '', emotion: 'normal', minStage: 0, topics: [] };
       entries.push(cur);
       continue;
     }
@@ -54,10 +54,12 @@ function parseLore(md) {
     const rp = line.match(/^台詞[:：]\s*(.+)/);
     const em = line.match(/^表情[:：]\s*(\w+)/);
     const st = line.match(/^好感[:：]\s*(\d+)/); // 好感到第幾階才會出現（隱藏好感度）
+    const tp = line.match(/^話題\s*(?:[（(]\s*好感\s*(\d+)\s*[）)])?\s*[:：]\s*(.+)/); // 艾琳主動找冒險者聊天的開場；可以標好感階段
     if (kw) cur.keywords = kw[1].split(/[、,，\s]+/).map((x) => x.trim()).filter(Boolean);
     else if (rp) cur.reply = rp[1].trim();
     else if (em) cur.emotion = EMOTIONS.includes(em[1]) ? em[1] : 'normal';
     else if (st) cur.minStage = Number(st[1]);
+    else if (tp) cur.topics.push({ text: tp[2].trim(), stage: tp[1] ? Number(tp[1]) : 0 });
     else if (line.trim()) cur.text.push(line.trim());
   }
   for (const e of entries) e.text = e.text.join('\n');
@@ -254,6 +256,18 @@ class Lore {
   }
 
   // 給 AI 看的參考段落
+  // 主動聊天的話題：每條設定的「話題：」都是一個；階段＝設定的好感和那一行標的好感取大的（至少 1）
+  topicPool(stage = 99) {
+    const out = [];
+    for (const e of this.entries) {
+      (e.topics || []).forEach((t, i) => {
+        const st = Math.max(1, e.minStage || 0, t.stage || 0);
+        if (st <= stage) out.push({ key: `${e.title}#${i}`, entry: e, text: t.text, stage: st });
+      });
+    }
+    return out;
+  }
+
   contextText(hits) {
     if (!hits.length) return '';
     return '【角色設定參考】（依此回答，沒提到的細節可以用符合設定的方式發揮，但不要矛盾）\n' +

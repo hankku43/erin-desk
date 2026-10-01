@@ -1092,3 +1092,105 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('動作不等 AI 測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 主動聊天：開話題、越熟越私人、越熟越常來 ----------
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const { Lore } = require('../src/main/lore');
+  const loreFile = path.join(__dirname, '..', 'lore', '艾琳.md');
+  // 設定檔的話題：每一階都有，還沒解鎖的不會出現
+  const L = new Lore({ file: loreFile, dataDir: os.tmpdir(), llm: {}, embeddings: false, log: () => {} });
+  const per = [1, 2, 3, 4, 5].map((s) => L.topicPool(s).filter((x) => x.stage === s).length);
+  assert.ok(per.every((n) => n >= 3), '每一階都有話題：' + per);
+  assert.ok(L.topicPool(1).every((x) => x.stage === 1) && L.topicPool(4).every((x) => x.stage <= 4));
+  assert.ok(L.topicPool(5).some((x) => x.entry.title === '第一次見面') && !L.topicPool(4).some((x) => x.entry.title === '第一次見面'));
+  assert.ok(L.topicPool(5).every((x) => /[？?]/.test(x.text)), '開場都丟一個問題給冒險者');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-topic-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30 } }));
+  const Y = new Date().getFullYear();
+  let t = new Date(`${Y}-10-03T10:00:00`).getTime(); // 週六：計畫裡沒有這天的行程
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  const min = (m) => { t += m * 60000; };
+  const due = (o) => E.proactiveDue(o || {});
+  // 第 1 階：間隔 30 × 0.8 = 24 分鐘（從最後一次碰她算起）
+  assert.strictEqual(due(), null, '剛打開不說');
+  min(23); assert.strictEqual(due(), null);
+  min(2); assert.strictEqual(due(), 'topic', '24 分鐘沒理她 → 開話題');
+  assert.strictEqual(due({ idleSec: 400 }), null, '不在電腦前不說');
+  assert.strictEqual(due({ locked: true }), null, '鎖螢幕不說');
+  E.touch(); assert.strictEqual(due(), null, '剛碰過她，計時重來');
+  min(25);
+  const r = await E.proactive({});
+  assert.ok(r && r.kind === 'topic' && r.lines.length === 1 && r.lines[0].ambient && r.lines[0].topic, '主動說的話標成 ambient＋topic');
+  const said = r.lines[0];
+  assert.ok(L.topicPool(1).some((x) => x.text === said.text), '離線：說設定檔裡寫好的開場');
+  assert.ok(!/q-|進度|任務/.test(said.text), '不提任務');
+  const last = E.state.chat[E.state.chat.length - 1];
+  assert.ok(last.role === 'assistant' && last.topic === said.topic, '放進聊天紀錄，回話時才接得上');
+  // 沒人理：不會一直說；過了三倍間隔才再試一次
+  min(30); assert.strictEqual(due(), null, '上一句還沒人理');
+  min(45); assert.strictEqual(due(), 'topic', '三倍間隔後再試');
+  // 有理她 → 照常
+  E.touch(); min(25); assert.strictEqual(due(), 'topic');
+  // 專注、冷戰、沒做完新手教學、關掉 → 都不說
+  E.state.focus = { endAt: t + 60000 }; assert.strictEqual(due(), null, '專注中'); delete E.state.focus;
+  E.aff().coldUntil = t + 60000; assert.strictEqual(due(), null, '冷戰中'); E.aff().coldUntil = 0;
+  E.state.onboarding = { done: false }; assert.strictEqual(due(), null, '新手教學還沒做完'); E.state.onboarding = { done: true };
+  E.config.window.idleChatterMinutes = 0; assert.strictEqual(due(), null, '設成 0 就不主動'); E.config.window.idleChatterMinutes = 30;
+  // 連續開話題：不會連續兩次同一條、最近聊過的先不聊；第 1 階只聊公開的
+  const seen = [];
+  for (let i = 0; i < 30; i++) { E.touch(); min(25); const x = await E.proactive({}); seen.push(x.lines[0].topic); }
+  assert.ok(seen.every((s, i) => i === 0 || s !== seen[i - 1]), '不會連續同一條');
+  const st1 = new Set(L.topicPool(1).map((x) => x.entry.title));
+  assert.ok(seen.every((s) => st1.has(s)), '第 1 階只聊第 1 階的話題');
+  assert.ok(new Set(seen).size >= 6, '話題有在換：' + new Set(seen).size);
+  // 第 5 階：間隔變 12 分鐘，私人話題變多
+  E.aff().points = 300; E.aff().stage = 5;
+  E.touch(); min(11); assert.strictEqual(due(), null); min(2); assert.strictEqual(due(), 'topic', '越熟越常來（12 分鐘）');
+  const stages = [];
+  for (let i = 0; i < 120; i++) { E.touch(); min(13); const x = await E.proactive({}); stages.push(L.topicPool(5).find((y) => y.text === x.lines[0].text).stage); }
+  const high = stages.filter((s) => s >= 4).length / stages.length;
+  assert.ok(stages.includes(5) && high > 0.35, `第 5 階常聊私人的話題（4、5 階佔 ${Math.round(high * 100)}%）`);
+  // 排定的時段內：每格先提一次行程，之後才開話題
+  t = new Date(`${Y}-09-30T10:00:00`).getTime(); E.touch(); min(13);
+  assert.strictEqual(due(), 'daily', '時段裡先提這格行程');
+  const d = await E.proactive({}); assert.ok(d.kind === 'daily' && d.lines.every((l) => l.ambient));
+  E.touch(); min(13); assert.strictEqual(due(), 'topic', '同一格只提一次');
+
+  // 回她的話題：AI 知道剛剛在聊什麼、好感 +1（一天最多 3 次）；聊別的就不算
+  E.aff().points = 40; E.aff().stage = 2; E.aff().gainedToday = 0; E.aff().topicToday = 0;
+  E.config.llm.enabled = true; E.npc.llm.enabled = true; E.npc.status.online = true; E.rand = () => 0.99;
+  let sent = [];
+  E.npc.fetchJSON = async (_p, body) => { sent.push(body); return { message: { content: JSON.stringify({ line: '原來冒險者那邊也會下雪呀～', emotion: 'happy', actions: [], attitude: 'ok' }) } }; };
+  t = new Date(`${Y}-10-03T15:00:00`).getTime(); E.touch(); min(25);
+  const tp = await E.proactive({});
+  const topicReq = sent[sent.length - 1].messages.map((m) => m.content).join('\n');
+  assert.ok(/【話題】/.test(topicReq) && /【話題相關設定】/.test(topicReq) && !/【當前任務】/.test(topicReq), 'AI 開話題：給話題和設定，不給任務');
+  assert.strictEqual(tp.lines[0].text, '原來冒險者那邊也會下雪呀～');
+  const p0 = E.aff().points;
+  min(1); await E.chat('我們這邊冬天會下一點點雪');
+  const replyReq = sent[sent.length - 1];
+  assert.ok(new RegExp(`【話題】剛才是你主動找冒險者聊「${tp.lines[0].topic}」`).test(replyReq.messages[0].content), '回話時告訴 AI 剛剛在聊的話題');
+  assert.ok(replyReq.messages.some((m) => m.role === 'assistant' && /下雪呀/.test(m.content)), '聊天紀錄裡有她開的話題');
+  assert.strictEqual(E.aff().points, p0 + 1, '陪她聊天 +1');
+  min(1); await E.chat('對啊');
+  assert.ok(!/【話題】/.test(sent[sent.length - 1].messages[0].content), '已經回過了，不再帶話題');
+  assert.strictEqual(E.aff().points, p0 + 1, '同一個話題只加一次');
+  for (let i = 0; i < 4; i++) { E.touch(); min(25); await E.proactive({}); min(1); await E.chat(`回第 ${i} 個話題`); }
+  assert.strictEqual(E.aff().topicToday, 3, '一天最多 3 次');
+  // 過太久才回、或中間聊了別的：不算回話題
+  E.touch(); min(25); await E.proactive({}); min(25); await E.chat('剛剛在忙');
+  assert.ok(!/【話題】/.test(sent[sent.length - 1].messages[0].content), '超過 20 分鐘不算');
+  // 離線回話題：用內建的反應
+  E.config.llm.enabled = false; E.npc.llm.enabled = false;
+  E.touch(); min(25); await E.proactive({}); min(1);
+  const off = await E.chat('我也喜歡');
+  assert.ok(TEMPLATESof('topic_reply').includes(off.lines[0].text) || off.lines[0].source === 'lore', '離線也會回應：' + off.lines[0].text);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('主動聊天測試通過 ✔');
+  function TEMPLATESof(k) { return require('../src/main/npc').TEMPLATES[k].map(([x]) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者')); }
+})().catch((e) => { console.error(e); process.exit(1); });

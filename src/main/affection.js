@@ -17,7 +17,9 @@ const DEFAULTS = {
   shyChance: [0.2, 0.35, 0.5, 0.6, 0.7],   // 聊到稱讚／感情／秘密時真的害羞的機率（依階段）
   pokeDisdain: [0.7, 0.6, 0.5, 0.4, 0.3],  // 連戳時露出鄙視眼神的機率（越熟越包容）
   coldMinutes: 15,                   // 冷戰多久
-  gain: { objective: 1, submit: 3, onTime: 2, report: 2, focus: 1, greet: 1, kind: 1, apology: 2 },
+  chatty: [0.8, 0.7, 0.6, 0.5, 0.4], // 主動找冒險者聊天的間隔倍率（乘上 window.idleChatterMinutes；越熟越常來）
+  topicReplies: 3,                   // 一天最多幾次「回應艾琳的話題」會加好感
+  gain: { objective: 1, submit: 3, onTime: 2, report: 2, focus: 1, greet: 1, kind: 1, apology: 2, topic: 1 },
   loss: { poke_annoyed: 1, poke_meow: 2, spam: 1, rude: 3, harass: 5, disdain: 2 },
   words: { harass: [], rude: [] },   // 自己加的關鍵字
 };

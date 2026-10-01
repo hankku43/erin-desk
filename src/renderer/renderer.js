@@ -124,6 +124,7 @@ async function onNpcClick() {
 async function greet() {
   state.lastGreetAt = Date.now();
   const pending = state.pendingAmbient; state.pendingAmbient = null;
+  if (pending && pending.some((l) => l.topic)) { openDialog(); enqueue(pending); return null; } // 她主動找你聊天：直接說，不用再打一次招呼
   const r = await run(() => api.greet(), { talk: true });
   if (pending && pending.length) enqueue(pending);
   return r;
@@ -244,7 +245,7 @@ function toggleLog() { if (state.panel === 'log') closePanel(); else openPanel('
 
 // ---------- 對話框 ----------
 function openDialog() { if (FORM_PANELS.has(state.panel)) return; $('#dialog').classList.remove('hidden'); } // 表單開著時先不冒出來，關掉表單再顯示
-function closeDialog() { showProposal(null); state.shownLogId = null; $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.queue = []; state.typing = false; $('#npcWrap').classList.remove('talking'); setEmotion('normal'); }
+function closeDialog() { showProposal(null); state.shownLogId = null; $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.queue = []; clearInterval(typeTimer); state.typing = false; $('#npcWrap').classList.remove('talking'); setEmotion('normal'); }
 $('#dlgClose').addEventListener('click', () => { closeDialog(); closePanel(); });
 $('#dlgMini').addEventListener('click', goMini);
 $('#dlgLog').addEventListener('click', toggleLog);
@@ -257,6 +258,7 @@ $('#hudMini').addEventListener('click', goMini);
 
 function showThinking() {
   openDialog();
+  clearInterval(typeTimer); state.typing = false; $('#npcWrap').classList.remove('talking'); // 還在打字的那句先停（不然會蓋掉「思考中」）
   $('#dlgText').innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
   setShown(null);
   setEmotion('thinking');
@@ -283,6 +285,7 @@ function advance() {
   state.current = line; state.lastLine = line;
   if (!line.logId) line.logId = logPush('npc', line.text);
   setShown(line.logId);
+  if (line.topic) openReply(); // 她開了話題：把聊天框打開，方便回她
   setEmotion(line.emotion || 'normal');
   if (line.emotion === 'cheer' || line.emotion === 'surprised') jump();
   $('#npcWrap').classList.add('talking');
@@ -852,12 +855,23 @@ function questionFromChat(t) {
   const q = t.replace(/(請|幫我|幫忙|可以|能不能|用梅花易數|梅花易數|占卜|算一卦|卜一卦|卜個卦|起一?卦|算個卦|一下|看看|關於|艾琳)/g, '').replace(/^[，,：:、\s]+|[，,：:、\s]+$/g, '').trim();
   return q.length >= 2 ? q : '';
 }
+const CHAT_HINT = $('#chatInput').placeholder;
+function openReply() {
+  $('#chatRow').classList.remove('hidden');
+  $('#chatInput').placeholder = `回${(state.view && state.view.npc && state.view.npc.name) || '艾琳'}的話…（Enter 送出）`;
+  if (document.hasFocus() && !FORM_PANELS.has(state.panel)) $('#chatInput').focus({ preventScroll: true });
+}
+// 冒險者有在理艾琳（點、打字）：告訴主程式，主動聊天的計時重來（20 秒最多一次）
+let lastTouchSent = 0;
+function touch() { const n = Date.now(); if (n - lastTouchSent > 20000) { lastTouchSent = n; api.touch(); } }
+window.addEventListener('pointerdown', touch, true);
+window.addEventListener('keydown', touch, true);
 async function sendChat() {
   const inp = $('#chatInput');
   const text = inp.value.trim();
   if (!text || state.talking) return;
   if (DV_RE.test(text) && !/(是什麼|什麼是|怎麼算|原理|準不準)/.test(text)) { inp.value = ''; openPanel('divine', { question: questionFromChat(text) }); return; }
-  inp.value = '';
+  inp.value = ''; inp.placeholder = CHAT_HINT;
   logPush('me', text); logRefresh();
   await run(() => api.chat(text), { talk: true });
   inp.focus();

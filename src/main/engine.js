@@ -84,6 +84,7 @@ class Engine {
     this.tutPending = []; // 新手任務完成的台詞
     // 動作後的話可以「先做事、話晚點說」：main.js 會打開 deferSpeech，測試時照舊等 AI 說完
     this.deferSpeech = false; this.onSpeech = null; this.speechQueue = []; this.speechBusy = false; this.speechSeq = 0; this.viewRev = 0;
+    this.lastTouch = this.now().getTime(); // 冒險者最後一次碰艾琳的視窗（主動聊天看這個決定要不要開口）
     // 新手引導：第一次用的人才需要；已經在用的存檔直接當作完成
     if (!this.state.onboarding) { this.state.onboarding = { done: !this.isFreshUser() }; this.saveState(); }
     this.loadPlan();
@@ -97,7 +98,7 @@ class Engine {
       npc: { name: '艾琳', role: '公會櫃台接待員', personality: '開朗溫柔', callName: '冒險者', selfName: '', catchphrases: [] }, // selfName 空白＝用 name 自稱
       llm: { enabled: true, baseUrl: 'http://127.0.0.1:11434', model: 'qwen3:4b', noThinkPrefix: '/no_think\n' },
       rewards: G.DEFAULT_REWARDS,
-      window: { alwaysOnTop: true, idleChatterMinutes: 45 },
+      window: { alwaysOnTop: true, idleChatterMinutes: 30 },
       lore: { path: 'lore/艾琳.md', topK: 3, embeddings: 'auto', embedModel: 'qwen3-embedding:0.6b' },
       focus: { minutes: 25, rest: 5, xp: 15, gold: 3 }, // 🍅 專注模式
       divination: { cost: 10, repeatHours: 24 }, // ✨ 占卜魔法：每次花費的金幣、一事不二占的時間
@@ -698,7 +699,7 @@ class Engine {
     const today = G.todayISO(this.now());
     let a = this.state.affection;
     if (!a) a = this.state.affection = { points: 0, stage: 1, maxStage: 1, day: today, gainedToday: 0, kindToday: 0, apologyDay: null, coldUntil: 0, offenses: [], spam: [], log: [] };
-    if (a.day !== today) { a.day = today; a.gainedToday = 0; a.kindToday = 0; }
+    if (a.day !== today) { a.day = today; a.gainedToday = 0; a.kindToday = 0; a.topicToday = 0; }
     return a;
   }
   affStage() { if (!this.affOn()) return 99; const a = this.aff(); return A.stageOf(a.points, a.stage, this.affCfg().thresholds); }
@@ -978,6 +979,80 @@ class Engine {
     return { lines: [await this.say('daily')], view: this.view() };
   }
 
+  // ---------- 主動聊天 ----------
+  // 冒險者碰了視窗（點、打字、拖）：畫面每 20 秒最多回報一次
+  touch() { this.lastTouch = this.now().getTime(); }
+  proState() { return this.state.proactive || (this.state.proactive = { lastAt: 0, recent: [], lastTitle: '', topic: null, slot: '' }); }
+  // 現在該不該主動開口、說什麼：null（不說）／'daily'（這格時段的行程，每格一次）／'topic'（開個話題）
+  // idleSec：整台電腦多久沒動（不在電腦前就不說）；locked：螢幕鎖住了
+  proactiveDue({ idleSec = 0, locked = false } = {}) {
+    const base = Number((this.config.window || {}).idleChatterMinutes || 0);
+    if (!base || locked || idleSec > 180) return null;
+    if (this.state.focus || !(this.state.onboarding && this.state.onboarding.done) || this.isCold()) return null;
+    const now = this.now().getTime();
+    const p = this.proState();
+    const stage = this.affOn() ? this.affStage() : 1;
+    const gap = base * A.pick(this.affCfg().chatty || [1], stage) * 60000; // 越熟越常來
+    const lastAt = (p.lastAt || 0) > now ? 0 : (p.lastAt || 0); // 時鐘被調回去過
+    const since = Math.max(lastAt, this.lastTouch || 0);
+    if (now - since < gap) return null;
+    if (lastAt > (this.lastTouch || 0) && now - lastAt < gap * 3) return null; // 上一句還沒人理：先別一直說
+    const t = this.todayInfo();
+    if (t.current && p.slot !== `${t.date}|${t.current.id || t.current.slot}`) return 'daily';
+    return 'topic';
+  }
+  async proactive(opts = {}) {
+    const kind = this.proactiveDue(opts);
+    if (!kind) return null;
+    const p = this.proState();
+    const now = this.now().getTime();
+    let res = null;
+    if (kind === 'daily') {
+      const t = this.todayInfo();
+      p.slot = `${t.date}|${t.current.id || t.current.slot}`;
+      res = await this.daily();
+    } else res = await this.topic();
+    if (!res || !res.lines || !res.lines.length) return null;
+    p.lastAt = now;
+    this.saveState();
+    return { ...res, kind, lines: res.lines.map((l) => ({ ...l, ambient: true })) };
+  }
+  // 開一個話題：從角色設定的「話題：」裡挑（還沒解鎖的不挑；越熟越常挑私人的、最近聊過的先不挑）
+  async topic() {
+    if (this.isCold()) return null;
+    const stage = this.affStage();
+    const pool = this.lore.topicPool(stage);
+    if (!pool.length) return null;
+    const p = this.proState();
+    const recent = p.recent || [];
+    let cand = pool.filter((x) => !recent.includes(x.key) && x.entry.title !== p.lastTitle);
+    if (!cand.length) cand = pool.filter((x) => x.entry.title !== p.lastTitle);
+    if (!cand.length) cand = pool;
+    const w = (x) => (x.stage === stage ? 6 : x.stage === stage - 1 ? 3 : 1);
+    let roll = this.rnd() * cand.reduce((n, x) => n + w(x), 0);
+    let t = cand[cand.length - 1];
+    for (const x of cand) { roll -= w(x); if (roll < 0) { t = x; break; } }
+    const mood = t.entry.emotion === 'shy' && this.rnd() < this.emotionChance() ? 'shy' : null;
+    const info = t.entry.text.replace(/\n+/g, ' ');
+    const line = await this.say('topic', {
+      quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [], // 聊天就聊天，不提任務
+      topic: `「${t.entry.title}」。開場可以參考（用自己的話說，不要照抄）：${t.text}`,
+      topicInfo: info.length > 220 ? `${info.slice(0, 220)}…` : info,
+      opener: t.text,
+    }, { mood, maxTokens: 220 });
+    if (line.source !== 'llm') { line.text = t.text; line.emotion = mood ? 'shy' : (t.entry.emotion || 'normal'); line.source = 'lore'; }
+    delete line.repeated; delete line.data; delete line.tpl;
+    const now = this.now().getTime();
+    p.recent = [...recent, t.key].slice(-Math.min(8, Math.max(1, Math.floor(pool.length / 2))));
+    p.lastTitle = t.entry.title;
+    p.topic = { key: t.key, title: t.entry.title, text: line.text, at: now, replied: false };
+    // 放進聊天紀錄：冒險者回話時，AI 才知道剛剛在聊什麼
+    this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest: this.ps.activeQuestId || null, at: now, topic: t.entry.title });
+    this.state.chat = this.state.chat.slice(-20);
+    this.saveState();
+    return { lines: [{ ...line, event: 'topic', topic: t.entry.title }], view: this.view() };
+  }
+
   async dailyReport(fields) {
     const date = G.todayISO(this.now());
     let writeError = null;
@@ -1014,6 +1089,15 @@ class Engine {
     }
     const stage = this.affStage();
     const hits = await this.lore.retrieve(text, (this.config.lore || {}).topK || 3, { stage }); // 跟這句話相關的角色設定（還沒解鎖的不算）
+    // 是不是在回她剛剛主動開的話題（20 分鐘內、中間沒有聊別的）
+    const tp = this.proState().topic;
+    const lastSaid = [...this.state.chat].reverse().find((h) => h.role === 'assistant');
+    const replyTopic = !!(tp && !tp.replied && at - tp.at < 20 * 60000 && lastSaid && lastSaid.topic === tp.title);
+    if (replyTopic) {
+      tp.replied = true;
+      const e = this.lore.entries.find((x) => x.title === tp.title);
+      if (e && !hits.some((h) => h.entry === e)) hits.push({ entry: e, score: 0, strong: false }); // 那個話題的設定也給 AI 看
+    }
     // 對話紀錄只給 AI 看「同一個當前任務、30 分鐘內」的：換了任務之後，舊對話裡的任務名會讓小模型講錯
     const recent = this.state.chat.filter((h) => h.quest === quest && h.at && at - h.at < 30 * 60000);
     this.state.chat.push({ role: 'user', content: text, quest, at });
@@ -1032,6 +1116,7 @@ class Engine {
     if (apologizing) extra.push(`【道歉】${call}在為剛才的失禮道歉：接受道歉，可以小小抱怨一句，最後原諒他。`);
     if (relationQ) extra.push(`【關係問題】${call}在問你們現在是什麼關係：照【關係】的親近程度，用角色口吻回答一兩句。`);
     if (kw === 'care') extra.push(`${call}現在很痛苦：先溫柔地關心他，建議他找信任的人或專業的人聊聊，這句不要提任務。`);
+    if (replyTopic) extra.push(`【話題】剛才是你主動找${call}聊「${tp.title}」（你說：「${tp.text}」），他現在在回你：先具體回應他說的內容，可以再分享一點你自己的事或接著問一句；不要把話題轉回任務。`);
     // 這次的情緒：失禮→鄙視；冷戰→冷淡；命中標了害羞的設定（稱讚、秘密、感情）→ 依好感階段擲骰
     // 同一句話在回報進度時不害羞（那時要好好確認）
     let mood = null;
@@ -1074,6 +1159,7 @@ class Engine {
       else if (relationQ) tpl(`relation_${Math.min(5, stage)}`);
       else if (noop) { line.text = noop; line.emotion = 'happy'; }
       else if (lore) { line.text = lore.entry.reply; line.emotion = lore.entry.emotion || 'normal'; line.source = 'lore'; }
+      else if (replyTopic) tpl('topic_reply');
       else if (/(完|好了|搞定|取消|交付|提交|勾)/.test(text)) {
         line.text = `嗯……${self}找不到你說的是哪一項。可以說得更具體一點，或直接到任務板勾選喔。`;
         line.emotion = 'thinking';
@@ -1097,6 +1183,7 @@ class Engine {
         } else if ((kw === 'kind' || att === 'kind') && (a.kindToday || 0) < 3 && !this.isCold()) {
           a.kindToday = (a.kindToday || 0) + 1; this.affect(acfg.gain.kind, '稱讚艾琳');
         }
+        if (replyTopic && !this.isCold() && (a.topicToday || 0) < (acfg.topicReplies ?? 3)) { a.topicToday = (a.topicToday || 0) + 1; this.affect(acfg.gain.topic, '陪艾琳聊天'); }
       }
     }
     this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest, at: this.now().getTime() }); // source=template 的不會再給模型看

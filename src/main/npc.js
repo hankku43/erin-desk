@@ -92,9 +92,17 @@ const EVENT_DESC = {
   all_clear: '本週所有任務都完成了！大肆慶祝。',
   divine: '冒險者請你用奶奶教的「星環占」占卜一件事（其實就是梅花易數）。依【卦象】用角色口吻解讀：先說整體傾向（依體用生剋），再說過程（互卦）和結果（變卦），最後給一個具體、做得到的小建議，最好跟他問的事情有關。卦名可以直接說，體用、五行這些術語少用，改用星環、星象的說法包裝。不要說得太絕對，占卜只是星星的建議；如果問的是健康、法律、金錢這類重大決定，溫柔提醒他還是要問專業的人。',
   chat: '冒險者在跟你聊天。依照狀態回答，若問該做什麼就依【當前任務】與【今日行程】建議。',
+  topic: '冒險者現在沒在找你，是你自己想找他聊聊天。照【話題】自然地帶起這個話題：1～2 句，可以先說一點你自己的事（參考【話題相關設定】，但不要整段照念），最後問冒險者一個關於他自己的問題（他的習慣、喜好、想法或經驗），讓他想回答。不要提任務、進度、行程，也不要問「有什麼事嗎」。私密的程度照【關係】：還不熟就聊輕鬆的，越熟越可以說心裡話。',
 };
 
 const TEMPLATES = {
+  topic: [['{opener}', 'normal']], // 離線時直接說設定檔裡寫好的開場
+  topic_reply: [
+    ['嘿嘿，原來是這樣～{self}記住了，等一下寫進小本子！', 'happy'],
+    ['真的嗎？{self}好像又更認識{call}一點了～', 'happy'],
+    ['嗯嗯，{self}有在認真聽喔。下次再多說一點給{self}聽吧！', 'normal'],
+    ['哇……{self}的尾巴都豎起來了，聽起來好有趣！', 'surprised'],
+  ],
   greet: [
     ['歡迎回來，{call}！目前的委託是「{quest}」，{due}。', 'happy'],
     ['{call}，今天也辛苦了。「{quest}」進度 {progress}，要不要繼續？', 'normal'],
@@ -356,6 +364,8 @@ class NPC {
     if (f.theme) L.push(`今天主題：${f.theme}`);
     if (f.eventDetail) L.push(`【事件】${f.eventDetail}`);
     if (f.inspiration) L.push(`【靈感】${f.inspiration}`);
+    if (f.topic) L.push(`【話題】${f.topic}`);
+    if (f.topicInfo) L.push(`【話題相關設定】${f.topicInfo}`);
     if (f.report) L.push(`【${this.names().call}的回報】${f.report}`);
     if (f.memory && f.memory.length) L.push(`【最近紀錄】${f.memory.join('；')}`);
     return L.join('\n');
