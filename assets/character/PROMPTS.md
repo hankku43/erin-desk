@@ -123,71 +123,71 @@ text, watermark, signature, busy background, gradient background, multiple chara
 | `wave.png` | 你離開座位回來時揮手 | 一隻手舉起來揮 | 5 |
 | `sleep.png` | 你離開座位時打瞌睡 | 閉眼、頭微微歪（沒有的話用 `blink.png` 代替） | 6 |
 
-改圖的方法跟害羞、鄙視一樣：上傳 **`assets/raw/normal.png`**（還帶灰背景的原圖），貼上下面的說明。每段的第一句都一樣，是要它**別動構圖**：切換動作時頭和身體的位置一樣，才不會看起來在跳。
+改圖的方法跟害羞、鄙視一樣：上傳 **`assets/raw/normal.png`**（還帶灰背景的原圖），貼上下面的英文說明（ChatGPT、Gemini 都看得懂）。每段開頭那幾句都一樣，是要它**別動構圖**：切換動作時頭和身體的位置一樣，才不會看起來在跳。
 
 **blink.png（眨眼）**
 
 ```
-這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置不要動，背景維持純灰色平塗。
-只改眼睛：兩眼輕輕閉上（像眨眼的那一瞬間），睫毛往下彎成柔和的弧線。
-其他全部不要變：嘴巴、眉毛、臉紅程度、耳朵、頭髮、手和卷軸都跟原圖一模一樣。
-不要加文字或符號。
+This is my character reference. Draw the exact same character with the same face, hair, outfit, accessories, art style, composition, camera angle and aspect ratio. Keep the head and body in exactly the same position. Keep the plain flat gray background.
+Change ONLY the eyes: both eyes gently closed, as if caught mid-blink, with soft downward-curved eyelashes.
+Everything else must stay identical: mouth, eyebrows, blush, ears, hair, hands and the scroll.
+No text, no symbols.
 ```
 
 **write.png（寫小本子）**
 
 ```
-這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置盡量不要動，背景維持純灰色平塗。
-只改手、視線和表情：
-- 一隻手拿著一本小小的皮面筆記本，另一隻手拿著羽毛筆在上面寫字（卷軸先不拿）
-- 低頭看著筆記本，認真又有點開心的表情，嘴角微笑
-- 頭只要往下低一點點，臉還是要看得清楚
-不要加文字或符號，筆記本上也不要寫字。
+This is my character reference. Draw the exact same character with the same face, hair, outfit, accessories, art style, composition, camera angle and aspect ratio. Keep the head and body in the same position as much as possible. Keep the plain flat gray background.
+Change ONLY her hands, gaze and expression:
+- She holds a small leather notebook in one hand and writes in it with a feather quill held in the other hand (no scroll in this image).
+- She looks down at the notebook with a focused, slightly happy expression and a small smile.
+- Tilt her head down only slightly; her face must still be clearly visible.
+No text or symbols, and no writing visible on the notebook pages.
 ```
 
 **tea.png（奶茶時間）**
 
 ```
-這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置盡量不要動，背景維持純灰色平塗。
-只改手和表情：
-- 把卷軸收起來，改成兩隻手捧著一個白色馬克杯，裡面是奶茶，杯子在胸前
-- 杯子上飄著兩三條細細的熱氣
-- 表情幸福地瞇眼微笑，臉頰淡淡泛紅，耳朵放鬆
-不要加文字或符號。
+This is my character reference. Draw the exact same character with the same face, hair, outfit, accessories, art style, composition, camera angle and aspect ratio. Keep the head and body in the same position as much as possible. Keep the plain flat gray background.
+Change ONLY her hands and expression:
+- Put the scroll away. Instead, she holds a white mug of milk tea with both hands in front of her chest.
+- Two or three thin wisps of steam rise from the mug.
+- She has a blissful closed-eye smile, a light blush, and relaxed ears.
+No text or symbols.
 ```
 
 **stretch.png（伸懶腰、打哈欠）**
 
 ```
-這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置不要動，背景維持純灰色平塗。
-只改手和表情：
-- 兩隻手往頭上伸直伸懶腰（卷軸先不拿），手要完整畫在畫面裡
-- 閉眼打哈欠，嘴巴張開，一邊眼角有一小滴淚
-- 貓耳往後伸展，尾巴豎直
-不要加文字或符號。
+This is my character reference. Draw the exact same character with the same face, hair, outfit, accessories, art style, composition, camera angle and aspect ratio. Keep the head and body in exactly the same position. Keep the plain flat gray background.
+Change ONLY her arms and expression:
+- She stretches with both arms raised straight above her head (no scroll in this image). Both hands must be fully inside the frame.
+- Eyes closed, yawning with her mouth open, a tiny tear at the corner of one eye.
+- Cat ears stretched back, tail standing straight up.
+No text or symbols.
 ```
 
 **wave.png（揮手）**
 
 ```
-這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置盡量不要動，背景維持純灰色平塗。
-只改空著的那隻手和表情：
-- 空著的那隻手舉到臉旁邊，對著鏡頭揮手，手掌朝前
-- 開心地笑、眼睛張開看著鏡頭，耳朵豎起
-- 另一隻手照原圖拿著卷軸
-不要加文字或符號。
+This is my character reference. Draw the exact same character with the same face, hair, outfit, accessories, art style, composition, camera angle and aspect ratio. Keep the head and body in the same position as much as possible. Keep the plain flat gray background.
+Change ONLY her free hand and expression:
+- Raise her free hand beside her face and wave at the viewer, palm facing forward.
+- Bright happy smile, eyes open and looking at the viewer, ears perked up.
+- Her other hand keeps holding the scroll exactly as in the reference.
+No text or symbols.
 ```
 
 **sleep.png（打瞌睡）**
 
 ```
-這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置盡量不要動，背景維持純灰色平塗。
-只改表情和頭的角度：
-- 打瞌睡：兩眼閉上、表情很放鬆，嘴巴微微張開
-- 頭往一邊歪一點點（不要歪太多）
-- 貓耳放鬆往兩側垂，尾巴捲起來
-- 卷軸鬆鬆地抱在胸前
-不要畫 Z 字或泡泡（程式會自己加）。
+This is my character reference. Draw the exact same character with the same face, hair, outfit, accessories, art style, composition, camera angle and aspect ratio. Keep the head and body in the same position as much as possible. Keep the plain flat gray background.
+Change ONLY her expression and head angle:
+- She is dozing off: both eyes closed, a very relaxed face, mouth slightly open.
+- Tilt her head slightly to one side (only a little).
+- Cat ears relaxed and drooping to the sides, tail curled up.
+- She hugs the scroll loosely against her chest.
+Do not draw any "Z" letters or speech bubbles (the app adds those).
 ```
 
 用 Stable Diffusion 的話，把這些英文接在共用提示詞後面（write、tea、stretch 要拿掉共用提示詞裡的「holding a rolled parchment quest scroll」；blink、wave、sleep 照樣留著）：
@@ -203,8 +203,8 @@ text, watermark, signature, busy background, gradient background, multiple chara
 
 小提醒：
 
-- **blink 最怕臉跟著變**：改完如果整張臉都不一樣了，補一句「只能動眼睛，其他像素都不要改」。最穩的是 Stable Diffusion 的 inpaint，只遮住兩隻眼睛重畫。對不準的話，她眨眼時會整個人跳一下，那就重做。
-- **stretch 手跑出畫面外**：補一句「手往上伸到頭頂上方就好，整隻手都要在畫面裡」。
+- **blink 最怕臉跟著變**：改完如果整張臉都不一樣了，補一句 `Do not change anything except the eyes. Every other part of the image must stay pixel-identical.`。最穩的做法是只重畫眼睛：工具能框選局部修改的話（ChatGPT 有），只框兩隻眼睛；Stable Diffusion 就用 inpaint 只遮住兩隻眼睛。對不準的話，她眨眼時會整個人跳一下，那就重做。
+- **stretch 手跑出畫面外**：補一句 `Raise the hands only a little above the head. Both hands must be completely inside the frame.`
 - 每張都挑「頭和身體位置最接近定裝照」的那張。
 - 放進程式：原圖放 `assets/raw/`，跑 `python tools/remove_bg.py blink write`（只寫你做好的那幾張），再重新啟動。
 
