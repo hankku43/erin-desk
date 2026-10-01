@@ -76,6 +76,7 @@
   function startDoze() {
     endAct();
     S.dozing = true;
+    clearTimeout(whisperTimer); whisper.classList.add('hidden'); // 睡著了：剛剛那句小字先收起來
     document.body.classList.add('dozing');
     const p = poses();
     if (!state.mini && !busy()) showSrc(p.sleep || p.blink);

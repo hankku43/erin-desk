@@ -203,7 +203,7 @@ Do not draw any "Z" letters or speech bubbles (the app adds those).
 
 小提醒：
 
-- **blink 最怕臉跟著變**：改完如果整張臉都不一樣了，補一句 `Do not change anything except the eyes. Every other part of the image must stay pixel-identical.`。最穩的做法是只重畫眼睛：工具能框選局部修改的話（ChatGPT 有），只框兩隻眼睛；Stable Diffusion 就用 inpaint 只遮住兩隻眼睛。對不準的話，她眨眼時會整個人跳一下，那就重做。
+- **blink 只會用到眼睛**：`remove_bg.py` 處理 blink 時，只把閉上的眼睛那一塊貼到 normal 上，其他地方跟 normal 一模一樣，所以頭髮、手、身體畫得稍微不一樣也沒關係，**只要眼睛的位置跟定裝照差不多**。眼睛位置差很多（頭歪了、臉變大）才需要重做；重做時可以補一句 `Do not change anything except the eyes.`，工具能框選局部修改的話（ChatGPT 有）只框兩隻眼睛最穩。
 - **stretch 手跑出畫面外**：補一句 `Raise the hands only a little above the head. Both hands must be completely inside the frame.`
 - 每張都挑「頭和身體位置最接近定裝照」的那張。
 - 放進程式：原圖放 `assets/raw/`，跑 `python tools/remove_bg.py blink write`（只寫你做好的那幾張），再重新啟動。

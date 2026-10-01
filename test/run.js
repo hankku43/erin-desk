@@ -1054,13 +1054,13 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const heard = [], asked = [];
   E.onSpeech = (ls) => heard.push(...ls);
   E.npc.status.online = true;
-  E.npc.fetchJSON = async (_p, body) => { asked.push(body); await new Promise((r) => setTimeout(r, 200)); return { message: { content: JSON.stringify({ line: `好的（第 ${asked.length} 句）`, emotion: 'happy' }) } }; };
+  E.npc.fetchJSON = async (_p, body) => { asked.push(body); await new Promise((r) => setTimeout(r, 600)); return { message: { content: JSON.stringify({ line: `好的（第 ${asked.length} 句）`, emotion: 'happy' }) } }; };
   const q = E.plan.quests[0];
   // 連勾三個目標：每一個都馬上完成，不用等 AI
   const t0 = Date.now();
   const rs = [];
   for (let i = 0; i < 3; i++) rs.push(await E.setObjective(q.id, i, true));
-  assert.ok(Date.now() - t0 < 150, '勾選不用等 AI（AI 一句要 200ms）：' + (Date.now() - t0) + 'ms');
+  assert.ok(Date.now() - t0 < 450, '勾選不用等 AI（AI 一句要 600ms，等的話要 1.8 秒）：' + (Date.now() - t0) + 'ms');
   assert.ok(rs.every((r) => !r.lines.some((l) => l.event === 'objective')), '回傳裡沒有 AI 的話（晚點推）');
   assert.ok(rs[2].view.quests.find((x) => x.id === q.id).objectives.every((o) => o.done), '三個都勾好了');
   assert.ok(rs[0].view.rev < rs[1].view.rev && rs[1].view.rev < rs[2].view.rev, '畫面有新舊順序');

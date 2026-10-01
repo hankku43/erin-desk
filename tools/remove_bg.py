@@ -122,6 +122,41 @@ def add_to(names, ref_name='normal'):
         Image.fromarray(out, 'RGBA').save(os.path.join(OUT, n + '.png'), optimize=True)
         print('  saved', n, (W, H))
 
+def eye_boxes(rgba):
+    """在臉的那一帶找睫毛（很暗的像素），分成左右兩群，回傳兩個 (x0, y0, x1, y1)"""
+    H, W = rgba.shape[:2]
+    y0, y1, x0, x1 = int(H * .18), int(H * .42), int(W * .25), int(W * .75)
+    reg = rgba[y0:y1, x0:x1].astype(int)
+    ys, xs = np.nonzero((reg[..., :3].sum(-1) < 200) & (reg[..., 3] > 200))
+    if len(xs) < 50: return None
+    order = np.sort(np.unique(xs))
+    gaps = np.diff(order)
+    mid = order[np.argmax(gaps)] if gaps.max() > 15 else np.median(xs)  # 兩隻眼睛中間最大的空隙
+    out = []
+    for sel in (xs <= mid, xs > mid):
+        if sel.sum() < 20: return None
+        out.append((xs[sel].min() + x0, ys[sel].min() + y0, xs[sel].max() + x0, ys[sel].max() + y0))
+    return out
+
+def eyes_only(name='blink', ref_name='normal'):
+    """眨眼圖只取眼睛：把對齊好的閉眼圖的兩隻眼睛，貼到 normal 上（其他地方跟 normal 一模一樣，眨眼時才不會整個人閃一下）"""
+    from PIL import ImageDraw, ImageFilter
+    ref = Image.open(os.path.join(OUT, ref_name + '.png')).convert('RGBA')
+    src = Image.open(os.path.join(OUT, name + '.png')).convert('RGBA')
+    boxes = eye_boxes(np.asarray(ref))
+    if not boxes or src.size != ref.size:
+        print(f'  ⚠ {name}：找不到 {ref_name} 的眼睛，維持整張圖'); return
+    mask = Image.new('L', ref.size, 0); d = ImageDraw.Draw(mask)
+    for (a, b, c, e) in boxes:  # 蓋住睜開的眼睛（往外多留一點，往下多一點蓋住瞳孔）
+        cx, cy, rx, ry = (a + c) / 2, (b + e) / 2 + 10, (c - a) / 2 + 33, (e - b) / 2 + 30
+        d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], fill=255)
+        print(f'  {name}：眼睛 ({cx:.0f},{cy:.0f}) 半徑 {rx:.0f}×{ry:.0f}')
+    m = np.asarray(mask.filter(ImageFilter.GaussianBlur(8))).astype(np.float32)[..., None] / 255
+    r = np.asarray(ref).astype(np.float32); s = np.asarray(src).astype(np.float32)
+    out = r.copy(); out[..., :3] = r[..., :3] * (1 - m) + s[..., :3] * m
+    Image.fromarray(out.astype(np.uint8), 'RGBA').save(os.path.join(OUT, name + '.png'), optimize=True)
+    print(f'  saved {name}（只換眼睛）')
+
 GIRL = ['normal', 'happy', 'cheer', 'thinking', 'surprised', 'worried', 'shy', 'disdain']
 POSES = ['blink', 'sleep', 'tea', 'write', 'stretch', 'wave']  # 待機動作圖（選填）
 has_raw = lambda n: os.path.exists(os.path.join(RAW, n + '.png'))
@@ -131,8 +166,10 @@ if len(sys.argv) > 1:
     if missing: sys.exit('assets/raw/ 裡找不到：' + '、'.join(n + '.png' for n in missing))
     if any(n.startswith('mini') for n in names): sys.exit('貓咪型態請用全部重做（不加參數）')
     add_to(names)
+    if 'blink' in names: eyes_only('blink')
 else:
     group([n for n in GIRL if has_raw(n)], 'normal', 1200)
     poses = [n for n in POSES if has_raw(n)]
     if poses: add_to(poses)  # 動作圖對齊到剛做好的 normal
+    if 'blink' in poses: eyes_only('blink')
     group(['mini', 'mini_alert'], 'mini', 512, square=True)
