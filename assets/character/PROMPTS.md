@@ -14,6 +14,7 @@
 | `disdain.png` | 貓娘・鄙視（ゴミを見るような目：看垃圾一樣的冷眼） | 同上 |
 | `mini.png` | 貓咪型態・平常（縮小化時，**必要**） | 1:1，建議 512×512 |
 | `mini_alert.png` | 貓咪型態・有新訊息 | 同上 |
+| `blink.png`、`write.png`、`tea.png`、`stretch.png`、`wave.png`、`sleep.png` | 待機動作圖（選填，見下面「待機動作圖」） | 跟貓娘立繪一樣 |
 
 ## 生成步驟
 
@@ -109,6 +110,104 @@ text, watermark, signature, busy background, gradient background, multiple chara
 - 害羞如果卷軸遮到整張臉，補一句「卷軸往下一點，只遮住嘴巴」。
 - 兩張都挑「頭和身體位置最接近定裝照」的那張，對齊時比較不會變形。
 
+## 待機動作圖（選填）
+
+艾琳待機時會自己動：打瞌睡、醒來揮手、喝奶茶、寫小本子、伸懶腰、眨眼。**沒有這些圖也會動**（改用表情加上頭上的泡泡）；放了圖，那個動作就會換成這張圖演出來，生好一張就多一個動作。
+
+| 檔名 | 什麼時候用 | 重點 | 建議順序 |
+|---|---|---|---|
+| `blink.png` | 每隔幾秒眨一下眼 | **跟 normal 一模一樣，只有眼睛閉上** | 1（效果最明顯） |
+| `write.png` | 你在忙的時候，她低頭寫小本子 | 拿筆記本和羽毛筆、低頭 | 2 |
+| `tea.png` | 下午三點的奶茶時間 | 雙手捧著奶茶杯 | 3 |
+| `stretch.png` | 早上、坐太久、下午想睡時伸懶腰打哈欠 | 雙手往上伸、閉眼打哈欠 | 4 |
+| `wave.png` | 你離開座位回來時揮手 | 一隻手舉起來揮 | 5 |
+| `sleep.png` | 你離開座位時打瞌睡 | 閉眼、頭微微歪（沒有的話用 `blink.png` 代替） | 6 |
+
+改圖的方法跟害羞、鄙視一樣：上傳 **`assets/raw/normal.png`**（還帶灰背景的原圖），貼上下面的說明。每段的第一句都一樣，是要它**別動構圖**：切換動作時頭和身體的位置一樣，才不會看起來在跳。
+
+**blink.png（眨眼）**
+
+```
+這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置不要動，背景維持純灰色平塗。
+只改眼睛：兩眼輕輕閉上（像眨眼的那一瞬間），睫毛往下彎成柔和的弧線。
+其他全部不要變：嘴巴、眉毛、臉紅程度、耳朵、頭髮、手和卷軸都跟原圖一模一樣。
+不要加文字或符號。
+```
+
+**write.png（寫小本子）**
+
+```
+這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置盡量不要動，背景維持純灰色平塗。
+只改手、視線和表情：
+- 一隻手拿著一本小小的皮面筆記本，另一隻手拿著羽毛筆在上面寫字（卷軸先不拿）
+- 低頭看著筆記本，認真又有點開心的表情，嘴角微笑
+- 頭只要往下低一點點，臉還是要看得清楚
+不要加文字或符號，筆記本上也不要寫字。
+```
+
+**tea.png（奶茶時間）**
+
+```
+這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置盡量不要動，背景維持純灰色平塗。
+只改手和表情：
+- 把卷軸收起來，改成兩隻手捧著一個白色馬克杯，裡面是奶茶，杯子在胸前
+- 杯子上飄著兩三條細細的熱氣
+- 表情幸福地瞇眼微笑，臉頰淡淡泛紅，耳朵放鬆
+不要加文字或符號。
+```
+
+**stretch.png（伸懶腰、打哈欠）**
+
+```
+這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置不要動，背景維持純灰色平塗。
+只改手和表情：
+- 兩隻手往頭上伸直伸懶腰（卷軸先不拿），手要完整畫在畫面裡
+- 閉眼打哈欠，嘴巴張開，一邊眼角有一小滴淚
+- 貓耳往後伸展，尾巴豎直
+不要加文字或符號。
+```
+
+**wave.png（揮手）**
+
+```
+這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置盡量不要動，背景維持純灰色平塗。
+只改空著的那隻手和表情：
+- 空著的那隻手舉到臉旁邊，對著鏡頭揮手，手掌朝前
+- 開心地笑、眼睛張開看著鏡頭，耳朵豎起
+- 另一隻手照原圖拿著卷軸
+不要加文字或符號。
+```
+
+**sleep.png（打瞌睡）**
+
+```
+這是我的角色定裝照。請畫同一個角色：同樣的臉、髮型、服裝、配件、畫風、構圖、鏡頭角度和畫面比例，頭和身體的位置盡量不要動，背景維持純灰色平塗。
+只改表情和頭的角度：
+- 打瞌睡：兩眼閉上、表情很放鬆，嘴巴微微張開
+- 頭往一邊歪一點點（不要歪太多）
+- 貓耳放鬆往兩側垂，尾巴捲起來
+- 卷軸鬆鬆地抱在胸前
+不要畫 Z 字或泡泡（程式會自己加）。
+```
+
+用 Stable Diffusion 的話，把這些英文接在共用提示詞後面（write、tea、stretch 要拿掉共用提示詞裡的「holding a rolled parchment quest scroll」；blink、wave、sleep 照樣留著）：
+
+| 檔名 | 接在最後的英文 |
+|---|---|
+| blink | `eyes gently closed mid-blink, soft curved eyelashes, gentle closed-mouth smile, everything else the same as the reference` |
+| write | `holding a small leather notebook in one hand and a feather quill in the other, writing in it, looking down at the notebook with a focused little smile` |
+| tea | `holding a white mug of milk tea with both hands in front of her chest, thin wisps of steam, blissful closed-eye smile, light blush` |
+| stretch | `stretching with both arms raised above her head, eyes closed, yawning with mouth open, a tiny tear at the corner of one eye, ears stretched back, tail straight up, hands inside the frame` |
+| wave | `waving at the viewer with her free hand raised beside her face, palm facing forward, bright open-eyed smile, ears perked up` |
+| sleep | `dozing off, eyes closed, relaxed sleepy face, mouth slightly open, head tilted slightly to one side, ears drooping, holding the scroll loosely against her chest` |
+
+小提醒：
+
+- **blink 最怕臉跟著變**：改完如果整張臉都不一樣了，補一句「只能動眼睛，其他像素都不要改」。最穩的是 Stable Diffusion 的 inpaint，只遮住兩隻眼睛重畫。對不準的話，她眨眼時會整個人跳一下，那就重做。
+- **stretch 手跑出畫面外**：補一句「手往上伸到頭頂上方就好，整隻手都要在畫面裡」。
+- 每張都挑「頭和身體位置最接近定裝照」的那張。
+- 放進程式：原圖放 `assets/raw/`，跑 `python tools/remove_bg.py blink write`（只寫你做好的那幾張），再重新啟動。
+
 ## 貓咪型態（縮小化用）
 
 縮圖在桌面上只會顯示 140×140px，所以要**造型簡單、輪廓清楚、線條粗**，縮小後才認得出來。
@@ -137,7 +236,7 @@ one front paw raised as if waving, mouth open as if meowing
 1. 把生成的原圖（灰背景）照上面的檔名放進 `assets/raw/`。
 2. 去背＋對齊：
    - 全部重做：`python tools/remove_bg.py`（所有表情一起重新對齊，畫布可能會變）
-   - 只加新的表情：`python tools/remove_bg.py shy disdain`（對齊到現有的 `assets/character/normal.png`，舊圖不動）
+   - 只加新的表情或動作圖：`python tools/remove_bg.py shy disdain`、`python tools/remove_bg.py blink tea`（對齊到現有的 `assets/character/normal.png`，舊圖不動）
    - 需要先 `pip install "rembg[cpu]" opencv-python pillow numpy`
 3. 去背後的 PNG 會出現在 `assets/character/`。舊的 `.svg` 可以不刪，PNG 會優先使用。
 4. 右鍵 → 離開，再重新啟動。

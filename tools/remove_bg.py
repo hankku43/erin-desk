@@ -123,6 +123,7 @@ def add_to(names, ref_name='normal'):
         print('  saved', n, (W, H))
 
 GIRL = ['normal', 'happy', 'cheer', 'thinking', 'surprised', 'worried', 'shy', 'disdain']
+POSES = ['blink', 'sleep', 'tea', 'write', 'stretch', 'wave']  # 待機動作圖（選填）
 has_raw = lambda n: os.path.exists(os.path.join(RAW, n + '.png'))
 if len(sys.argv) > 1:
     names = sys.argv[1:]
@@ -132,4 +133,6 @@ if len(sys.argv) > 1:
     add_to(names)
 else:
     group([n for n in GIRL if has_raw(n)], 'normal', 1200)
+    poses = [n for n in POSES if has_raw(n)]
+    if poses: add_to(poses)  # 動作圖對齊到剛做好的 normal
     group(['mini', 'mini_alert'], 'mini', 512, square=True)

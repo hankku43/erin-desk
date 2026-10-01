@@ -85,6 +85,7 @@ window.addEventListener('mouseleave', () => { lastIgnore = null; });
 function setEmotion(emo) {
   const c = state.character;
   if (!c) return;
+  state.emotion = emo || 'normal'; // 待機小動作換完圖會換回這個
   const src = state.mini
     ? (state.miniAlert ? c.miniAlert : c.mini)
     : (c.images[emo] || c.images.normal);

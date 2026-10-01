@@ -444,12 +444,13 @@ class Engine {
       npc: { name: this.config.npc.name, status: this.npc.status, enabled: !!this.config.llm.enabled, model: this.config.llm.model },
       writeBack: this.config.plan.writeBack,
       fx: this.config.window.transformFx !== false,
+      idleAnim: this.config.window.idleAnim !== false, // 待機小動作
       editable: !this.legacy && !!this.planText,
       smart: { on: this.lore.smartOn(), status: this.lore.embedStatus },
       focus: this.focusInfo(),
       divination: this.divineInfo(),
       fortune: this.fortuneToday(),
-      affection: { cold: this.isCold() }, // 好感度本身不給畫面看
+      affection: { cold: this.isCold(), fond: this.affOn() && this.affStage() >= 4 }, // 好感度本身不給畫面看；fond＝很熟了（待機會冒 ♡）
       onboarding: { needed: !(this.state.onboarding && this.state.onboarding.done) },
       tutorial: this.tutorialInfo(),
       schedule: this.scheduleInfo(),

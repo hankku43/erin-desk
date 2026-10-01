@@ -85,6 +85,7 @@ function uiImage(base) {
   return null;
 }
 
+const POSES = ['blink', 'sleep', 'tea', 'write', 'stretch', 'wave'];
 function characterImages() {
   const own = {};
   for (const emo of EMOTIONS) own[emo] = findImage(emo);
@@ -101,6 +102,8 @@ function characterImages() {
       ready: findImage('marker_ready') || uiImage('marker_ready'),
       alert: findImage('marker_alert') || uiImage('marker_alert'),
     },
+    // 待機動作圖（選填）：有放就換那張圖演，沒有就只用表情和頭上的泡泡
+    poses: Object.fromEntries(POSES.map((p) => [p, findImage(p)]).filter(([, v]) => v)),
   };
 }
 
@@ -432,6 +435,7 @@ function menuTemplate() {
     ] },
     { label: '⚙ 設定與資料', submenu: [
       { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
+      { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
       { label: '🖥 固定在顯示器', submenu: displayMenu() },
       { label: '縮到工作列', click: () => win.minimize() },
       { type: 'separator' },
@@ -519,6 +523,31 @@ function stopFocus() {
   push('view:update', { view: r.view });
   push('npc:lines', r.lines);
   if (isMini()) setMini(false);
+}
+
+// 待機小動作需要知道：你在不在電腦前（離開就打瞌睡）、滑鼠在哪一邊（她會微微往那邊看）
+let presenceTimer = null, cursorTimer = null, lastCursor = null;
+function schedulePresence() {
+  clearInterval(presenceTimer); clearInterval(cursorTimer);
+  const sendPresence = () => {
+    if (!win || win.isDestroyed()) return;
+    let idleSec = 0, locked = false;
+    try { idleSec = powerMonitor.getSystemIdleTime(); locked = powerMonitor.getSystemIdleState(60) === 'locked'; } catch (_) { /* 有些系統拿不到 */ }
+    push('presence', { idleSec, locked });
+  };
+  presenceTimer = setInterval(sendPresence, 5000);
+  cursorTimer = setInterval(() => {
+    if (!win || win.isDestroyed() || !win.isVisible() || isMini() || engine.config.window.idleAnim === false) return;
+    try {
+      const c = screen.getCursorScreenPoint();
+      const b = win.getBounds();
+      const dx = Math.round(c.x - (b.x + b.width - 150)); // 角色在視窗右下角
+      const dy = Math.round(c.y - (b.y + b.height - 220));
+      if (lastCursor && Math.abs(dx - lastCursor.dx) < 30 && Math.abs(dy - lastCursor.dy) < 30) return;
+      lastCursor = { dx, dy };
+      push('cursor', lastCursor);
+    } catch (_) { /* 拿不到就算了 */ }
+  }, 500);
 }
 
 // 主動找冒險者聊天：每分鐘看一次該不該開口（間隔、好感、有沒有在電腦前，都在 engine.proactiveDue 裡判斷）
@@ -625,6 +654,7 @@ app.whenReady().then(async () => {
   setTimeout(runTick, 4000);
   setTimeout(() => { runTick(); tickTimer = setInterval(runTick, 60000); }, 60000 - (Date.now() % 60000) + 500);
   scheduleIdle();
+  schedulePresence();
   scheduleFocus(4000); // 上次關程式時還在專注：時間到了就補結算（等畫面載好）
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
@@ -633,4 +663,4 @@ app.whenReady().then(async () => {
 
 app.on('second-instance', () => { if (win) { win.restore(); win.focus(); } });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { clearInterval(tickTimer); clearInterval(idleTimer); clearInterval(watchTimer); clearInterval(healthTimer); });
+app.on('before-quit', () => { clearInterval(tickTimer); clearInterval(idleTimer); clearInterval(watchTimer); clearInterval(healthTimer); clearInterval(presenceTimer); clearInterval(cursorTimer); });

@@ -247,7 +247,8 @@ code { font-family: Consolas, "Cascadia Mono", "Noto Sans Mono CJK TC", monospac
 /* ---------- NPC ---------- */
 /* 呼吸掛在圖片上、說話／跳躍掛在外層，彼此不會互相蓋掉，所以任何狀態下都會一直呼吸 */
 #npcWrap { position: absolute; right: 0; bottom: 0; width: 300px; height: 332px; z-index: 2; display: flex; align-items: flex-end; justify-content: center; cursor: pointer; }
-#npcImg { max-width: 100%; max-height: 100%; transform-origin: 50% 100%; animation: breathe var(--breathe, 3.6s) ease-in-out infinite; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .3)); pointer-events: none; will-change: transform; }
+#npcImg { max-width: 100%; max-height: 100%; transform-origin: 50% 100%; animation: breathe var(--breathe, 3.6s) ease-in-out infinite; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .3)); pointer-events: none; will-change: transform;
+  rotate: calc(var(--lean, 0deg) + var(--look, 0deg)); transition: rotate 1.1s ease-in-out; } /* --lean：看滑鼠那邊；--look：待機時東張西望 */
 #npcWrap.talking { animation: talk .32s ease-in-out infinite; }
 #npcWrap.jump { animation: jump .5s ease-out; }
 #npcWrap:hover #npcImg { filter: drop-shadow(0 0 8px rgba(255, 214, 107, .9)) drop-shadow(0 4px 6px rgba(0, 0, 0, .3)); }
@@ -270,6 +271,41 @@ code { font-family: Consolas, "Cascadia Mono", "Noto Sans Mono CJK TC", monospac
 .levelup .small { display: inline-block; margin-top: 6px; background: var(--gold); color: #4a2e00; padding: 4px 16px; border-radius: 999px; font-weight: 900; box-shadow: 0 2px 0 var(--gold-deep); }
 .confetti { position: absolute; width: 8px; height: 12px; top: -12px; animation: fall linear forwards; border-radius: 2px; }
 #toast { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); background: rgba(26, 30, 56, .94); color: #fff; padding: 6px 14px; border-radius: 10px; font-size: 13px; max-width: 90%; box-shadow: var(--shadow); border: 1px solid rgba(255, 214, 120, .5); z-index: 6; }
+
+/* ---------- 🐾 待機小動作 ---------- */
+#npcImg.idle-lookL { --look: -3.2deg; }
+#npcImg.idle-lookR { --look: 3.2deg; }
+#npcImg.idle-lookAway { --look: 4.5deg; }
+#npcImg.idle-sway { animation: breathe var(--breathe, 3.6s) ease-in-out infinite, idleSway 1.6s ease-in-out 2; }
+#npcImg.idle-stretch { animation: breathe var(--breathe, 3.6s) ease-in-out infinite, idleStretch 2.4s ease-in-out 1; }
+#npcImg.idle-yawn { animation: breathe var(--breathe, 3.6s) ease-in-out infinite, idleYawn 2.4s ease-in-out 1; }
+#npcImg.idle-perk { animation: breathe var(--breathe, 3.6s) ease-in-out infinite, idlePerk .45s ease-out 1; }
+body.dozing #npcImg { --breathe: 5.5s; --look: 2.4deg; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .3)) brightness(.96); }
+@keyframes idleSway { 0%, 100% { translate: 0 0; } 25% { translate: -3px 0; } 75% { translate: 3px 0; } }
+@keyframes idleStretch { 0%, 100% { translate: 0 0; } 35%, 65% { translate: 0 -7px; } }
+@keyframes idleYawn { 0%, 100% { translate: 0 0; } 50% { translate: 0 3px; } }
+@keyframes idlePerk { 0%, 100% { translate: 0 0; } 40% { translate: 0 -4px; } }
+/* 頭上的表情泡泡（像 RPG 的情緒圖示） */
+.idle-balloon { position: absolute; top: 4px; left: 62%; min-width: 34px; height: 32px; padding: 0 8px; border-radius: 16px; background: #fff; border: 2px solid var(--navy); color: var(--ink);
+  font-size: 17px; line-height: 1; display: grid; place-items: center; box-shadow: 0 2px 6px rgba(20, 24, 60, .28); z-index: 3; pointer-events: none; }
+.idle-balloon::after { content: ''; position: absolute; left: 7px; bottom: -8px; border: 7px solid transparent; border-top-color: var(--navy); border-bottom: 0; border-left-width: 3px; }
+.idle-balloon.in { animation: balloonIn .28s ease-out; }
+.idle-balloon.out { opacity: 0; transition: opacity .3s; }
+/* 小聲說的一句（不開對話框） */
+.idle-whisper { position: absolute; top: 34px; right: 66%; white-space: nowrap; font-size: 13px; font-weight: 700; color: var(--ink); padding: 5px 11px; border-radius: 13px;
+  background: rgba(255, 253, 247, .97); border: 2px solid var(--frame); box-shadow: var(--shadow); z-index: 3; pointer-events: none; }
+.idle-whisper::after { content: ''; position: absolute; right: -9px; top: 10px; border: 6px solid transparent; border-left-color: var(--frame); border-right: 0; }
+.idle-whisper.in { animation: balloonIn .3s ease-out; }
+.idle-whisper.out { opacity: 0; transition: opacity .4s; }
+@keyframes balloonIn { from { opacity: 0; transform: translateY(6px) scale(.8); } to { opacity: 1; transform: none; } }
+/* 打瞌睡的 z z Z */
+.idle-zzz { position: absolute; left: 64%; top: 26px; color: #fff; font-weight: 900; pointer-events: none; z-index: 3;
+  text-shadow: 0 0 2px var(--navy), 0 0 2px var(--navy), 0 1px 4px rgba(0, 0, 0, .5); } /* 白字＋深藍描邊：淺色、深色桌布都看得到 */
+.idle-zzz span { position: absolute; left: 0; top: 0; opacity: 0; animation: zzz 3s ease-in infinite; font-size: 17px; }
+.idle-zzz span:nth-child(2) { animation-delay: 1s; font-size: 21px; }
+.idle-zzz span:nth-child(3) { animation-delay: 2s; font-size: 26px; }
+body.mini .idle-zzz { left: 22px; top: 22px; }
+body.mini .idle-balloon, body.mini .idle-whisper { display: none !important; }
 
 @keyframes breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.014, .99) translateY(1.5px); } }
 @keyframes talk { 0%, 100% { translate: 0 0; } 50% { translate: 0 -3px; } }

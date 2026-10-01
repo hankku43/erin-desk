@@ -1194,3 +1194,57 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   console.log('主動聊天測試通過 ✔');
   function TEMPLATESof(k) { return require('../src/main/npc').TEMPLATES[k].map(([x]) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者')); }
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 待機小動作：打瞌睡、醒來、跟著作息、隨機小動作 ----------
+(() => {
+  const B = require('../src/renderer/idle-brain');
+  const Y = new Date().getFullYear();
+  let now = new Date(`${Y}-10-02T09:00:00`).getTime();
+  const mem = B.newMemory(now);
+  let seq = 0; const rnd = () => ((seq = (seq * 9301 + 49297) % 233280) / 233280);
+  const ctx = (o = {}) => ({ now, idleSec: 30, enabled: true, wrap: '16:50', ...o });
+  const sec = (s) => { now += s * 1000; };
+  // 早上剛打開：先伸懶腰說早安（一天一次）
+  assert.strictEqual(B.decide(ctx(), mem, rnd), null, '剛打開先不動');
+  sec(9); const m = B.decide(ctx(), mem, rnd);
+  assert.ok(m && m.type === 'morning' && m.whisper && m.pose === 'stretch', '早上伸懶腰');
+  sec(60); const after = B.decide(ctx(), mem, rnd); assert.ok(!after || after.type !== 'morning', '早安只說一次');
+  // 離開座位 → 打瞌睡；說話中也照樣；回來 → 醒來（離開很久才說歡迎回來）
+  assert.strictEqual(B.decide(ctx({ idleSec: 301, busy: true }), mem, rnd).type, 'doze');
+  sec(60); assert.strictEqual(B.decide(ctx({ idleSec: 361 }), mem, rnd), null, '睡著時不做別的');
+  sec(5 * 60); let w = B.decide(ctx({ idleSec: 2 }), mem, rnd);
+  assert.ok(w.type === 'wake' && !w.whisper, '短暫離開：醒來揮手，不說話');
+  sec(10); B.decide(ctx({ locked: true }), mem, rnd); sec(40 * 60); w = B.decide(ctx({ idleSec: 1 }), mem, rnd);
+  assert.ok(w.type === 'wake' && w.away >= 40 * 60000 && B.LINES.wake.includes(w.whisper), '鎖螢幕很久回來：歡迎回來');
+  // 說話中、縮成貓咪、專注、新手教學、關掉 → 不做隨機小動作
+  sec(120);
+  for (const o of [{ busy: true }, { mini: true }, { focus: true }, { onboarding: true }, { enabled: false }]) assert.strictEqual(B.decide(ctx(o), mem, rnd), null, JSON.stringify(o));
+  // 隨機小動作：有間隔、不連續同一個；你在忙時多半在寫小本子
+  const seen = []; let last = 0;
+  for (let i = 0; i < 400; i++) { sec(5); const a = B.decide(ctx({ idleSec: i % 2 ? 3 : 40 }), mem, rnd); if (a && B.AMBIENT[a.type]) { assert.ok(!last || now - last >= 30000, '間隔至少 30 秒'); last = now; seen.push(a.type); } }
+  assert.ok(seen.length >= 8 && seen.every((k, i) => i === 0 || k !== seen[i - 1]), '有在動、不連續同一個：' + seen.join(','));
+  assert.ok(!seen.includes('heart') && !seen.includes('sigh'), '還不熟：沒有 ♡；沒冷戰：不嘆氣');
+  // 坐太久：50 分鐘提醒起來動一動
+  now = new Date(`${Y}-10-02T13:00:00`).getTime();
+  const m2 = B.newMemory(now); m2.done = {}; m2.day = '';
+  let br = null; for (let i = 0; i < 60 && !br; i++) { sec(60); const a = B.decide(ctx({ idleSec: 2 }), m2, rnd); if (a && a.type === 'break') br = { a, at: now }; }
+  assert.ok(br && B.LINES.break.includes(br.a.whisper) && br.at - new Date(`${Y}-10-02T13:00:00`).getTime() >= 50 * 60000, '連續 50 分鐘：提醒起來動一動');
+  // 下午三點：奶茶（一天一次）；冷戰時不喝、只會別過頭
+  now = new Date(`${Y}-10-02T15:05:00`).getTime(); m2.lastAt = 0;
+  assert.strictEqual(B.decide(ctx(), m2, rnd).type, 'tea');
+  sec(120); m2.lastAt = 0; const c1 = B.decide(ctx(), m2, rnd); assert.ok(!c1 || c1.type !== 'tea', '奶茶一天一次');
+  const m3 = B.newMemory(now - 3600000); m3.lastAt = 0; m3.lastBreak = now;
+  assert.strictEqual(B.decide(ctx({ cold: true }), m3, rnd).type, 'sigh', '冷戰中只會別過頭');
+  // 很熟了：常冒 ♡
+  const m4 = B.newMemory(now - 3600000); m4.done = { tea: true }; m4.day = new Date(now).getFullYear() + '-' + (new Date(now).getMonth() + 1) + '-' + new Date(now).getDate();
+  const hearts = []; for (let i = 0; i < 300; i++) { sec(10); m4.lastBreak = now; const a = B.decide(ctx({ fond: true, idleSec: 40 }), m4, rnd); if (a) hearts.push(a.type); }
+  assert.ok(hearts.filter((k) => k === 'heart').length >= 3, '很熟了會冒 ♡');
+  // 加班：下班時間過一小時後關心，45 分鐘一次
+  now = new Date(`${Y}-10-02T18:00:00`).getTime();
+  const m5 = B.newMemory(now - 3600000); m5.lastAt = 0; m5.lastBreak = now;
+  assert.strictEqual(B.decide(ctx(), m5, rnd).type, 'overtime');
+  sec(20 * 60); m5.lastAt = 0; m5.lastBreak = now; const o2 = B.decide(ctx(), m5, rnd); assert.ok(!o2 || o2.type !== 'overtime', '45 分鐘內不重複');
+  const m6 = B.newMemory(now - 3600000); m6.lastAt = 0; m6.lastBreak = now; const o3 = B.decide(ctx({ wrap: '' }), m6, rnd);
+  assert.ok(!o3 || o3.type !== 'overtime', '沒設下班時間就不算加班');
+  console.log('待機小動作測試通過 ✔');
+})();
