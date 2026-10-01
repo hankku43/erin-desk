@@ -110,10 +110,13 @@ async function onNpcClick() {
   jump();
   if (typeof obMark === 'function' && obMark('click')) return; // 🎓 新手教學的「點她一下」
   $('#marker').classList.add('hidden');
-  if (state.queue.length || state.typing) { advance(); return; } // 還有話沒說完 → 先聽完
+  if (state.queue.length || state.typing) { advance(); state.clickedAt = Date.now(); return; } // 還有話沒說完 → 先聽完
+  if (state.pendingAmbient && state.pendingAmbient.length) { sayPending(); return; } // 頭上亮「!」：她早就想好要說什麼了，直接說
   if (state.talking) return;
+  // 剛點完上一句（或那句剛好打完）又點一下：多半是想「繼續」，不算戳她
+  if (Date.now() - Math.max(state.clickedAt || 0, state.lineDoneAt || 0) < 1000) return;
   const stale = !state.lastGreetAt || Date.now() - state.lastGreetAt > GREET_COOLDOWN;
-  if ($('#dialog').classList.contains('hidden') && (stale || state.pendingAmbient)) {
+  if ($('#dialog').classList.contains('hidden') && stale) {
     openDialog();
     await greet();
   } else {
@@ -121,13 +124,16 @@ async function onNpcClick() {
     await run(() => api.poke(), { talk: true });
   }
 }
-async function greet() {
+// 她主動想說的話（頭上的「!」）：已經想好了，點她就直接說，不用再問 AI、也不算戳她
+function sayPending() {
+  const p = state.pendingAmbient; state.pendingAmbient = null;
   state.lastGreetAt = Date.now();
-  const pending = state.pendingAmbient; state.pendingAmbient = null;
-  if (pending && pending.some((l) => l.topic)) { openDialog(); enqueue(pending); return null; } // 她主動找你聊天：直接說，不用再打一次招呼
-  const r = await run(() => api.greet(), { talk: true });
-  if (pending && pending.length) enqueue(pending);
-  return r;
+  openDialog(); enqueue(p);
+}
+async function greet() {
+  if (state.pendingAmbient && state.pendingAmbient.length) { sayPending(); return null; }
+  state.lastGreetAt = Date.now();
+  return run(() => api.greet(), { talk: true });
 }
 
 // ---------- 縮小化（貓咪型態） ----------
@@ -312,11 +318,12 @@ function showLine(line) {
   afterLine();
 }
 function afterLine() {
+  state.lineDoneAt = Date.now();
   $('#npcWrap').classList.remove('talking');
   $('#dlgMore').classList.toggle('hidden', !state.queue.length);
 }
-$('#dlgText').addEventListener('click', () => advance());
-$('#dlgMore').addEventListener('click', () => advance());
+$('#dlgText').addEventListener('click', () => { advance(); state.clickedAt = Date.now(); });
+$('#dlgMore').addEventListener('click', () => { advance(); state.clickedAt = Date.now(); });
 
 // ---------- 通用執行（等待 NPC 回覆） ----------
 // talk：跟艾琳「講話」（打招呼、戳、聊天）同一時間只能一件；其他動作（勾目標、交付…）隨時都能做，
@@ -1221,7 +1228,7 @@ api.on('npc:lines', (lines) => {
   if (state.mini) { miniNotify(lines); return; }
   if ($('#dialog').classList.contains('hidden') && lines.every((l) => l.ambient)) {
     setMarker('alert');
-    state.pendingAmbient = lines; // 點角色時會重新打招呼
+    state.pendingAmbient = lines; // 點她時直接說（不用再問 AI）
     return;
   }
   openDialog(); enqueue(lines);

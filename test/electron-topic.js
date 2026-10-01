@@ -13,13 +13,17 @@ module.exports = ({ win, engine, app }) => {
   const shot = async (name) => { fs.writeFileSync(path.join(OUT, name + '.png'), (await win.capturePage()).toPNG()); console.log('shot', name); };
   const assert = (c, m) => { if (!c) throw new Error('ASSERT ' + m); };
   const flush = async () => { for (let i = 0; i < 40; i++) { if (!(await js('state.talking || state.queue.length > 0 || state.typing'))) break; if (await js('state.typing || state.queue.length > 0')) await js('advance()'); await wait(150); } };
-  const force = async () => { engine.lastTouch = Date.now() - 3 * 3600000; engine.proState().lastAt = 0; const r = await engine.proactive({}); wc.send('npc:lines', r.lines); return r; };
+  const force = async () => { engine.lastTouch = Date.now() - 3 * 3600000; engine.proState().lastAt = 0; const td = engine.todayInfo(); if (td.current) engine.proState().slot = `${td.date}|${td.current.id || td.current.slot}`; /* 這格的行程當作提過了，直接開話題 */ const r = await engine.proactive({}); wc.send('npc:lines', r.lines); return r; };
+  // 數一下點她的時候有沒有去問 AI（打招呼／戳）
+  const calls = { greet: 0, poke: 0 };
+  for (const k of Object.keys(calls)) { const orig = engine[k].bind(engine); engine[k] = (...a) => { calls[k]++; return orig(...a); }; }
   wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);
       await wait(1800); await flush();
       await js('closePanel(); closeDialog()'); await wait(200);
+      calls.greet = 0; calls.poke = 0; // 開機時的招呼不算
       // 1. 她主動找你：對話框關著 → 頭上亮「!」，先不說
       const r = await force();
       assert(r && r.kind === 'topic', '開了話題：' + JSON.stringify(r && r.kind));
@@ -42,7 +46,21 @@ module.exports = ({ win, engine, app }) => {
       assert(engine.aff().points === p0 + 1, `陪她聊天 +1（${p0} → ${engine.aff().points}）`);
       assert(!/回艾琳的話/.test(await js(`document.querySelector('#chatInput').placeholder`)), '送出後提示換回來');
       await shot('t03_replied');
-      // 4. 縮成貓咪時：亮「!」，展開後直接說
+      assert(calls.greet === 0 && calls.poke === 0, '點「!」不會再打招呼、也不算戳她：' + JSON.stringify(calls));
+      // 4. 行程提醒那種「!」也一樣：點她直接說，不用再想
+      await js('closePanel(); closeDialog()'); await wait(200);
+      wc.send('npc:lines', [{ text: '現在這格是試吃準備喔，要不要先列分工？', emotion: 'thinking', event: 'daily', ambient: true }]); await wait(300);
+      assert(await js(`document.querySelector('#marker').dataset.kind === 'alert'`), '行程也亮 !');
+      await js('onNpcClick()'); await wait(200);
+      assert(!(await js(`document.querySelector('#dlgText').querySelector('.thinking-dots')`)), '沒有在「思考中」');
+      await flush();
+      assert((await js(`document.querySelector('#dlgText').textContent`)) === '現在這格是試吃準備喔，要不要先列分工？' && calls.greet === 0, '直接說行程');
+      // 5. 說完馬上又點一下（想「繼續」）：不算戳；隔一下再點才是戳
+      await js('onNpcClick()'); await wait(300);
+      assert(calls.poke === 0, '剛說完就點：不算戳');
+      await wait(1200); await js('onNpcClick()'); await wait(500); await flush();
+      assert(calls.poke === 1, '隔一下再點：是戳她');
+      // 6. 縮成貓咪時：亮「!」，展開後直接說
       await js('goMini()'); await wait(1600);
       await force(); await wait(500);
       assert(await js(`state.mini && state.miniAlert`), '貓咪也會亮 !');
