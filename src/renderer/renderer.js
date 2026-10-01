@@ -221,17 +221,44 @@ const fx = {
   },
 };
 
+// ---------- 對話紀錄：最近幾則（只放在記憶體，關掉程式就清空） ----------
+const LOG_KEEP = 12; // 留幾則
+const LOG_SHOW = 10; // 面板最多顯示幾則（下方對話框正在說的那句不重複列出）
+state.log = []; state.logSeq = 0; state.shownLogId = null;
+function logPush(who, text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  state.logSeq += 1;
+  state.log.push({ id: state.logSeq, who, text: t, at: nowMs() });
+  if (state.log.length > LOG_KEEP) state.log.splice(0, state.log.length - LOG_KEEP);
+  return state.logSeq;
+}
+function logRefresh() { if (state.panel === 'log') renderPanel(); }
+// 對話框現在顯示的是哪一則（「思考中」或錯誤訊息時是 null），面板就不重複列出那一則
+function setShown(id) { state.shownLogId = id || null; logRefresh(); }
+function logRows() {
+  const cur = $('#dialog').classList.contains('hidden') ? null : state.shownLogId;
+  return state.log.filter((e) => e.id !== cur).slice(-LOG_SHOW);
+}
+function toggleLog() { if (state.panel === 'log') closePanel(); else openPanel('log'); }
+
 // ---------- 對話框 ----------
 function openDialog() { if (FORM_PANELS.has(state.panel)) return; $('#dialog').classList.remove('hidden'); } // 表單開著時先不冒出來，關掉表單再顯示
-function closeDialog() { showProposal(null); $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.queue = []; state.typing = false; $('#npcWrap').classList.remove('talking'); setEmotion('normal'); }
+function closeDialog() { showProposal(null); state.shownLogId = null; $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.queue = []; state.typing = false; $('#npcWrap').classList.remove('talking'); setEmotion('normal'); }
 $('#dlgClose').addEventListener('click', () => { closeDialog(); closePanel(); });
 $('#dlgMini').addEventListener('click', goMini);
+$('#dlgLog').addEventListener('click', toggleLog);
+// 在對話框上往上滾（已經在最上面時）：打開剛剛的對話，跟視覺小說的「回想」一樣
+$('#dlgText').addEventListener('wheel', (e) => {
+  if (e.deltaY < 0 && !state.panel && $('#dlgText').scrollTop <= 0 && logRows().length) openPanel('log');
+}, { passive: true });
 $('#aiDot').addEventListener('click', () => api.toggleAI());
 $('#hudMini').addEventListener('click', goMini);
 
 function showThinking() {
   openDialog();
   $('#dlgText').innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
+  setShown(null);
   setEmotion('thinking');
 }
 
@@ -254,6 +281,8 @@ function advance() {
   if (!line) return;
   openDialog();
   state.current = line; state.lastLine = line;
+  if (!line.logId) line.logId = logPush('npc', line.text);
+  setShown(line.logId);
   setEmotion(line.emotion || 'normal');
   if (line.emotion === 'cheer' || line.emotion === 'surprised') jump();
   $('#npcWrap').classList.add('talking');
@@ -276,6 +305,7 @@ function showLine(line) {
   state.current = line;
   setEmotion(line.emotion || 'normal');
   $('#dlgText').innerHTML = rich(line.text || '');
+  setShown(line.logId);
   afterLine();
 }
 function afterLine() {
@@ -298,7 +328,7 @@ async function run(fn, { thinking = true, talk = false } = {}) {
   if (r && r.view) applyView(r.view);
   if (!r || !r.ok) {
     toast(`⚠ ${r && r.error ? r.error : '發生錯誤'}`, 4000);
-    if (thinking) { $('#dlgText').textContent = '嗯……好像哪裡怪怪的，再試一次看看？'; setEmotion('worried'); }
+    if (thinking) { $('#dlgText').textContent = '嗯……好像哪裡怪怪的，再試一次看看？'; setShown(null); setEmotion('worried'); }
     return r;
   }
   if (r.writeError) toast(`⚠ 回寫計畫檔失敗：${r.writeError}`, 5000);
@@ -828,6 +858,7 @@ async function sendChat() {
   if (!text || state.talking) return;
   if (DV_RE.test(text) && !/(是什麼|什麼是|怎麼算|原理|準不準)/.test(text)) { inp.value = ''; openPanel('divine', { question: questionFromChat(text) }); return; }
   inp.value = '';
+  logPush('me', text); logRefresh();
   await run(() => api.chat(text), { talk: true });
   inp.focus();
 }
@@ -840,13 +871,14 @@ function openPanel(kind, arg) {
   if (kind === 'divine') openDivine(arg);
   state.panel = kind; state.panelArg = arg; state.confirmDel = null; state.addingObj = null;
   if (FORM_PANELS.has(kind)) $('#dialog').classList.add('hidden'); else openDialog();
+  $('#dlgLog').classList.toggle('on', kind === 'log');
   $('#dialog').classList.add('compact'); renderPanel();
 }
 function closePanel() {
   cancelAnimationFrame(state.dvRaf);
   const wasForm = FORM_PANELS.has(state.panel);
   state.panel = null; state.panelBack = null; state.confirmDel = null; state.addingObj = null;
-  $('#panel').classList.add('hidden'); $('#dialog').classList.remove('compact');
+  $('#panel').classList.add('hidden'); $('#dialog').classList.remove('compact'); $('#dlgLog').classList.remove('on');
   if (wasForm) openDialog();
 }
 
@@ -857,6 +889,7 @@ function renderPanel() {
   // 同一個面板重畫時保住捲動位置（勾目標、刪東西時畫面不會跳回最上面）
   const prevBody = el.querySelector('.panel-body');
   const keepScroll = el.dataset.kind === state.panel && prevBody ? prevBody.scrollTop : 0;
+  const stick = state.panel === 'log' && (el.dataset.kind !== 'log' || !prevBody || prevBody.scrollTop + prevBody.clientHeight >= prevBody.scrollHeight - 8);
   el.dataset.kind = state.panel;
   // 重畫時保住正在打的新目標（艾琳的話晚到、畫面更新時，打到一半的字不會不見）
   const typing = el.querySelector('[data-obj-input]');
@@ -864,11 +897,21 @@ function renderPanel() {
   renderPanelInner(el, v);
   if (keep) { const i = el.querySelector(`[data-obj-input="${keep.id}"]`); if (i) { i.value = keep.value; if (keep.focus) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } } }
   const body = el.querySelector('.panel-body');
-  if (body && keepScroll) body.scrollTop = keepScroll;
+  if (body && stick) body.scrollTop = body.scrollHeight;
+  else if (body && keepScroll) body.scrollTop = keepScroll;
 }
 // 面板標題列（所有面板共用）
 const head = (title, sub, extra = '') => `<div class="panel-head"><h2>${title}</h2>${sub ? `<span class="sub">${sub}</span>` : ''}${extra}<button class="icon-btn" data-close>✕</button></div>`;
 function renderPanelInner(el, v) {
+  if (state.panel === 'log') {
+    const rows = logRows();
+    const name = esc((v && v.npc && v.npc.name) || '艾琳');
+    const body = rows.length
+      ? rows.map((e) => `<div class="log-row ${e.who}"><div class="log-meta">${e.who === 'me' ? '你' : name}・${hm(new Date(e.at))}</div><div class="log-say">${e.who === 'me' ? esc(e.text) : rich(e.text)}</div></div>`).join('')
+      : `<p class="hint">還沒有之前的對話。點${name}一下，或按「💬 聊聊」跟她說說話吧。</p>`;
+    el.innerHTML = head('🕘 剛剛的對話', rows.length ? `最近 ${rows.length} 則` : '') + `<div class="panel-body log-body">${body}</div>`;
+    return;
+  }
   if (state.panel === 'board') {
     const addBtn = v.editable && state.boardTab === 'quests' ? '<button class="tab add" data-new="quest" title="登記一筆新委託">＋ 新任務</button>' : '';
     const tabs = `<div class="tabs"><button class="tab ${state.boardTab === 'quests' ? 'on' : ''}" data-tab="quests">任務</button><button class="tab ${state.boardTab === 'hist' ? 'on' : ''}" data-tab="hist">紀錄</button>${addBtn}</div>`;
