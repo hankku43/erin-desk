@@ -1,6 +1,6 @@
 {
   "name": "quest-npc",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "桌面任務 NPC：把週計畫變成遊戲任務",
   "main": "src/main/main.js",
   "engines": {
