@@ -28,13 +28,13 @@
 
 ## 一、安裝（從原始碼執行，只要做一次）
 
-1. **安裝 Node.js**（LTS 版本，20 以上）：<https://nodejs.org/>
-2. **安裝 Ollama**：<https://ollama.com/download>，裝完後開一個命令提示字元執行：
+1. **安裝 Node.js**（LTS 版本，**22.12 以上**；打包工具需要）：<https://nodejs.org/>。`安裝.bat`、`打包.bat` 會先檢查版本，太舊會直接告訴你。
+2. **安裝 Ollama**（**0.9 以上**；更舊的版本關不掉模型的「思考」，會回得很慢）：<https://ollama.com/download>，裝完後開一個命令提示字元執行：
    ```
    ollama pull qwen3:4b
    ```
    電腦記憶體只有 8GB 的話，改用 `ollama pull qwen3:1.7b`，並把 `config.json` 裡的 `"model"` 改成 `"qwen3:1.7b"`。
-3. 雙擊 **`安裝.bat`**，它會下載 Electron，大約 100MB。
+3. 雙擊 **`安裝.bat`**，它會下載 Electron，大約 100MB。用的是 `npm ci`：照 `package-lock.json` 鎖定的版本一模一樣地裝，不會裝到跟開發時不同的版本。
 
 > 公司網路擋 GitHub、Electron 下載失敗時，用 `安裝.bat` 裡註解掉的鏡像站設定再試一次。
 
@@ -357,6 +357,7 @@
 - **艾琳一直用固定台詞**：確認 Ollama 有在執行（工作列有羊駝圖示），而且 `ollama list` 看得到設定的模型。聊天時句首的括號會說明原因：「連不到 AI」「AI 想太久了」「AI 對話已關閉」。這些備援句子不會存進給 AI 看的對話紀錄，AI 不會學著照說。
 - **想知道 AI 為什麼慢**：打開 `data/llm.log`，每次呼叫一行，寫著花了多久、載入模型多久、讀了多少提示、產生多少字，失敗的也會記原因（最多留 300 行）。「載入模型」常常很久的話，代表模型一直被換出記憶體。
 - **回話很慢**：第一次呼叫要載入模型，會慢 10–30 秒，之後就會變快。還是太慢的話改用 `qwen3:1.7b`。
+- **Ollama 太舊**：🩺 健康檢查會出現「Ollama 版本」黃燈，新手教學也會提醒。到 <https://ollama.com/download> 下載新版直接安裝就好，已經下載的模型會留著。
 - **偶爾出現簡體字**：`npm install` 時會一起裝繁簡轉換套件 opencc-js，確認安裝時沒有報錯。
 - **點不到桌面上角色後面的東西**：只有卡片和角色本身會攔截滑鼠，空白處可以直接穿透點到後面的視窗。
 
@@ -365,10 +366,13 @@
 ```
 git clone https://github.com/<你的帳號>/erin-desk.git
 cd erin-desk
-npm install
+node tools/check-node.js    # Node.js 要 22.12 以上（.nvmrc 寫的是 22）
+npm ci                      # 照 package-lock.json 鎖定的版本裝
 ollama pull qwen3:4b        # 第一次；沒裝 Ollama 也能跑，只是用內建台詞
 npm start
 ```
+
+要升級套件時改用 `npm install 套件@版本`，測試通過後把 `package.json` 和 `package-lock.json` 一起 commit。去背工具的 Python 套件版本鎖在 `tools/requirements.txt`。
 
 第一次啟動會自動從 `config.example.json` 建立 `config.json`；存檔、備份、向量快取都在 `data/`，這兩個都不進 git，所以在家和公司的進度是分開的（想同步就把 `data/save.json` 帶過去）。
 

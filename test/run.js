@@ -947,6 +947,21 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(pr.choices.find((c) => c.name === 'qwen3:1.7b').installed && !pr.choices.find((c) => c.name === 'qwen3:4b').installed);
   pr = await S.probe({ fetchImpl: fakeFetch(null), totalmem: 16 * 1024 ** 3 });
   assert.ok(['missing', 'stopped'].includes(pr.ollama) && pr.recommend === 'qwen3:4b');
+  // Ollama 版本：0.9.0 以前太舊（關不掉思考）；問不到版本、開發版都不算太舊
+  assert.ok(S.versionLess('0.6.2', '0.9.0') && S.versionLess('0.8.9', '0.9.0') && !S.versionLess('0.9.0', '0.9.0') && !S.versionLess('0.12.3', '0.9.0') && !S.versionLess('1.0.0', '0.9.0'));
+  assert.ok(!S.versionLess('0.0.0', '0.9.0') && !S.versionLess('', '0.9.0') && !S.versionLess('abc', '0.9.0') && S.versionLess('v0.5.7-rc1', '0.9.0'));
+  const verFetch = (version) => async (url) => {
+    if (/version$/.test(url)) { if (version === null) throw new Error('404'); return { ok: true, json: async () => ({ version }) }; }
+    return { ok: true, json: async () => ({ models: [{ name: 'qwen3:4b' }] }) };
+  };
+  pr = await S.probe({ fetchImpl: verFetch('0.6.2'), totalmem: 16 * 1024 ** 3 });
+  assert.ok(pr.version === '0.6.2' && pr.outdated && pr.minVersion === S.MIN_OLLAMA, '舊版 Ollama：' + JSON.stringify([pr.version, pr.outdated]));
+  pr = await S.probe({ fetchImpl: verFetch('0.12.3'), totalmem: 16 * 1024 ** 3 });
+  assert.ok(pr.version === '0.12.3' && !pr.outdated, '新版不提醒');
+  pr = await S.probe({ fetchImpl: verFetch(null), totalmem: 16 * 1024 ** 3 });
+  assert.ok(pr.ollama === 'running' && pr.version === null && !pr.outdated, '問不到版本：不提醒');
+  assert.ok(/版本太舊/.test(S.friendlyPullError('pull model manifest: 412: The model you are attempting to pull requires a newer version of Ollama.')), '舊版下載新模型：中文說明');
+  assert.strictEqual(S.friendlyPullError('file does not exist'), 'file does not exist');
   // 下載：把 Ollama 一行一行的進度合起來算百分比
   const lines = [{ status: 'pulling manifest' }, { status: 'pulling a', digest: 'a', total: 100, completed: 50 }, { status: 'pulling b', digest: 'b', total: 100, completed: 0 }, { status: 'pulling a', digest: 'a', total: 100, completed: 100 }, { status: 'pulling b', digest: 'b', total: 100, completed: 100 }, { status: 'success' }];
   const streamFetch = (ls) => async () => {
@@ -959,10 +974,22 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(seen.includes(25) && seen.includes(50) && seen[seen.length - 1] === 100, '進度：' + seen.join(','));
   await assert.rejects(S.pull({ model: 'x', fetchImpl: streamFetch([{ error: 'pull model manifest: file does not exist' }]) }), /does not exist/);
   await assert.rejects(S.pull({ model: 'x', fetchImpl: streamFetch([{ status: 'pulling manifest' }]) }), /沒有完成/);
+  await assert.rejects(S.pull({ model: 'x', fetchImpl: streamFetch([{ error: 'pull model manifest: 412: requires a newer version of Ollama' }]) }), /版本太舊/);
+  await assert.rejects(S.pull({ model: 'x', fetchImpl: async () => ({ ok: false, status: 412, text: async () => 'requires a newer version of Ollama' }) }), /版本太舊/);
   // 健康檢查：各種情況的紅綠燈與修法
   const base = { name: '艾琳', plan: { file: 'p.md', exists: true, quests: 3 }, llm: { enabled: true, model: 'qwen3:4b' }, probe: { ollama: 'running', models: ['qwen3:4b'], embed: { installed: true } }, ramGB: 16, smart: { on: false }, charOK: true, saveOK: true, userDir: '/u' };
   const st = (x) => Object.fromEntries(buildHealth({ ...base, ...x }).map((i) => [i.id, i]));
   assert.strictEqual(st({}).ai.status, 'ok');
+  assert.ok(!st({}).ollamaVer, 'Ollama 版本正常：不顯示');
+  const old = st({ probe: { ollama: 'running', models: ['qwen3:4b'], embed: { installed: true }, version: '0.6.2', minVersion: '0.9.0', outdated: true } });
+  assert.ok(old.ollamaVer && old.ollamaVer.status === 'warn' && old.ollamaVer.fixes.some((f) => f.action === 'updateOllama') && /0\.6\.2/.test(old.ollamaVer.detail), 'Ollama 太舊：黃燈＋下載新版');
+  // 安裝前檢查 Node.js 版本（安裝.bat、打包.bat 會先跑）
+  const cp = require('child_process');
+  const chk = (want) => cp.spawnSync(process.execPath, [path.join(__dirname, '..', 'tools', 'check-node.js')], { env: { ...process.env, CHECK_NODE_WANT: want || '' }, encoding: 'utf8' });
+  assert.strictEqual(chk('').status, 0, 'Node 版本夠：' + chk('').stdout);
+  const bad = chk('99.0.0');
+  assert.ok(bad.status === 1 && /版本太舊/.test(bad.stdout) && /nodejs\.org/.test(bad.stdout), '版本太舊：說明去哪裡下載');
+  assert.strictEqual(require('../package.json').engines.node, '>=22.12.0', 'package.json 寫明需要的 Node 版本');
   assert.ok(st({ probe: { ollama: 'missing', models: [], embed: {} } }).ai.fixes.some((f) => f.action === 'openOllama'));
   assert.ok(st({ probe: { ollama: 'stopped', models: [], embed: {} } }).ai.detail.includes('沒有開'));
   assert.ok(st({ probe: { ollama: 'running', models: [], embed: {} } }).ai.fixes.some((f) => f.action === 'pull:qwen3:4b'));

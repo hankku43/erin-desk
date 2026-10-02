@@ -39,7 +39,7 @@ function pullHtml(model, size) {
   const p = (state.pulls || {})[model];
   if (!p) return `<button class="btn small gold" data-ob-pull="${esc(model)}">⬇ 下載（約 ${esc(size)}）</button>`;
   if (p.status === 'success') return '<span class="chip ok">✔ 下載完成</span>';
-  if (p.status === 'error') return `<span class="chip bad">下載失敗：${esc(p.error || '')}</span><button class="btn small" data-ob-pull="${esc(model)}">再試一次</button>`;
+  if (p.status === 'error') return `<span class="chip bad">下載失敗：${esc(p.error || '')}</span>${/版本太舊/.test(p.error || '') ? '<button class="btn small gold" data-ob-update>下載新版 Ollama</button>' : ''}<button class="btn small" data-ob-pull="${esc(model)}">再試一次</button>`;
   const mb = p.total ? `（${Math.round((p.completed || 0) / 1048576)}／${Math.round(p.total / 1048576)} MB）` : '';
   return `<div class="ob-pull">${bar(p.percent)}<span class="ob-pct">${p.percent || 0}%${mb}</span><button class="btn small ghost" data-ob-cancel="${esc(model)}">取消</button></div>`;
 }
@@ -73,7 +73,8 @@ function renderOnboard(el, v) {
     } else {
       // 預設：已經裝好的那個；還沒裝就用推薦的（看記憶體）
       if (ob.choice === undefined) ob.choice = v.llm && v.llm.enabled && p.choices.some((c) => c.name === v.llm.model && c.installed) ? v.llm.model : (p.recommend || null);
-      const st = p.ollama === 'running' ? `<div class="ob-status ok">🟢 找到 Ollama 了</div>`
+      const st = p.ollama === 'running' && p.outdated ? `<div class="ob-status warn">🟡 找到 Ollama 了，但版本 ${esc(p.version)} 太舊（需要 ${esc(p.minVersion)} 以上）<div class="ob-sub">舊版的話，${esc(name)}會回得很慢、常常回不好，新的模型也可能下載不了。下載新版直接安裝就好，已經下載的模型會留著。</div><div class="ob-btns"><button class="btn small gold" data-ob-update>下載新版</button><button class="btn small" data-ob-probe>再檢查一次</button></div></div>`
+        : p.ollama === 'running' ? `<div class="ob-status ok">🟢 找到 Ollama 了</div>`
         : p.ollama === 'stopped' ? `<div class="ob-status warn">🟡 Ollama 裝好了，但現在沒有開　<button class="btn small gold" data-ob-openollama>幫我打開</button><button class="btn small ghost" data-ob-probe>再檢查一次</button></div>`
           : `<div class="ob-status off">⚪ 還沒有安裝 Ollama<div class="ob-sub">到官網下載 Windows 版，照著畫面安裝就好（不需要系統管理員權限）。裝好後回來按「再檢查一次」。</div><div class="ob-btns"><button class="btn small gold" data-ob-openollama>打開下載頁</button><button class="btn small" data-ob-probe>再檢查一次</button></div></div>`;
       const card = (c) => {
@@ -179,6 +180,7 @@ async function onboardClick(e) {
   if (t.closest('[data-ob-back]')) { obGo(-1); return true; }
   if (t.closest('[data-ob-skipall]')) { await obFinish(); return true; }
   if (t.closest('[data-ob-probe]')) { ob.probe = null; renderPanel(); return true; }
+  if (t.closest('[data-ob-update]')) { api.healthFix('updateOllama').then((r) => { if (r && r.reason) toast(r.reason, 6000); }); return true; }
   if (t.closest('[data-ob-openollama]')) {
     const r = await api.setupOpenOllama();
     toast(r && r.opened === 'app' ? '正在打開 Ollama，等一下再按「再檢查一次」' : '已打開 Ollama 下載頁', 4000);

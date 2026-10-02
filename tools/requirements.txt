@@ -1,0 +1,7 @@
+# tools/remove_bg.py（去背＋對齊角色圖）用的套件，只有自己做角色圖時才需要
+# 安裝：pip install -r tools/requirements.txt   （測試過：Python 3.11）
+rembg[cpu]==2.0.85
+onnxruntime==1.25.0
+opencv-python==4.13.0.92
+pillow==12.2.0
+numpy==2.4.4

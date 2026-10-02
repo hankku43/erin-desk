@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "桌面任務 NPC：把週計畫變成遊戲任務",
   "main": "src/main/main.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "start": "electron .",
     "test": "node test/run.js",

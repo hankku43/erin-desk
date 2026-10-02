@@ -237,7 +237,7 @@ one front paw raised as if waving, mouth open as if meowing
 2. 去背＋對齊：
    - 全部重做：`python tools/remove_bg.py`（所有表情一起重新對齊，畫布可能會變）
    - 只加新的表情或動作圖：`python tools/remove_bg.py shy disdain`、`python tools/remove_bg.py blink tea`（對齊到現有的 `assets/character/normal.png`，舊圖不動）
-   - 需要先 `pip install "rembg[cpu]" opencv-python pillow numpy`
+   - 需要先 `pip install -r tools/requirements.txt`（套件版本都鎖好了）
 3. 去背後的 PNG 會出現在 `assets/character/`。舊的 `.svg` 可以不刪，PNG 會優先使用。
 4. 右鍵 → 離開，再重新啟動。
 

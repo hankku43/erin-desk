@@ -1,5 +1,5 @@
 # 批次去背＋去灰邊＋對齊＋統一畫布（assets/raw → assets/character）
-# 需要：pip install "rembg[cpu]" opencv-python pillow numpy
+# 需要：pip install -r tools/requirements.txt（版本都鎖好了）
 #
 #   python tools/remove_bg.py              全部重做（所有表情一起對齊，畫布可能會變）
 #   python tools/remove_bg.py shy disdain  只加新的表情：對齊到現有的 assets/character/normal.png，舊圖不動

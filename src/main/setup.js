@@ -11,6 +11,23 @@ const MODELS = {
 };
 const EMBED = { name: 'qwen3-embedding:0.6b', size: '0.6GB' };
 const OLLAMA_DOWNLOAD = 'https://ollama.com/download';
+// Ollama 0.9.0（2025/5）起才能關掉 qwen3 的「思考」（think: false）；更舊的版本會回得很慢、常常回不好，新模型也可能下載不了
+const MIN_OLLAMA = '0.9.0';
+
+// 版本比較：'0.6.2' < '0.9.0'；看不懂的版本（或開發版 0.0.0）當作不知道，不算太舊
+const parseVer = (v) => { const m = String(v || '').match(/(\d+)\.(\d+)(?:\.(\d+))?/); return m ? [Number(m[1]), Number(m[2]), Number(m[3] || 0)] : null; };
+function versionLess(a, b) {
+  const pa = parseVer(a), pb = parseVer(b);
+  if (!pa || !pb || pa.every((x) => x === 0)) return false;
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i];
+  return false;
+}
+// 舊版 Ollama 下載新模型時的錯誤（412：requires a newer version of Ollama）→ 看得懂的中文
+function friendlyPullError(msg) {
+  const s = String(msg || '');
+  if (/newer version|\b412\b/i.test(s)) return `Ollama 版本太舊，這個模型要新版 Ollama 才能下載。請先到 ${OLLAMA_DOWNLOAD} 下載新版安裝（已經下載的模型會留著）`;
+  return s;
+}
 
 const ramGB = (bytes = os.totalmem()) => Math.round((bytes / 1024 ** 3) * 10) / 10;
 
@@ -41,15 +58,17 @@ async function fetchJSON(url, { timeout = 3000, fetchImpl = fetch } = {}) {
 async function probe({ baseUrl = 'http://127.0.0.1:11434', fetchImpl = fetch, totalmem } = {}) {
   const gb = ramGB(totalmem);
   const rec = recommend(gb);
-  let ollama = 'missing', models = [];
+  let ollama = 'missing', models = [], version = null;
   try {
     const j = await fetchJSON(`${baseUrl}/api/tags`, { fetchImpl });
     ollama = 'running';
     models = (j.models || []).map((m) => m.name || m.model).filter(Boolean);
+    try { const v = await fetchJSON(`${baseUrl}/api/version`, { fetchImpl }); version = typeof v.version === 'string' ? v.version : null; } catch (_) { /* 問不到版本就算了 */ }
   } catch (_) { /* 沒開或沒裝 */ }
   if (ollama === 'missing' && findOllamaApp()) ollama = 'stopped'; // 裝了但沒開
   return {
     ollama, models, ramGB: gb, recommend: rec.model, why: rec.why,
+    version, minVersion: MIN_OLLAMA, outdated: !!version && versionLess(version, MIN_OLLAMA),
     choices: Object.entries(MODELS).map(([name, m]) => ({ name, ...m, installed: hasModel(models, name) })),
     embed: { ...EMBED, installed: hasModel(models, EMBED.name) },
     downloadUrl: OLLAMA_DOWNLOAD,
@@ -59,7 +78,10 @@ async function probe({ baseUrl = 'http://127.0.0.1:11434', fetchImpl = fetch, to
 // 下載模型：Ollama 的 /api/pull 會一行一行回報進度（每一層各自有 total／completed）
 async function pull({ baseUrl = 'http://127.0.0.1:11434', model, onProgress = () => {}, signal, fetchImpl = fetch } = {}) {
   const res = await fetchImpl(`${baseUrl}/api/pull`, { method: 'POST', body: JSON.stringify({ model, stream: true }), headers: { 'Content-Type': 'application/json' }, signal });
-  if (!res.ok || !res.body) throw new Error(`Ollama 回應 ${res.status}`);
+  if (!res.ok || !res.body) {
+    let text = ''; try { text = await res.text(); } catch (_) { /* 沒有內容 */ }
+    throw new Error(friendlyPullError(`${res.status} ${text}`.trim()) || `Ollama 回應 ${res.status}`);
+  }
   const layers = new Map();
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -78,7 +100,7 @@ async function pull({ baseUrl = 'http://127.0.0.1:11434', model, onProgress = ()
       const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
       if (!line) continue;
       let j; try { j = JSON.parse(line); } catch (_) { continue; }
-      if (j.error) throw new Error(j.error);
+      if (j.error) throw new Error(friendlyPullError(j.error));
       if (j.digest && j.total) layers.set(j.digest, { total: j.total, completed: j.completed || 0 });
       last = j.status || last;
       report(last);
@@ -99,4 +121,4 @@ function findOllamaApp(env = process.env, platform = process.platform) {
   return cands.find((f) => { try { return fs.existsSync(f); } catch (_) { return false; } }) || null;
 }
 
-module.exports = { MODELS, EMBED, OLLAMA_DOWNLOAD, ramGB, recommend, hasModel, probe, pull, findOllamaApp };
+module.exports = { MODELS, EMBED, OLLAMA_DOWNLOAD, MIN_OLLAMA, versionLess, friendlyPullError, ramGB, recommend, hasModel, probe, pull, findOllamaApp };

@@ -344,6 +344,7 @@ async function healthFix(action) {
   if (a === 'openFolder') { shell.openPath(USER_DIR); return {}; }
   if (a === 'openChar') { fs.mkdirSync(userCharDir(), { recursive: true }); shell.openPath(userCharDir()); return {}; }
   if (a === 'choosePlan') return choosePlan({ greet: false });
+  if (a === 'updateOllama') { shell.openExternal(SETUP.OLLAMA_DOWNLOAD); return { reason: '已打開 Ollama 下載頁：安裝新版會直接蓋過舊版，已經下載的模型會留著。裝好後回來按「再檢查一次」' }; }
   if (a === 'openOllama') return { ...openOllama(), reason: SETUP.findOllamaApp() ? '正在打開 Ollama…' : '已打開 Ollama 下載頁，裝好後回來按「再檢查一次」' };
   if (a === 'enableAI') { await setAI(true); return {}; }
   if (a === 'disableAI') { await setAI(false); return {}; }
