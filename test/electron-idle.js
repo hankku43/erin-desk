@@ -34,7 +34,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       assert(setting.submenu.some((m) => /待機小動作/.test(m.label) && m.type === 'checkbox' && m.checked), '設定裡有「待機小動作」開關');
       // 1. 離開座位 → 打瞌睡
       wc.send('presence', { idleSec: 400, locked: false }); await wait(600);
-      assert(await js(`document.body.classList.contains('dozing') && !document.querySelector('#idleZzz').classList.contains('hidden')`), '打瞌睡，頭上 z z');
+      assert(await js(`document.body.classList.contains('dozing') && !document.querySelector('#idleZzz').classList.contains('hidden') && document.querySelectorAll('#idleZzz .em-zz').length === 3`), '打瞌睡，頭上 z z Z');
       assert(await imgIs('sleep'), '換成睡覺的圖：' + await imgName());
       await shot('i01_doze');
       // 2. 離開很久回來 → 嚇一跳醒來、揮手、小聲說歡迎回來
@@ -44,7 +44,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       assert(await imgIs('surprised'), '先嚇一跳：' + await imgName());
       await wait(900);
       assert(await imgIs('wave'), '揮手：' + await imgName());
-      assert(/👋/.test(await js(`document.querySelector('#idleBalloon').textContent`)), '頭上 👋');
+      assert((await js(`(document.querySelector('#npcWrap > .emote')||{dataset:{}}).dataset.kind`)) === 'sparkle', '醒來時頭旁邊閃星星');
       const wtxt = await js(`document.querySelector('#idleWhisper').textContent`);
       assert(IdleBrainLines().wake.includes(wtxt), '小聲說歡迎回來：' + wtxt);
       assert(await js(`document.querySelector('#dialog').classList.contains('hidden')`), '不開對話框');
@@ -52,8 +52,9 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       await wait(2800);
       assert(await imgIs('normal'), '揮完換回平常：' + await imgName());
       // 3. 下午三點的奶茶（直接演一次）
-      await js(`idleDebug.perform({ type: 'tea', pose: 'tea', emotion: 'happy', balloon: '☕', whisper: '三點了，奶茶時間～', ms: 1800 })`); await wait(300);
-      assert(await imgIs('tea') && /☕/.test(await js(`document.querySelector('#idleBalloon').textContent`)), '捧著奶茶');
+      await js(`idleDebug.perform({ type: 'tea', pose: 'tea', emotion: 'happy', emote: 'steam', whisper: '三點了，奶茶時間～', ms: 1800 })`); await wait(300);
+      assert(await imgIs('tea') && (await js(`document.querySelector('#npcWrap > .emote').dataset.kind`)) === 'steam', '捧著奶茶、杯口冒熱氣');
+      assert(await js(`document.querySelectorAll('#npcWrap > .emote .em-rise').length === 3 && getComputedStyle(document.querySelector('#npcWrap > .emote .em-rise')).animationName === 'emRise'`), '熱氣有在動');
       await shot('i03_tea');
       await wait(1900);
       assert(await imgIs('normal'), '喝完換回來');
@@ -67,7 +68,9 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       assert((await js(`document.querySelector('#npcImg').style.getPropertyValue('--lean')`)) === '-2.20deg', '往滑鼠那邊看');
       // 6. 滑鼠經過：耳朵一抖、冒 ✦
       await js(`document.querySelector('#npcWrap').dispatchEvent(new MouseEvent('mouseenter'))`); await wait(100);
-      assert(await js(`document.querySelector('#npcImg').classList.contains('idle-perk')`) && /✦/.test(await js(`document.querySelector('#idleBalloon').textContent`)), '滑鼠經過有反應');
+      assert(await js(`document.querySelector('#npcImg').classList.contains('idle-perk')`) && (await js(`document.querySelector('#npcWrap > .emote').dataset.kind`)) === 'twinkle', '滑鼠經過有反應');
+      await wait(2100);
+      assert(!(await js(`document.querySelector('#npcWrap > .emote')`)), '表情飄完會自己消失（1.3 秒＋淡出）');
       // 7. 隨機小動作會自己出現；她開始說話就停
       await js(`idleDebug.S.mem.lastAt = 0; idleDebug.S.mem.lastBreak = nowMs(); idleDebug.S.presence = { idleSec: 40, locked: false }; idleDebug.tick()`); await wait(200);
       const act = await js(`idleDebug.S.acting && idleDebug.S.acting.type`);
@@ -78,7 +81,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       await js('advance()'); await wait(200);
       assert(await imgIs('happy'), '表情跟著說的話：' + await imgName());
       // 8. 沒有動作圖：用表情代替
-      await js(`closeDialog(); state.lineDoneAt = 0; window.__poses = state.character.poses; state.character.poses = {}; idleDebug.perform({ type: 'think', balloon: '💭', emotion: 'thinking', ms: 800 })`); await wait(200);
+      await js(`closeDialog(); state.lineDoneAt = 0; window.__poses = state.character.poses; state.character.poses = {}; idleDebug.perform({ type: 'think', emote: 'think', emotion: 'thinking', ms: 800 })`); await wait(200);
       assert(await imgIs('thinking'), '沒有動作圖：換表情');
       await wait(900); await js(`state.character.poses = window.__poses`);
       // 9. 關掉開關：什麼都不做、不看滑鼠

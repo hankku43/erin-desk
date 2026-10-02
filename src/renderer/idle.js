@@ -1,5 +1,5 @@
 // 🐾 待機小動作：把 IdleBrain 決定的動作演出來
-// 頭上的表情泡泡、小聲說一句（不開對話框）、換動作圖、離開座位時打瞌睡、眨眼、微微看向滑鼠、滑鼠經過時耳朵一抖
+// 頭旁邊飄表情符號（emotes.js）、小聲說一句（不開對話框）、換動作圖、離開座位時打瞌睡、眨眼、微微看向滑鼠、滑鼠經過時耳朵一抖
 // 用到 renderer.js 的 state、$、setEmotion、jump、nowMs、api
 (function () {
   'use strict';
@@ -7,9 +7,8 @@
   const wrap = $('#npcWrap');
   const img = $('#npcImg');
   const mk = (id, cls, html = '') => { const e = document.createElement('div'); e.id = id; e.className = `${cls} hidden`; e.innerHTML = html; wrap.appendChild(e); return e; };
-  const balloon = mk('idleBalloon', 'idle-balloon');
   const whisper = mk('idleWhisper', 'idle-whisper');
-  const zzz = mk('idleZzz', 'idle-zzz', '<span>z</span><span>z</span><span>Z</span>');
+  const zzz = mk('idleZzz', 'idle-zzz', Emotes.svgOf('doze', { w: 60, h: 60 }));
   const view = () => state.view || {};
   const poses = () => (state.character && state.character.poses) || {};
   const enabled = () => view().idleAnim !== false && !!state.character;
@@ -27,13 +26,9 @@
   }
 
   // ---- 小零件 ----
-  let balloonTimer = null, whisperTimer = null;
-  function showBalloon(text, ms = 2400) {
-    clearTimeout(balloonTimer);
-    balloon.textContent = text;
-    balloon.classList.remove('hidden', 'out'); void balloon.offsetWidth; balloon.classList.add('in');
-    balloonTimer = setTimeout(() => { balloon.classList.add('out'); balloonTimer = setTimeout(() => balloon.classList.add('hidden'), 300); }, ms);
-  }
+  let whisperTimer = null;
+  // 飄一個表情符號（音符、愛心、z z Z……）；縮成貓咪時不飄
+  function showEmote(kind, ms = 2400) { if (state.mini) return null; return Emotes.show(wrap, kind, ms); }
   function showWhisper(text, ms = 3800) {
     if (state.mini) return;
     clearTimeout(whisperTimer);
@@ -61,7 +56,7 @@
     if (a.pose && p[a.pose]) showSrc(p[a.pose]);
     else if (a.emotion) tempEmotion(a.emotion);
     if (a.anim) img.classList.add(`idle-${a.anim}`);
-    if (a.balloon) showBalloon(a.balloon, a.ms || 2400);
+    if (a.emote) showEmote(a.emote, a.ms || 2400);
     if (a.whisper && !dialogOpen()) showWhisper(a.whisper, Math.max(a.ms || 0, 3800)); // 對話框開著：只冒泡泡，不跟對話框搶
     S.actTimer = setTimeout(endAct, a.ms || 2500);
   }
@@ -71,6 +66,7 @@
     if (!a) return;
     S.acting = null;
     if (a.anim) img.classList.remove(`idle-${a.anim}`);
+    Emotes.clear(wrap);
     if (!S.dozing) restore();
   }
   function startDoze() {
@@ -94,7 +90,7 @@
     tempEmotion('surprised'); jump();
     setTimeout(() => {
       if (S.dozing || busy()) return;
-      perform({ type: 'wave', pose: 'wave', emotion: 'happy', balloon: '👋', whisper: a && a.whisper, ms: 2400 });
+      perform({ type: 'wave', pose: 'wave', emotion: 'happy', emote: 'sparkle', whisper: a && a.whisper, ms: 2400 });
     }, 650);
   }
   function play(a) {
@@ -150,7 +146,7 @@
     const cold = view().affection && view().affection.cold;
     img.classList.remove('idle-perk'); void img.offsetWidth; img.classList.add('idle-perk');
     setTimeout(() => img.classList.remove('idle-perk'), 600);
-    if (!cold) showBalloon(fond ? '♡' : '✦', 1100);
+    if (!cold) showEmote(fond ? 'heart' : 'twinkle', 1300);
   });
   // 點睡著的她：嚇一跳醒來
   wrap.addEventListener('pointerdown', () => { if (S.dozing) stopDoze(null); }, true);
@@ -160,5 +156,5 @@
   setInterval(tick, 2000);
   scheduleBlink();
   // 測試用
-  window.idleDebug = { S, tick, perform, startDoze, stopDoze, showBalloon, showWhisper, blink };
+  window.idleDebug = { S, tick, perform, startDoze, stopDoze, showEmote, showWhisper, blink };
 })();

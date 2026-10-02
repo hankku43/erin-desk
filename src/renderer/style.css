@@ -285,12 +285,25 @@ body.dozing #npcImg { --breathe: 5.5s; --look: 2.4deg; filter: drop-shadow(0 4px
 @keyframes idleStretch { 0%, 100% { translate: 0 0; } 35%, 65% { translate: 0 -7px; } }
 @keyframes idleYawn { 0%, 100% { translate: 0 0; } 50% { translate: 0 3px; } }
 @keyframes idlePerk { 0%, 100% { translate: 0 0; } 40% { translate: 0 -4px; } }
-/* 頭上的表情泡泡（像 RPG 的情緒圖示） */
-.idle-balloon { position: absolute; top: 4px; left: 62%; min-width: 34px; height: 32px; padding: 0 8px; border-radius: 16px; background: #fff; border: 2px solid var(--navy); color: var(--ink);
-  font-size: 17px; line-height: 1; display: grid; place-items: center; box-shadow: 0 2px 6px rgba(20, 24, 60, .28); z-index: 3; pointer-events: none; }
-.idle-balloon::after { content: ''; position: absolute; left: 7px; bottom: -8px; border: 7px solid transparent; border-top-color: var(--navy); border-bottom: 0; border-left-width: 3px; }
-.idle-balloon.in { animation: balloonIn .28s ease-out; }
-.idle-balloon.out { opacity: 0; transition: opacity .3s; }
+/* ✨ 漂浮表情符號（emotes.js 畫的 SVG）：飄在頭旁邊，不用泡泡框 */
+.emote { position: absolute; left: 0; top: 0; width: 300px; height: 332px; pointer-events: none; z-index: 3; }
+.emote-svg { overflow: visible; filter: drop-shadow(0 2px 3px rgba(20, 24, 60, .32)); }
+.emote g[class^="em-"] { transform-box: view-box; animation-duration: var(--ms, 2400ms); animation-fill-mode: both; animation-timing-function: ease-out; animation-delay: calc(var(--i, 0) * 180ms); }
+.emote .em-float { animation-name: emFloat; }
+.emote .em-pop { animation-name: emPop; }
+.emote .em-twinkle { animation-name: emTwinkle; animation-timing-function: ease-in-out; }
+.emote .em-sink { animation-name: emSink; animation-timing-function: ease-in-out; }
+.emote .em-slide { animation-name: emSlide; }
+.emote .em-rise { animation-name: emRise; animation-duration: 1.9s; animation-iteration-count: infinite; animation-timing-function: ease-in; animation-delay: calc(var(--i, 0) * 480ms); }
+.emote .em-zz { animation-name: emZz; animation-duration: 3s; animation-iteration-count: infinite; animation-timing-function: ease-in; animation-delay: calc(var(--i, 0) * 1s); }
+@keyframes emFloat { 0% { opacity: 0; transform: translateY(8px) scale(.6); } 18% { opacity: 1; transform: translateY(0) scale(1); } 55% { transform: translate(3px, -10px) scale(1); } 82% { opacity: 1; } 100% { opacity: 0; transform: translate(-2px, -28px) scale(.9); } }
+@keyframes emPop { 0% { opacity: 0; transform: scale(.4); } 18% { opacity: 1; transform: scale(1.12); } 30% { transform: scale(1); } 85% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.8); } }
+@keyframes emTwinkle { 0% { opacity: 0; transform: scale(.3) rotate(-20deg); } 18% { opacity: 1; transform: scale(1.15) rotate(0); } 40% { transform: scale(.85); } 62% { transform: scale(1.05); } 85% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.5); } }
+@keyframes emSink { 0% { opacity: 0; transform: translateY(-8px); } 20% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; transform: translateY(6px); } 100% { opacity: 0; transform: translateY(12px); } }
+@keyframes emSlide { 0% { opacity: 0; transform: translateY(-4px) scale(.6); } 18% { opacity: 1; transform: translateY(0) scale(1); } 70% { transform: translateY(5px); } 100% { opacity: 0; transform: translateY(9px) scale(.9); } }
+@keyframes emRise { 0% { opacity: 0; transform: translateY(5px) scaleY(.8); } 30% { opacity: .95; } 100% { opacity: 0; transform: translateY(-18px) scaleY(1.1); } }
+@keyframes emZz { 0% { opacity: 0; transform: translate(0, 0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(-16px, -26px); } }
+body.mini .emote { display: none; }
 /* 小聲說的一句（不開對話框） */
 .idle-whisper { position: absolute; top: 34px; right: 66%; white-space: nowrap; font-size: 13px; font-weight: 700; color: var(--ink); padding: 5px 11px; border-radius: 13px;
   background: rgba(255, 253, 247, .97); border: 2px solid var(--frame); box-shadow: var(--shadow); z-index: 3; pointer-events: none; }
@@ -298,14 +311,11 @@ body.dozing #npcImg { --breathe: 5.5s; --look: 2.4deg; filter: drop-shadow(0 4px
 .idle-whisper.in { animation: balloonIn .3s ease-out; }
 .idle-whisper.out { opacity: 0; transition: opacity .4s; }
 @keyframes balloonIn { from { opacity: 0; transform: translateY(6px) scale(.8); } to { opacity: 1; transform: none; } }
-/* 打瞌睡的 z z Z */
-.idle-zzz { position: absolute; left: 64%; top: 26px; color: #fff; font-weight: 900; pointer-events: none; z-index: 3;
-  text-shadow: 0 0 2px var(--navy), 0 0 2px var(--navy), 0 1px 4px rgba(0, 0, 0, .5); } /* 白字＋深藍描邊：淺色、深色桌布都看得到 */
-.idle-zzz span { position: absolute; left: 0; top: 0; opacity: 0; animation: zzz 3s ease-in infinite; font-size: 17px; }
-.idle-zzz span:nth-child(2) { animation-delay: 1s; font-size: 21px; }
-.idle-zzz span:nth-child(3) { animation-delay: 2s; font-size: 26px; }
-body.mini .idle-zzz { left: 22px; top: 22px; }
-body.mini .idle-balloon, body.mini .idle-whisper { display: none !important; }
+/* 打瞌睡的 z z Z（跟其他表情同一套 SVG，一直循環到醒來） */
+.idle-zzz { position: absolute; left: 62%; top: 18px; width: 60px; height: 60px; pointer-events: none; z-index: 3; }
+.idle-zzz .emote-svg { width: 60px; height: 60px; }
+body.mini .idle-zzz { left: 14px; top: 10px; }
+body.mini .idle-whisper { display: none !important; }
 
 @keyframes breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.014, .99) translateY(1.5px); } }
 @keyframes talk { 0%, 100% { translate: 0 0; } 50% { translate: 0 -3px; } }

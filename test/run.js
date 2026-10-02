@@ -1275,3 +1275,27 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(!o3 || o3.type !== 'overtime', '沒設下班時間就不算加班');
   console.log('待機小動作測試通過 ✔');
 })();
+
+// ---------- 漂浮表情符號：全部自己畫的 SVG、沒有系統 emoji、漸層 id 不撞 ----------
+(() => {
+  const E = require('../src/renderer/emotes');
+  const B = require('../src/renderer/idle-brain');
+  for (const k of E.KINDS) {
+    const svg = E.svgOf(k);
+    assert.ok(svg.startsWith('<svg') && svg.includes('class="emote-svg"'), k);
+    assert.ok(!/[\u{1F300}-\u{1FAFF}☀-➿]/u.test(svg), k + '：不用 emoji');
+    const ids = [...svg.matchAll(/id="(\w+)"/g)].map((m) => m[1]);
+    for (const [, ref] of svg.matchAll(/url\(#(\w+)\)/g)) assert.ok(ids.includes(ref), `${k}：漸層 ${ref} 要在同一張 SVG 裡`);
+    assert.ok(/class="em-(float|pop|twinkle|sink|slide|rise|zz)"/.test(svg), k + '：有動畫');
+  }
+  const a = E.svgOf('notes'), b = E.svgOf('notes');
+  assert.notStrictEqual([...a.matchAll(/id="(\w+)"/g)][0][1], [...b.matchAll(/id="(\w+)"/g)][0][1], '每張的漸層 id 不一樣（同名會互相蓋掉）');
+  assert.strictEqual(E.svgOf('nope'), '');
+  // idle-brain 給的表情名稱都畫得出來
+  for (const [k, v] of Object.entries(B.AMBIENT)) if (v.emote) assert.ok(E.KINDS.includes(v.emote), `${k} → ${v.emote}`);
+  const Y = new Date().getFullYear();
+  const mem = B.newMemory(new Date(`${Y}-10-02T15:05:00`).getTime());
+  const tea = B.decide({ now: new Date(`${Y}-10-02T15:05:00`).getTime() + 9000, idleSec: 30, enabled: true }, mem, () => 0.5);
+  assert.ok(tea && tea.type === 'tea' && tea.emote === 'steam' && !tea.balloon, '奶茶：杯口冒熱氣，沒有舊的泡泡');
+  console.log('漂浮表情符號測試通過 ✔');
+})();

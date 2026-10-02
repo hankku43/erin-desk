@@ -18,16 +18,16 @@
     overtime: ['已經很晚了，記得休息……', '加班也要吃點東西喔。', '艾琳陪你，但別太晚喔。'],
   };
 
-  // 隨機的小動作：balloon＝頭上的表情泡泡、pose＝有圖就換那張圖、emotion＝沒圖時換的表情、anim＝身體的小動作
+  // 隨機的小動作：emote＝頭旁邊飄的表情符號（emotes.js）、pose＝有圖就換那張圖、emotion＝沒圖時換的表情、anim＝身體的小動作
   const AMBIENT = {
-    hum: { balloon: '♪', emotion: 'happy', anim: 'sway', ms: 3200 },
-    think: { balloon: '💭', emotion: 'thinking', ms: 2800 },
+    hum: { emote: 'notes', emotion: 'happy', anim: 'sway', ms: 3200 },
+    think: { emote: 'think', emotion: 'thinking', ms: 2800 },
     lookL: { anim: 'lookL', ms: 2400 },
     lookR: { anim: 'lookR', ms: 2400 },
-    write: { pose: 'write', balloon: '✎', ms: 4800 },
-    yawn: { pose: 'stretch', balloon: '💤', anim: 'yawn', ms: 2600 },
-    heart: { balloon: '♡', emotion: 'happy', ms: 2400 },
-    sigh: { balloon: '…', anim: 'lookAway', ms: 2800 }, // 冷戰中：別過頭去
+    write: { pose: 'write', emote: 'scribble', ms: 4800 },
+    yawn: { pose: 'stretch', emote: 'zzz', anim: 'yawn', ms: 2600 },
+    heart: { emote: 'heart', emotion: 'happy', ms: 2400 },
+    sigh: { emote: 'sigh', anim: 'lookAway', ms: 2800 }, // 冷戰中：別過頭去
   };
 
   const minutesOf = (hhmm) => { const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
@@ -67,13 +67,13 @@
     // 2. 跟著作息：早上伸懶腰、下午三點奶茶、坐太久提醒起來動、加班關心
     if (since >= 8000) {
       const t = d.getHours() * 60 + d.getMinutes();
-      if (t >= 5 * 60 && t < 11 * 60 && !mem.done.morning && now - mem.start >= 5000) { done('morning'); return { type: 'morning', pose: 'stretch', emotion: 'happy', anim: 'stretch', balloon: '☀', whisper: pick(LINES.morning, rnd), ms: 3600 }; }
-      if (t >= 15 * 60 && t < 16 * 60 && !mem.done.tea && !ctx.cold) { done('tea'); return { type: 'tea', pose: 'tea', emotion: 'happy', balloon: '☕', whisper: pick(LINES.tea, rnd), ms: 5200 }; }
-      if (now - Math.max(mem.activeSince, mem.lastBreak) >= BREAK_MIN * MIN) { mem.lastBreak = now; done('break'); return { type: 'break', pose: 'stretch', anim: 'stretch', balloon: '✧', whisper: pick(LINES.break, rnd), ms: 4000 }; }
+      if (t >= 5 * 60 && t < 11 * 60 && !mem.done.morning && now - mem.start >= 5000) { done('morning'); return { type: 'morning', pose: 'stretch', emotion: 'happy', anim: 'stretch', emote: 'shine', whisper: pick(LINES.morning, rnd), ms: 3600 }; }
+      if (t >= 15 * 60 && t < 16 * 60 && !mem.done.tea && !ctx.cold) { done('tea'); return { type: 'tea', pose: 'tea', emotion: 'happy', emote: 'steam', whisper: pick(LINES.tea, rnd), ms: 5200 }; }
+      if (now - Math.max(mem.activeSince, mem.lastBreak) >= BREAK_MIN * MIN) { mem.lastBreak = now; done('break'); return { type: 'break', pose: 'stretch', anim: 'stretch', emote: 'sparkle', whisper: pick(LINES.break, rnd), ms: 4000 }; }
       const wrap = minutesOf(ctx.wrap);
       if (wrap !== null && t >= wrap + OVERTIME_AFTER && now - (mem.lastOvertime || 0) >= OVERTIME_EVERY * MIN) {
         mem.lastOvertime = now; done('overtime');
-        return { type: 'overtime', emotion: 'worried', balloon: '💦', whisper: pick(LINES.overtime, rnd), ms: 4200 };
+        return { type: 'overtime', emotion: 'worried', emote: 'sweat', whisper: pick(LINES.overtime, rnd), ms: 4200 };
       }
     }
     // 3. 隨機的小動作：你在忙就安靜一點（多半在寫小本子），閒的時候比較活潑；越熟越常冒 ♡
