@@ -154,6 +154,22 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
     assert.ok(h.length && h[0].entry.title === title && h[0].strong, `「${q}」應該命中「${title}」，實際：${h.map((x) => x.entry.title).join('/') || '無'}`);
   }
   assert.deepStrictEqual(await L.retrieve('菜單定稿了，標示也補完了', 3), [], '工作進度句不該命中角色設定');
+  // 擴充的設定（2026-10）：問得到、私密的要夠熟才找得到、工作句不會被新條目搶走
+  const more = { '巴特爺爺是誰': '公會的同事們', '你喜歡喝咖啡嗎': '咖啡與茶', '我好孤單': '寂寞與心情低落', '我一直拖延': '專注與拖延', '你穿的是制服嗎': '制服與打扮', '你房間長怎樣': '艾琳的房間', '你看過流星嗎': '星空', '有個好消息': '好消息與慶祝' };
+  for (const [q, title] of Object.entries(more)) {
+    const h = await L.retrieve(q, 3, { stage: 5 });
+    assert.ok(h.length && h[0].entry.title === title && h[0].strong, `「${q}」應該命中「${title}」，實際：${h.map((x) => x.entry.title).join('/') || '無'}`);
+  }
+  for (const [q, title] of [['梟長以前是做什麼的', '梟長的過去'], ['你也會累嗎', '艾琳的煩惱'], ['星圖上哪一顆是我', '冒險者的那顆星'], ['你小時候怕什麼', '小時候與奶奶']]) {
+    assert.ok((await L.retrieve(q, 3, { stage: 5 })).some((x) => x.entry.title === title && x.strong), `夠熟：「${q}」→「${title}」`);
+    assert.ok(!(await L.retrieve(q, 3, { stage: 1 })).some((x) => x.entry.title === title), `還不熟：「${q}」不該聊到「${title}」`);
+  }
+  const added = new Set(['公會的同事們', '晨風鎮的小店', '季節與祭典', '艾琳的房間', '艾琳的一天', '制服與打扮', '星空', '咖啡與茶', '專注與拖延', '寂寞與心情低落', '生氣與委屈', '好消息與慶祝', '小時候與奶奶', '梟長的過去', '艾琳的煩惱', '冒險者的那顆星']);
+  assert.strictEqual(L.entries.filter((e) => added.has(e.title)).length, added.size, '新條目都讀得到');
+  for (const q of ['報告寫完了', '今天要整理一天的資料', '我把房間的資料夾整理好了', '把衣服尺寸表更新了', '新年度預算表做好了', '專案進度 50%', '截止日延到下週', '測試通過了']) {
+    const h = (await L.retrieve(q, 3, { stage: 5 })).filter((x) => x.strong && added.has(x.entry.title));
+    assert.deepStrictEqual(h.map((x) => x.entry.title), [], `工作句「${q}」不該強命中新設定`);
+  }
   console.log('角色設定檢索測試通過 ✔');
 })();
 
@@ -425,7 +441,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
   const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data') });
   E.npc.status.online = false;
-  const c1 = await E.chat('生氣');
+  const c1 = await E.chat('唉唷喂'); // 隨便一句不會命中角色設定的話（「生氣」現在有設定了）
   assert.ok(c1.lines[0].text.startsWith(WHY.offline), c1.lines[0].text);
   assert.strictEqual(E.state.chat.at(-1).source, 'template');
   let sent = null;
@@ -433,7 +449,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '冒險者，先深呼吸，艾琳陪你～', emotion: 'worried', actions: [] }) } }; };
   const c2 = await E.chat('不開心');
   assert.strictEqual(c2.lines[0].text, '冒險者，先深呼吸，艾琳陪你～');
-  assert.ok(!/連不到 AI|內建台詞/.test(JSON.stringify(sent.messages.slice(1, -1))) && !sent.messages.slice(1, -1).some((m) => /生氣/.test(m.content)), '上一輪備援沒有送給模型');
+  assert.ok(!/連不到 AI|內建台詞/.test(JSON.stringify(sent.messages.slice(1, -1))) && !sent.messages.slice(1, -1).some((m) => /唉唷喂/.test(m.content)), '上一輪備援沒有送給模型');
   assert.ok(fs.existsSync(path.join(dir, 'data', 'llm.log')), '引擎把紀錄寫在 data/llm.log');
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('聊天備援測試通過 ✔');
@@ -1266,6 +1282,16 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const m4 = B.newMemory(now - 3600000); m4.done = { tea: true }; m4.day = new Date(now).getFullYear() + '-' + (new Date(now).getMonth() + 1) + '-' + new Date(now).getDate();
   const hearts = []; for (let i = 0; i < 300; i++) { sec(10); m4.lastBreak = now; const a = B.decide(ctx({ fond: true, idleSec: 40 }), m4, rnd); if (a) hearts.push(a.type); }
   assert.ok(hearts.filter((k) => k === 'heart').length >= 3, '很熟了會冒 ♡');
+  // 自言自語：閒著時偶爾配一句，你在忙（剛有打字）時不說；星期一、五早上有專屬的句子
+  const m7 = B.newMemory(now - 3600000); m7.done = { tea: true, morning: true }; m7.day = m4.day;
+  let idleSay = 0, busySay = 0;
+  for (let i = 0; i < 600; i++) { sec(10); m7.lastBreak = now; const busyNow = i % 2 === 0; const a = B.decide(ctx({ idleSec: busyNow ? 3 : 40 }), m7, rnd); if (a && a.whisper) { if (busyNow) busySay++; else { idleSay++; assert.ok(B.LINES.ambient[a.type].includes(a.whisper), a.type + '：' + a.whisper); } } }
+  assert.ok(idleSay >= 2 && busySay === 0, `閒著偶爾說話、忙的時候不說：${idleSay}/${busySay}`);
+  const all = [...Object.entries(B.LINES).flatMap(([k, v]) => (Array.isArray(v) ? v : Object.values(v).flat()))];
+  assert.ok(all.every((t) => !/我(?!們)|玩家|您/.test(t)), '自言自語也用「艾琳」「冒險者」');
+  const mon = new Date(`${Y}-10-05T09:00:00`); while (mon.getDay() !== 1) mon.setDate(mon.getDate() + 1);
+  const seenMon = new Set(); for (let r = 0; r < 20; r++) { const mm = B.newMemory(mon.getTime()); const a = B.decide({ now: mon.getTime() + 9000, idleSec: 30, enabled: true }, mm, () => r / 20); seenMon.add(a.whisper); }
+  assert.ok([...seenMon].some((t) => B.LINES.monday.includes(t)), '星期一早上會說開門日的話');
   // 加班：下班時間過一小時後關心，45 分鐘一次
   now = new Date(`${Y}-10-02T18:00:00`).getTime();
   const m5 = B.newMemory(now - 3600000); m5.lastAt = 0; m5.lastBreak = now;

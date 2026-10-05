@@ -11,12 +11,24 @@
 
   // 小聲說的一句話（不開對話框），口吻照角色設定：自稱艾琳、叫冒險者
   const LINES = {
-    wake: ['歡迎回來～', '冒險者回來啦！', '艾琳才、才沒有睡著喔。'],
-    morning: ['早安～（呵欠）', '今天也一起加油吧！'],
-    tea: ['三點了，奶茶時間～', '冒險者也喝點什麼吧？'],
-    break: ['坐好久了，起來動一動～', '喝口水、伸個懶腰吧！', '眼睛也要休息一下喔。'],
-    overtime: ['已經很晚了，記得休息……', '加班也要吃點東西喔。', '艾琳陪你，但別太晚喔。'],
+    wake: ['歡迎回來～', '冒險者回來啦！', '艾琳才、才沒有睡著喔。', '欸、冒險者回來了！艾琳沒有在打盹喔。', '剛剛鴿子送信來，艾琳幫你收著了～', '回來啦～奶茶剛好還溫溫的。'],
+    morning: ['早安～（呵欠）', '今天也一起加油吧！', '早安～艾琳剛被梟長拍醒。', '今天的第一杯奶茶，開動～', '早上的風好大，耳朵都吹歪了。'],
+    monday: ['開門日……艾琳也還沒完全醒。', '星期一了，一顆一顆來就好～'],   // 星期一早上會混進來
+    friday: ['週末前夜祭！再撐一下下～', '今天是星期五，艾琳的尾巴特別有精神。'], // 星期五早上會混進來
+    tea: ['三點了，奶茶時間～', '冒險者也喝點什麼吧？', '奶茶要「剛剛好多一點點」的甜～', '下午三點，喝點甜的吧～', '艾琳用小魔法把奶茶弄溫了。'],
+    break: ['坐好久了，起來動一動～', '喝口水、伸個懶腰吧！', '眼睛也要休息一下喔。', '尾巴都坐麻了……冒險者也是吧？', '看看窗外三十秒，眼睛會謝謝你喔。', '站起來走一走，委託不會跑掉的～'],
+    overtime: ['已經很晚了，記得休息……', '加班也要吃點東西喔。', '艾琳陪你，但別太晚喔。', '鐘樓都敲過好幾次了……', '星星明天也還在，今天先到這裡好不好？', '艾琳把燈調暗一點，冒險者也早點休息喔。'],
+    // 隨機小動作偶爾配一句自言自語（你在忙的時候不說，免得打擾）
+    ambient: {
+      hum: ['嗯哼～♪', '廣場那首有貓的歌……♪', '啦啦～今天的蠟封章擦得好亮～'],
+      think: ['嗯……第二十八個蠟封章會是哪裡的呢？', '今天晚餐要吃燉肉，還是……', '鴿子們今天好安靜，有點可疑。'],
+      write: ['記下來、記下來……', '「今天冒險者也很努力」——寫好了。', '奶茶的甜度……嗯，就是這樣。'],
+      yawn: ['呼啊……午後好睏……', '艾琳沒有想睡，是眼睛在休息。', '好想縮成貓一下下……'],
+      heart: ['……冒險者認真的樣子，艾琳很喜歡。', '嘿嘿。', '今天也有你在呢。'],
+    },
   };
+  const AMBIENT_SAY = 0.25;      // 閒著的時候，隨機小動作有多少機率配一句話
+  const morningLines = (d) => (d.getDay() === 1 ? LINES.morning.concat(LINES.monday) : d.getDay() === 5 ? LINES.morning.concat(LINES.friday) : LINES.morning);
 
   // 隨機的小動作：emote＝頭旁邊飄的表情符號（emotes.js）、pose＝有圖就換那張圖、emotion＝沒圖時換的表情、anim＝身體的小動作
   const AMBIENT = {
@@ -67,7 +79,7 @@
     // 2. 跟著作息：早上伸懶腰、下午三點奶茶、坐太久提醒起來動、加班關心
     if (since >= 8000) {
       const t = d.getHours() * 60 + d.getMinutes();
-      if (t >= 5 * 60 && t < 11 * 60 && !mem.done.morning && now - mem.start >= 5000) { done('morning'); return { type: 'morning', pose: 'stretch', emotion: 'happy', anim: 'stretch', emote: 'shine', whisper: pick(LINES.morning, rnd), ms: 3600 }; }
+      if (t >= 5 * 60 && t < 11 * 60 && !mem.done.morning && now - mem.start >= 5000) { done('morning'); return { type: 'morning', pose: 'stretch', emotion: 'happy', anim: 'stretch', emote: 'shine', whisper: pick(morningLines(d), rnd), ms: 3600 }; }
       if (t >= 15 * 60 && t < 16 * 60 && !mem.done.tea && !ctx.cold) { done('tea'); return { type: 'tea', pose: 'tea', emotion: 'happy', emote: 'steam', whisper: pick(LINES.tea, rnd), ms: 5200 }; }
       if (now - Math.max(mem.activeSince, mem.lastBreak) >= BREAK_MIN * MIN) { mem.lastBreak = now; done('break'); return { type: 'break', pose: 'stretch', anim: 'stretch', emote: 'sparkle', whisper: pick(LINES.break, rnd), ms: 4000 }; }
       const wrap = minutesOf(ctx.wrap);
@@ -94,10 +106,12 @@
     mem.last = k;
     mem.lastAt = now;
     mem.nextGap = (busyUser || ctx.cold ? 70000 : 35000) + rnd() * (busyUser ? 80000 : 55000);
-    return { type: k, ...AMBIENT[k] };
+    const lines = !busyUser && !ctx.cold && LINES.ambient[k];
+    const say = lines && rnd() < AMBIENT_SAY ? pick(lines, rnd) : null;
+    return say ? { type: k, ...AMBIENT[k], whisper: say } : { type: k, ...AMBIENT[k] };
   }
 
-  const IdleBrain = { decide, newMemory, LINES, AMBIENT, AWAY_SEC, BUSY_SEC, BREAK_MIN };
+  const IdleBrain = { decide, newMemory, LINES, AMBIENT, AMBIENT_SAY, AWAY_SEC, BUSY_SEC, BREAK_MIN };
   if (typeof module !== 'undefined' && module.exports) module.exports = IdleBrain;
   else root.IdleBrain = IdleBrain;
 })(typeof window !== 'undefined' ? window : globalThis);

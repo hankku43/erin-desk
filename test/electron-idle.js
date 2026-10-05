@@ -50,7 +50,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       assert(await js(`document.querySelector('#dialog').classList.contains('hidden')`), '不開對話框');
       await shot('i02_wake');
       await wait(2800);
-      assert(await imgIs('normal'), '揮完換回平常：' + await imgName());
+      assert(await imgIs('normal') || await imgIs('blink'), '揮完換回平常（剛好眨眼也算）：' + await imgName());
       // 3. 下午三點的奶茶（直接演一次）
       await js(`idleDebug.perform({ type: 'tea', pose: 'tea', emotion: 'happy', emote: 'steam', whisper: '三點了，奶茶時間～', ms: 1800 })`); await wait(300);
       assert(await imgIs('tea') && (await js(`document.querySelector('#npcWrap > .emote').dataset.kind`)) === 'steam', '捧著奶茶、杯口冒熱氣');
