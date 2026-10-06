@@ -38,8 +38,17 @@ function gainHtml(h) {
   const g = h.gold < 0 ? `<small class="spend">🪙 −${-h.gold}</small>` : `<small>🪙 +${h.gold}</small>`;
   return h.xp ? `+${h.xp} XP${g}` : g;
 }
-function toast(msg, ms = 2600) {
-  const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
+// 提示小條：貼在畫面上看得到的東西旁邊，不要飄在透明視窗的最上面
+//   面板／對話框開著 → 貼在最上面那張卡片的上緣；都關著 → 艾琳頭上；at: 'hud' → 狀態欄原本的位置（收起狀態欄時用）
+function toast(msg, ms = 2600, { at } = {}) {
+  const t = $('#toast'); t.textContent = msg;
+  t.classList.remove('hidden', 'low', 'at-hud'); t.style.top = '';
+  if (at === 'hud') t.classList.add('at-hud');
+  else {
+    const cards = ['#panel', '#dialog'].map((s) => $(s)).filter((el) => el && !el.classList.contains('hidden') && el.getBoundingClientRect().height > 0);
+    if (cards.length) t.style.top = `${Math.max(6, Math.min(...cards.map((el) => el.getBoundingClientRect().top)) - t.offsetHeight - 8)}px`;
+    else t.classList.add('low');
+  }
   clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add('hidden'), ms);
 }
 
@@ -271,7 +280,7 @@ $('#hudHide').addEventListener('click', (e) => {
     const r = await api.setHud(false);
     document.body.classList.remove('hud-out');
     if (r && r.view) applyView(r.view);
-    toast('📊 狀態欄收起來了。右鍵艾琳 →「📊 顯示狀態欄」可以再打開', 4200);
+    toast('📊 狀態欄收起來了。右鍵艾琳 →「📊 顯示狀態欄」可以再打開', 4200, { at: 'hud' });
   }, 300);
 });
 

@@ -31,10 +31,24 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       assert(!(await hudShown()) && (await js(`document.body.classList.contains('no-hud')`)), '收起來了');
       assert(cfg().window.hud === false && engine.view().hud === false, '設定存起來（下次打開還是收著）');
       assert(/顯示狀態欄/.test(await js(`document.querySelector('#toast').textContent`)), '提示怎麼打開');
+      // 提示出現在狀態欄原本的位置（不會飄在視窗最上面）
+      const tr = await js(`(() => { const r = document.querySelector('#toast').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, h: innerHeight }; })()`);
+      assert(tr.bottom > tr.h - 120 && tr.left < 40, '提示在左下角狀態欄的位置：' + JSON.stringify(tr));
+      await shot('h02a_hint');
       // 原本狀態欄那一塊可以點穿（不擋後面的視窗）
       assert(await js(`(() => { const el = document.elementFromPoint(120, 760); return !el || !el.closest('[data-hit]'); })()`), '那一塊可以點穿');
+      // 一般的提示：對話框開著 → 貼在對話框上緣；都關著 → 艾琳頭上
+      await js(`toast('🧪 一般的提示放在哪裡'); 0`); await wait(250);
+      const p1 = await js(`(() => { const t = document.querySelector('#toast').getBoundingClientRect(), d = document.querySelector('#dialog').getBoundingClientRect(); return { tb: t.bottom, dt: d.top, oneLine: t.height < 40 }; })()`);
+      assert(p1.tb <= p1.dt && p1.dt - p1.tb < 20 && p1.oneLine, '貼在對話框上緣、一行：' + JSON.stringify(p1));
+      await shot('h02b_toast_dialog');
       // 對話框也關掉：畫面上只剩艾琳
-      await js('closeDialog()'); await wait(3500);
+      await js('closeDialog()'); await wait(300);
+      await js(`toast('🧪 一般的提示放在哪裡'); 0`); await wait(250);
+      const p2 = await js(`(() => { const t = document.querySelector('#toast'), r = t.getBoundingClientRect(), n = document.querySelector('#npcWrap').getBoundingClientRect(); return { low: t.classList.contains('low'), tb: r.bottom, nt: n.top, cx: (r.left + r.right) / 2, nl: n.left }; })()`);
+      assert(p2.low && p2.tb <= p2.nt && p2.nt - p2.tb < 20 && Math.abs(p2.cx - (p2.nl + 150)) < 6, '都關著：在艾琳頭上、置中：' + JSON.stringify(p2));
+      await shot('h02c_toast_alone');
+      await wait(2800);
       await shot('h02_only_erin');
       // 2. 右鍵選單：第一層有「📊 顯示狀態欄」，第一層還是不超過 12 項；⚙ 裡的勾選框是沒勾的
       const top = menuTemplate();
