@@ -147,6 +147,7 @@ code { font-family: Consolas, "Cascadia Mono", "Noto Sans Mono CJK TC", monospac
 .badge { font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 6px; color: #fff; white-space: nowrap; }
 .badge.main { background: var(--gold); color: #4a2e00; } .badge.major { background: var(--sky); } .badge.side { background: var(--green); }
 .chip { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: #ede7d8; color: var(--ink-soft); white-space: nowrap; }
+.chip.proj { background: var(--sky-soft); color: var(--blue); max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 .chip.today { background: #ffe1b3; color: #8a4a00; } .chip.late { background: var(--rose-soft); color: var(--red); font-weight: 800; }
 .chip.ok { background: var(--green-soft); color: var(--green); }
 .q-prog { height: 6px; background: #ece5d3; margin: 0 9px 7px; border-radius: 3px; overflow: hidden; }
@@ -670,3 +671,55 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .nb-seal { display: inline-block; width: 20px; height: 20px; margin-right: 6px; line-height: 20px; text-align: center; border-radius: 50%; font-style: normal; font-size: 11px; color: #fff; background: radial-gradient(circle at 35% 35%, #ff9db6, var(--rose)); box-shadow: 0 1px 2px rgba(0, 0, 0, .25); vertical-align: middle; }
 .nb-sketch.s2 .nb-seal { background: radial-gradient(circle at 35% 35%, #ffe38e, var(--gold-deep)); }
 @keyframes nbIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+
+/* ---------- 📖 冒險日誌＋工作週報（面板高度有限：每塊都做得扁一點，評語排在數字前面） ---------- */
+.jn-body { background: #f3ead4; padding: 4px 10px 12px; }
+.jn-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.jn-nav .icon-btn { font-size: 13px; padding: 3px 8px; color: var(--navy); }
+.jn-nav .icon-btn:disabled { opacity: .25; cursor: default; background: transparent; }
+.jn-week { flex: 1; text-align: center; line-height: 1.2; }
+.jn-week b { font-size: 15px; color: var(--navy-2); letter-spacing: .5px; margin-right: 6px; }
+.jn-week small { font-size: 11px; color: var(--ink-soft); }
+.jn-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 10px; border-radius: 10px; background: linear-gradient(135deg, #fff7dc, #ffe9b0); border: 2px solid var(--gold); box-shadow: 0 2px 0 var(--gold-deep); animation: jnIn .35s ease-out both; }
+.jn-title > div:not(.jn-badges) { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 8px; line-height: 1.3; min-width: 0; flex: 1; }
+.jn-title small { font-size: 10px; letter-spacing: 2px; color: var(--gold-deep); font-weight: 700; flex-basis: 100%; }
+.jn-title b { font-size: 17px; color: #6a4300; }
+.jn-title em { font-style: normal; font-size: 12px; color: #8a6a2a; }
+.jn-medal { width: 36px; height: 36px; flex: none; display: grid; place-items: center; font-size: 19px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff6c8, var(--gold) 70%, var(--gold-deep)); box-shadow: 0 2px 4px rgba(120, 80, 0, .35), inset 0 0 0 2px rgba(255, 255, 255, .5); animation: jnMedal .6s .1s cubic-bezier(.3, 1.6, .5, 1) both; }
+.jn-badges { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; padding-left: 46px; }
+.jn-badge { font-size: 11px; font-weight: 700; padding: 0 8px; border-radius: 10px; background: rgba(255, 255, 255, .7); color: #7a5a1a; border: 1px solid #ecc76a; }
+.jn-comment { position: relative; margin: 7px 0 2px; padding: 4px 12px 4px 14px; border-radius: 4px 10px 10px 4px; background: repeating-linear-gradient(180deg, transparent 0 21px, #d9e3f2 21px 22px), #fffef8; border-left: 3px solid var(--rose); background-position: 0 4px; box-shadow: 0 1px 3px rgba(80, 60, 20, .15); font-size: 13.5px; line-height: 22px; color: #3a3550; animation: jnIn .35s .08s ease-out both; }
+.jn-comment p { margin: 0; white-space: pre-wrap; }
+.jn-sign { display: block; text-align: right; font-size: 12px; color: var(--rose); font-weight: 700; line-height: 18px; }
+.jn-comment.writing { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 12px; min-height: 34px; }
+.jn-comment.empty { text-align: center; background: #fffef8; padding: 6px; }
+.jn-rewrite { margin: 2px 0 2px; }
+.jn-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 8px 0 2px; }
+.jn-tile { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "i l" "v v" "s s"; align-items: center; column-gap: 3px; padding: 3px 6px 2px; border-radius: 8px; background: #fffdf6; border: 1px solid var(--line); line-height: 1.2; min-width: 0; animation: jnIn .3s .12s ease-out both; }
+.jn-tile .ji { grid-area: i; font-size: 11px; }
+.jn-tile .jl { grid-area: l; font-size: 10px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; }
+.jn-tile b { grid-area: v; font-size: 15px; color: var(--navy-2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jn-tile b small { font-size: 11px; color: var(--ink-soft); font-weight: 600; }
+.jn-tile > small { grid-area: s; font-size: 10px; color: var(--green); min-height: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jn-h { margin: 9px 0 3px; font-size: 12px; font-weight: 800; letter-spacing: 1px; color: var(--navy); display: flex; align-items: center; gap: 6px; }
+.jn-h::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.jn-quests { list-style: none; margin: 0; padding: 0; }
+.jn-quests li { display: flex; align-items: center; gap: 6px; padding: 2px 4px; font-size: 13px; border-bottom: 1px dashed #e4d8bd; }
+.jn-quests li:last-child { border-bottom: none; }
+.jn-quests .jq { width: 16px; text-align: center; font-weight: 800; }
+.jn-quests .done .jq { color: var(--green); }
+.jn-quests .progress .jq { color: var(--gold-deep); }
+.jn-quests .pending .jq { color: #b9ae96; }
+.jn-quests .jt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jn-quests .pending .jt { color: var(--ink-soft); }
+.jn-quests li > small { margin-left: auto; font-size: 11px; color: var(--ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.jn-days { display: flex; flex-direction: column; gap: 3px; }
+.jn-day { display: flex; gap: 8px; font-size: 12.5px; line-height: 1.45; }
+.jn-day > b { flex: none; width: 62px; color: var(--navy); font-variant-numeric: tabular-nums; }
+.jn-day > b small { font-weight: 400; color: var(--ink-soft); }
+.jn-day em { display: block; font-style: normal; color: var(--red); }
+.jn-hint { margin: 0 0 6px; font-size: 11.5px; }
+.jn-report { width: 100%; min-height: 230px; resize: vertical; border: 2px solid var(--line); border-radius: 9px; padding: 8px 10px; font: 12.5px/1.55 Consolas, "Cascadia Mono", var(--font); color: var(--ink); background: #fffefa; user-select: text; tab-size: 2; }
+.jn-report:focus { outline: none; border-color: var(--sky); box-shadow: 0 0 0 3px rgba(79, 168, 255, .2); }
+@keyframes jnIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes jnMedal { from { transform: scale(.2) rotate(-40deg); opacity: 0; } to { transform: none; opacity: 1; } }

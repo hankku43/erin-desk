@@ -1490,3 +1490,120 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('小本子測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 📖 冒險日誌＋工作週報：專案分類、稱號、最後一天交日誌、評語、匯出、翻上一週 ----------
+(() => {
+  const P = require('../src/main/planParser');
+  const J = require('../src/main/journal');
+  // 專案：任務標題的 #標籤、外層的分組標題、分組標題的 #標籤；附帶任務這種分類名稱不算專案；#12 不是標籤
+  const pl = P.parsePlan(`# 計畫 10/5–10/9\n## 新品上架 ⭐ 📅 10/6 #秋季新品\n- [ ] a\n\n## 收銀系統\n### 修 P-12 🔧\n- [ ] 修好 #12 的問題\n\n- [ ] 單行任務\n\n## 附帶任務 🌿\n- [ ] 照片\n\n## 會議 #店務\n- [ ] 準備提問\n\n## 週二 10/6\n- 09:00–10:00 x\n`);
+  assert.deepStrictEqual(pl.quests.map((q) => [q.title, q.project]), [['新品上架', '秋季新品'], ['修 P-12', '收銀系統'], ['單行任務', '收銀系統'], ['附帶任務', null], ['準備提問', '店務']]);
+  assert.strictEqual(pl.quests[1].objectives[0].text, '修好 #12 的問題', '#12 不是標籤');
+  // 表單改專案：自己的標籤換掉；外層分組給的專案沒改就不加標籤；保留 ### 層級
+  const src = `# 計畫\n## 收銀系統\n### 修 P-12 🔧 📅 10/7\n- [ ] x\n## 新品上架 ⭐ #秋季新品\n- [ ] y\n`;
+  const p0 = P.parsePlan(src);
+  assert.strictEqual(P.editQuest(src, p0.quests[0].id, { title: '修 P-12！', project: '收銀系統' }).split('\n')[2], '### 修 P-12！ 🔧 📅 10/7');
+  assert.strictEqual(P.editQuest(src, p0.quests[0].id, { project: '收銀改版' }).split('\n')[2], '### 修 P-12 🔧 📅 10/7 #收銀改版');
+  assert.strictEqual(P.editQuest(src, p0.quests[1].id, { project: '' }).split('\n')[4], '## 新品上架 ⭐');
+  assert.strictEqual(P.editQuest(src, p0.quests[1].id, { tier: 'side' }).split('\n')[4], '## 新品上架 🌿 #秋季新品', '沒改專案就留著標籤');
+  assert.strictEqual(P.parsePlan(P.addQuest(src, { title: '新任務', project: '秋季 新品' })).quests.find((q) => q.title === '新任務').project, '秋季_新品');
+  assert.strictEqual(J.shortTitle('本週工作計畫 9/28–10/2｜秋季新品上市'), '本週工作計畫｜秋季新品上市');
+  // 稱號：照順序取第一個；完美的一週就不另外列委託全制霸、準時之星
+  const base = { quests: 0, questsTotal: 4, questsDone: 0, onTime: 0, late: 0, objectives: 0, rows: 0, reports: 0, days: 5, focus: 0, focusMin: 0, levelStart: 2, levelEnd: 2 };
+  const ids = (s) => J.badges({ ...base, ...s }).map((b) => b.id);
+  assert.deepStrictEqual(ids({}), ['rest']);
+  assert.deepStrictEqual(ids({ objectives: 3 }), ['steady']);
+  assert.deepStrictEqual(ids({ quests: 4, questsDone: 4, onTime: 4, objectives: 12, focus: 9, levelEnd: 3 }), ['perfect', 'levelup', 'focus', 'grinder']);
+  assert.deepStrictEqual(ids({ quests: 4, questsDone: 4, onTime: 3, late: 1, objectives: 5 }), ['allclear']);
+  assert.deepStrictEqual(ids({ quests: 2, questsDone: 2, onTime: 2, objectives: 4, reports: 5 }), ['ontime', 'reporter']);
+  // 週報草稿：專案 → Done／On-progress／Pending；做一半的任務拆兩邊；最後一天的卡點掛到認得的任務，認不出的放「其他」
+  const snap = {
+    quests: [
+      { id: 'a', title: '新品上架', project: '秋季新品', status: 'done', objectives: [{ text: '標示完成', done: true }, { text: '申請送出', done: true }] },
+      { id: 'b', title: '成本試算表', project: null, status: 'progress', objectives: [{ text: '一鍵算出成本', done: true }, { text: '報價到了之後比對', done: false }] },
+      { id: 'c', title: '收銀 `P-12`', project: '收銀系統', status: 'pending', objectives: [{ text: '修 P-12', done: false, implicit: true }] },
+      { id: 'd', title: '照片上傳', project: '秋季新品', status: 'pending', objectives: [{ text: '照片上傳', done: false, implicit: true }] },
+    ],
+    daily: [{ date: '2026-10-08', blocker: '舊的卡點' }, { date: '2026-10-09', blocker: '報價還沒到；印表機壞了' }],
+  };
+  const txt = J.reportText(snap);
+  assert.strictEqual(txt, [
+    '[秋季新品]', '[Done]', '- 新品上架', '  - 標示完成', '  - 申請送出', '[On-progress]', '- （無）', '[Pending]', '- 照片上傳', '',
+    '[收銀系統]', '[Done]', '- （無）', '[On-progress]', '- （無）', '[Pending]', '- 收銀 P-12', '',
+    '[其他]', '[Done]', '- 成本試算表', '  - 一鍵算出成本', '[On-progress]', '- 成本試算表', '  - 報價到了之後比對', '  - 卡點：報價還沒到', '[Pending]', '- 卡點：印表機壞了',
+  ].join('\n'));
+  assert.ok(/^\[秋季新品\]\n\[完成\]/.test(J.reportText(snap, { done: '完成' })), '標籤可以改');
+  console.log('週報規則測試通過 ✔');
+})();
+
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const { TEMPLATES } = require('../src/main/npc');
+  const loreFile = path.join(__dirname, '..', 'lore', '艾琳.md');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-journal-'));
+  const md = fs.readFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), 'utf8').replace('## 新品標示 + 上架申請 ⭐ 📅 9/29', '## 新品標示 + 上架申請 ⭐ 📅 9/29 #秋季新品');
+  fs.writeFileSync(path.join(dir, 'plan.md'), md);
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false } }));
+  const Y = new Date().getFullYear();
+  let t = new Date(`${Y}-09-29T10:00:00`).getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  const tplOf = (k) => TEMPLATES[k].map(([x]) => x);
+  const q = E.plan.quests[0];
+  for (let i = 0; i < q.objectives.length; i++) await E.setObjective(q.id, i, true);
+  await E.submit(q.id);
+  assert.ok(E.state.history.every((h) => h.at.startsWith(`${Y}-09-29`)), '紀錄的時間用引擎的時鐘');
+  // 存檔時日誌跟著更新
+  const w0 = E.weeks()[E.currentWeekKey()];
+  assert.ok(w0 && w0.label === '9/28–10/2' && w0.stats.quests === 1 && w0.stats.objectives === 3 && w0.stats.xp > 0 && w0.name === '本週工作計畫｜秋季新品上市');
+  // 不是最後一天：不交日誌
+  t = new Date(`${Y}-10-01T17:30:00`).getTime();
+  assert.strictEqual((await E.dailyReport({ done: '試吃會', blocker: '', next: '' })).journal, null);
+  // 最後一天（時間表的最後一天 10/2）：交日誌，一週一次
+  t = new Date(`${Y}-10-02T17:30:00`).getTime();
+  const fri = await E.dailyReport({ done: '回歸測試', blocker: '報價還沒到', next: '下週更新成本' });
+  assert.strictEqual(fri.journal, w0.key);
+  assert.ok(fri.lines.some((l) => l.event === 'journal_ready' && tplOf('journal_ready').includes(l.text.replace(/艾琳/g, '{self}').replace(/冒險者/g, '{call}'))), '說日誌整理好了');
+  assert.strictEqual((await E.dailyReport({ done: '補一句', blocker: '報價還沒到', next: '' })).journal, null, '同一週只交一次');
+  // 評語：離線照稱號拼內建句子；數字沒變就不重寫
+  const c1 = await E.journalComment(fri.journal);
+  const wk = c1.journal.week;
+  assert.ok(wk.comment && wk.commentSource === 'template' && !wk.stale && /下週/.test(wk.comment), '離線評語：' + wk.comment);
+  assert.ok(!/[我]/.test(wk.comment.replace(/我們/g, '')) && !/玩家|您/.test(wk.comment), '評語的口吻');
+  assert.ok(/^\[秋季新品\]\n\[Done\]\n- 新品標示 \+ 上架申請/.test(wk.report) && /\[其他\]/.test(wk.report) && /卡點：報價還沒到/.test(wk.report));
+  const again = await E.journalComment(fri.journal);
+  assert.strictEqual(again.journal.week.commentAt, wk.commentAt, '沒變就不重寫');
+  await E.setObjective(E.plan.quests[3].id, 0, true);
+  assert.ok(E.journalView(fri.journal).week.stale, '又完成目標 → 提示可以重寫');
+  // AI 開著：照【本週】寫；太短或失敗就用內建
+  E.config.llm.enabled = true; E.npc.llm.enabled = true; E.npc.status.online = true;
+  let sent = null;
+  E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '這週冒險者把新品標示整整齊齊地交出去了，艾琳看了好開心！成本試算表還差一點，下週一起把它完成吧。', emotion: 'happy' }) } }; };
+  const c2 = await E.journalComment(fri.journal, true);
+  const req = sent.messages.map((m) => m.content).join('\n');
+  assert.ok(/【本週】9\/28–10\/2；交付委託 1\/6/.test(req) && /【情境】你在冒險日誌上/.test(req) && !/【當前任務】/.test(req), 'AI 拿到這週的摘要');
+  assert.ok(c2.journal.week.commentSource === 'llm' && /新品標示/.test(c2.journal.week.comment));
+  E.config.llm.enabled = false; E.npc.llm.enabled = false;
+  // 匯出：data/週報/ 底下
+  const ex = E.journalExport(fri.journal);
+  assert.ok(ex.path.startsWith(path.join(dir, 'data', '週報')) && /# 冒險日誌 9\/28–10\/2｜本週工作計畫｜秋季新品上市/.test(fs.readFileSync(ex.path, 'utf8')));
+  // 換下一週的計畫：上一週的日誌（評語）還在，可以翻
+  fs.writeFileSync(path.join(dir, 'plan.md'), '# 本週計畫 10/5–10/9\n\n## 新任務 ⭐ 📅 10/6 #店務\n- [ ] a\n');
+  t = new Date(`${Y}-10-05T09:00:00`).getTime();
+  E.loadPlan();
+  const v = E.journalView();
+  assert.ok(v.week.label === '10/5–10/9' && v.prev === fri.journal && !v.next && v.list.length === 2);
+  const old = E.journalView(v.prev);
+  assert.ok(old.week.comment === c2.journal.week.comment && old.next === v.current, '上一週還在');
+  assert.deepStrictEqual(E.view().projects.sort(), ['店務', '秋季新品'].sort(), '新任務表單的專案選項');
+  // 打開日誌時她說一句；quiet 不說
+  assert.ok(E.journalOpen(null).lines.length === 1 && E.journalOpen(null, true).lines.length === 0);
+  // 最多留 keep 週
+  E.config.journal = { keep: 1 };
+  E.saveState();
+  assert.strictEqual(J_list(E).length, 1, '超過上限丟最舊的');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('冒險日誌測試通過 ✔');
+  function J_list(e) { return require('../src/main/journal').list(e.state); }
+})().catch((e) => { console.error(e); process.exit(1); });

@@ -344,6 +344,7 @@ async function run(fn, { thinking = true, talk = false } = {}) {
   }
   if (r.writeError) toast(`⚠ 回寫計畫檔失敗：${r.writeError}`, 5000);
   if (r.reward) celebrate(r.reward);
+  if (r.journal && state.panel !== 'journal' && state.panel !== 'report') setTimeout(() => openJournal(r.journal, { quiet: true }), 400); // 聊天裡回報最後一天
   if (r.noted && r.noted.length) { toast(`📒 ${(state.view && state.view.npc && state.view.npc.name) || '艾琳'}記下來了：${r.noted.join('、')}`, 3200); notebookRefresh(); }
   if (r.lines && r.lines.length) enqueue(r.lines);
   else if (r.speechQueued) { if (!state.typing && !state.queue.length && !$('#dialog').classList.contains('hidden')) showThinking(); } // 艾琳在想要說什麼
@@ -950,7 +951,7 @@ function renderPanelInner(el, v) {
           ? `<span class="confirm">🗑 刪掉「${esc(shortTitle(q.title))}」和它的目標？<button class="btn small danger" data-del-quest-yes="${q.id}">刪除</button><button class="btn small ghost" data-del-no>取消</button></span>`
           : `<span class="q-edit"><button class="btn small ghost" data-obj-add="${q.id}">＋ 目標</button><button class="icon-btn" data-edit-quest="${q.id}" title="編輯名稱／類型／截止日">✎</button><button class="icon-btn" data-del-quest="${q.id}" title="刪除任務">🗑</button></span>`;
         body += `<div class="quest ${q.tier} ${q.status === 'done' ? 'done' : ''} ${q.active ? 'is-active' : ''}">
-          <div class="q-head" data-toggle="${q.id}">${tierBadge(q)}<span class="q-title">${q.active ? '▶ ' : ''}${rich(q.title)}</span>${dueChip(q)}</div>
+          <div class="q-head" data-toggle="${q.id}">${tierBadge(q)}<span class="q-title">${q.active ? '▶ ' : ''}${rich(q.title)}</span>${q.project ? `<span class="chip proj" title="專案（週報用這個分類）">${esc(q.project)}</span>` : ''}${dueChip(q)}</div>
           <div class="q-prog"><div style="width:${q.total ? (q.doneCount / q.total) * 100 : 0}%"></div></div>
           ${open ? `<div class="q-body">${q.reason ? `<p class="q-reason">💬 ${rich(q.reason)}</p>` : ''}
             ${q.objectives.map((o, i) => `<label class="obj ${o.done ? 'checked' : ''}"><input type="checkbox" data-obj="${q.id}" data-idx="${i}" ${o.done ? 'checked' : ''} ${q.status === 'done' ? 'disabled' : ''}><span>${rich(o.text)}</span>${canEdit ? `<button class="icon-btn del" data-del-obj="${q.id}" data-idx="${i}" title="刪除這個目標">✕</button>` : ''}</label>`).join('')}
@@ -1015,6 +1016,7 @@ function renderPanelInner(el, v) {
         <div class="field">📅 截止日<input type="date" id="qfDue" value="${due}"><small class="fnote">留空＝本週內</small></div>
       </div>
       <div class="field">💬 一句話說明<input id="qfNote" value="${esc(q ? q.reason : '')}" placeholder="為什麼要做、要注意什麼（選填）" maxlength="120"></div>
+      <div class="field">🗂 專案<input id="qfProj" list="qfProjList" value="${esc(q && q.project ? q.project : '')}" placeholder="週報用這個分類（選填，沒填歸在「其他」）" maxlength="30"><datalist id="qfProjList">${[...new Set([...(v.projects || []), ...v.quests.map((x) => x.project).filter(Boolean)])].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
       ${q ? '' : '<div class="field">☑ 目標（一行一個）<textarea id="qfObjs" rows="3" placeholder="整理會議紀錄&#10;寄給相關的人（選填，之後也能在任務卡加）"></textarea></div>'}
     </div>
     <div class="panel-foot"><span class="spacer">${q ? '目標要改的話，回任務卡用「＋ 目標」或 ✕' : '會直接寫進計畫檔，之後也能在檔案裡改'}</span><button class="btn ghost" data-back>取消</button><button class="btn gold" id="qfSave">${q ? '💾 儲存' : '📜 登記委託'}</button></div>`;
@@ -1052,6 +1054,7 @@ function renderPanelInner(el, v) {
   if (state.panel === 'onboard') renderOnboard(el, v);
   if (state.panel === 'health') renderHealth(el, v);
   if (state.panel === 'notebook') renderNotebook(el, v);
+  if (state.panel === 'journal') renderJournal(el, v);
 
   if (state.panel === 'report') {
     const t = v.today;
@@ -1090,7 +1093,7 @@ async function saveQuestForm() {
   const title = $('#qfTitle').value.trim();
   if (!title) { toast('⚠ 任務要有名稱'); $('#qfTitle').focus(); return; }
   const tierEl = document.querySelector('input[name="qfTier"]:checked');
-  const fields = { title, tier: tierEl ? tierEl.value : 'major', deadlineLabel: isoToLabel($('#qfDue').value), note: $('#qfNote').value.trim() };
+  const fields = { title, tier: tierEl ? tierEl.value : 'major', deadlineLabel: isoToLabel($('#qfDue').value), note: $('#qfNote').value.trim(), project: $('#qfProj').value.trim() };
   const editing = state.panelArg;
   let r;
   if (editing) r = await run(() => api.editQuest(editing, fields), { thinking: false });
@@ -1130,6 +1133,7 @@ $('#panel').addEventListener('click', async (e) => {
   if (state.panel === 'onboard' && await onboardClick(e)) return;
   if (state.panel === 'health' && await healthClick(e)) return;
   if (state.panel === 'notebook' && await notebookClick(e)) return;
+  if (state.panel === 'journal' && await journalClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }
   if (t.closest('[data-back]')) { backFromForm(); return; }
@@ -1176,7 +1180,7 @@ $('#panel').addEventListener('click', async (e) => {
   if (t.id === 'rSend') {
     const fields = { done: $('#rDone').value.trim(), blocker: $('#rBlock').value.trim(), next: $('#rNext').value.trim() };
     const r = await run(() => api.dailyReport(fields));
-    if (r && r.ok) closePanel();
+    if (r && r.ok) { closePanel(); if (r.journal) openJournal(r.journal, { quiet: true }); } // 這週最後一天：艾琳把冒險日誌交給你
     return;
   }
   if (t.id === 'sSend') {
@@ -1247,6 +1251,7 @@ api.on('ui:open', (kind) => {
   if (kind === 'onboard') { state.ob = null; openOnboard('welcome'); return; }
   if (kind === 'health') { openHealth(); return; }
   if (kind === 'notebook') { openNotebook(); return; }
+  if (kind === 'journal') { openJournal(); return; }
   openPanel(kind); if (kind === 'daily') run(() => api.daily(), { talk: true });
 });
 

@@ -13,6 +13,8 @@
 //   - ⏰ 17:00 條件 → 應對       提醒（沒寫日期就用所在那一天的日期）
 //   ## 進度紀錄                  程式自動維護，不用自己寫
 // Obsidian Tasks 記號：📅 截止、⏫🔺 必達、🔼 主攻、🔽⏬ 順手、✅ 完成日（勾選時會自動加）
+// 專案（週報分類用）：任務標題或單行任務寫 #專案名；或放在純文字標題底下（## 秋季新品 → ### 任務 ⭐）
+//                     分組標題也可以加 #專案名；都沒有的歸在「其他」
 'use strict';
 
 const path = require('path');
@@ -35,6 +37,17 @@ const TIER_TOKENS = [
   [/🔧|🔼|主攻/u, /🔧|🔼/gu, 'major'],
   [/🌿|🔽|⏬|順手|附帶|支線/u, /🌿|🔽|⏬/gu, 'side'],
 ];
+
+// #標籤（Obsidian 寫法）：前面要是空白或開頭；純數字（#12）不算標籤，留在標題裡
+const RE_TAG = /(^|\s)#([^\s#,，。、;；:：!！?？()（）\[\]【】「」]+)/gu;
+// 只是「分類」的分組名稱（附帶任務、待辦…）不算專案
+const GENERIC_GROUP = /^(必達|主線|主攻|順手|附帶|支線|待辦|其他|任務|雜事|雜項|行政|本週|這週|tasks?|todo)(任務|事項|工作)?$/i;
+function tagName(s) { return String(s || '').trim().replace(/^#+/, '').replace(/\s+/g, '_').replace(/[#,，。、;；:：!！?？()（）\[\]【】「」]/g, ''); }
+function takeTags(s) {
+  const tags = [];
+  const rest = s.replace(RE_TAG, (m, pre, t) => { if (/^\d+$/.test(t)) return m; tags.push(t); return pre || ' '; });
+  return { tags, rest };
+}
 
 function pad(n) { return String(n).padStart(2, '0'); }
 // 短雜湊：任務／目標的 id 用標題算，刪掉中間的任務不會讓後面的任務換 id（存檔才對得上）
@@ -81,7 +94,8 @@ function parseQuestTokens(text, year, { bareDate = true } = {}) {
   }
   // Obsidian 的完成日／其他記號拿掉
   s = s.replace(/✅\s*20\d{2}-\d{1,2}-\d{1,2}/gu, ' ').replace(/(⏳|🛫|➕)\s*20\d{2}-\d{1,2}-\d{1,2}/gu, ' ').replace(/🔁[^\s]*/gu, ' ');
-  return { title: cleanTitle(s), tier, explicitTier, deadline, deadlineLabel };
+  const tg = takeTags(s);
+  return { title: cleanTitle(tg.rest), tier, explicitTier, deadline, deadlineLabel, tags: tg.tags };
 }
 
 // 是不是「一天」的標題：有星期字樣，或「日期｜主題」，或只有日期
@@ -121,6 +135,8 @@ function parsePlan(content, sourcePath = '') {
   };
 
   let ctx = null;            // { kind: 'quest'|'day'|'progress'|'none', obj }
+  const groups = [];         // 外層的分組標題（專案）：{ level, project }
+  const outer = () => { for (let k = groups.length - 1; k >= 0; k--) if (groups[k].project) return groups[k].project; return null; };
   let lastQuestLine = null;  // 單行任務用：記錄上一個頂層 checkbox 的縮排與物件
   let inCode = false;
 
@@ -129,10 +145,12 @@ function parsePlan(content, sourcePath = '') {
     let id = `q-${shortHash(info.title || '')}`;
     while (usedIds.has(id)) id += 'x'; // 同名任務
     usedIds.add(id);
+    const tags = info.tags || [];
     const q = {
       id, num: String(plan.quests.length + 1),
       title: info.title || '（未命名任務）', fullTitle: info.title, type: TIER_NAME[info.tier], tier: info.tier,
       deadline: info.deadline, deadlineLabel: info.deadlineLabel, reason: '', objectives: [], headerLine: line, endLine: line, noteLine: -1, inline: !!info.inline,
+      tags, project: tags[0] || info.project || null, ownProject: tags.length > 0,
     };
     plan.quests.push(q);
     return q;
@@ -157,6 +175,8 @@ function parsePlan(content, sourcePath = '') {
     const h = line.match(/^(#{2,4})\s+(.+)/);
     if (h) {
       const t = h[2].trim();
+      const level = h[1].length;
+      while (groups.length && groups[groups.length - 1].level >= level) groups.pop(); // 同層或更外層的標題：前一個分組結束
       lastQuestLine = null;
       if (/^進度紀錄|^進度記錄|^日誌/.test(t)) { ctx = { kind: 'progress' }; plan.sections.progressLine = i; continue; }
       const day = parseDayHeading(t, year);
@@ -170,14 +190,20 @@ function parsePlan(content, sourcePath = '') {
       // 有 ⭐🔧🌿 或日期的標題才是一個任務；純文字標題（例如「## 待辦」「## Tasks」）是分組，底下每一行各算一個任務
       const onlyGroupWord = /^(必達|主線|主攻|順手|附帶|支線|待辦|其他|任務|tasks?|todo)$/i.test(info.title);
       const isQuest = info.title && !onlyGroupWord && (info.explicitTier || info.deadline);
-      if (isQuest) { const q = newQuest(info, i); ctx = { kind: 'quest', obj: q }; }
-      else ctx = { kind: 'group', tier: info.explicitTier ? info.tier : 'major', name: onlyGroupWord ? '' : info.title };
+      if (isQuest) { const q = newQuest({ ...info, project: outer() }, i); ctx = { kind: 'quest', obj: q, level }; }
+      else {
+        const parent = outer();
+        const project = info.tags[0] || (info.title && !onlyGroupWord && !GENERIC_GROUP.test(info.title) ? info.title : null) || parent;
+        groups.push({ level, project });
+        ctx = { kind: 'group', tier: info.explicitTier ? info.tier : 'major', name: onlyGroupWord ? '' : info.title, project, parent, tags: info.tags };
+      }
       continue;
     }
 
     // 任務的台詞（標題下的引用）；分組標題底下直接接 > 的話，代表作者想把它當一個任務
     if (ctx && ctx.kind === 'group' && ctx.name && /^\s*>\s*/.test(line) && !ctx.used) {
-      const q = newQuest({ title: ctx.name, tier: ctx.tier, deadline: null, deadlineLabel: '' }, i - 1);
+      groups.pop(); // 這個標題其實是任務，不是分組
+      const q = newQuest({ title: ctx.name, tier: ctx.tier, deadline: null, deadlineLabel: '', tags: ctx.tags, project: ctx.parent }, i - 1);
       ctx = { kind: 'quest', obj: q };
     }
     if (ctx && ctx.kind === 'quest' && /^\s*>\s*/.test(line) && !ctx.obj.objectives.length && !ctx.obj.reason) {
@@ -248,7 +274,7 @@ function parsePlan(content, sourcePath = '') {
       const info = parseQuestTokens(body, year);
       if (!info.explicitTier && ctx && ctx.kind === 'group') info.tier = ctx.tier; // 「## 順手」底下的任務預設是附帶
       if (ctx && ctx.kind === 'group') ctx.used = true;
-      const q = newQuest({ ...info, inline: true }, i);
+      const q = newQuest({ ...info, inline: true, project: ctx && ctx.kind === 'group' && ctx.project !== undefined ? ctx.project : outer() }, i);
       q.implicit = true; q.indent = indent;
       q.objectives.push({ id: `${q.id}-${shortHash(q.title)}`, text: q.title, raw: body, done, line: i, implicit: true, indent });
       lastQuestLine = { indent, obj: q };
@@ -256,7 +282,7 @@ function parsePlan(content, sourcePath = '') {
     }
     if (line.trim() === '') {
       // 任務的目標寫完後空一行，接下來的頂層勾選就是獨立任務（目標之前的空行不算）
-      if (ctx && ctx.kind === 'quest' && ctx.obj.objectives.length) ctx = { kind: 'group', tier: 'major', name: '' };
+      if (ctx && ctx.kind === 'quest' && ctx.obj.objectives.length) ctx = { kind: 'group', tier: 'major', name: '', project: outer() };
       continue; // 空行不中斷單行任務的子項
     }
     lastQuestLine = null;
@@ -328,19 +354,28 @@ function setProgress(content, dateISO, { done, blocker, next }) {
   return lines.join(eol);
 }
 
+const tagText = (tags) => (tags || []).filter(Boolean).map((t) => ` #${t}`).join('');
 function questHeading(q) {
   // 一定要有記號：沒有記號又沒有日期的標題會被當成「分組」，底下每行都變成一個任務
   const tok = q.tier === 'main' ? ' ⭐' : q.tier === 'side' ? ' 🌿' : ' 🔧';
   const due = q.deadlineLabel ? ` 📅 ${q.deadlineLabel}` : '';
-  return `## ${q.title}${tok}${due}`;
+  return `${'#'.repeat(q.level || 2)} ${q.title}${tok}${due}${tagText(q.tags)}`;
+}
+// 表單改專案：自己的 #標籤換掉；專案是外層分組給的、又沒改，就不加標籤
+function tagsFor(q, project) {
+  if (project === undefined) return q.tags || [];
+  const p = tagName(project);
+  const rest = (q.tags || []).slice(q.ownProject ? 1 : 0);
+  if (p === (q.project || '')) return q.tags || [];
+  return p ? [p, ...rest] : rest;
 }
 
 // 新增任務：放在最後一個任務後面（在每日時間表之前）
-function addQuest(content, { title, tier = 'major', deadlineLabel = '', objectives = [], note = '' }) {
+function addQuest(content, { title, tier = 'major', deadlineLabel = '', objectives = [], note = '', project = '' }) {
   const eol = eolOf(content);
   const lines = splitLines(content);
   const plan = parsePlan(lines.join('\n'));
-  const block = [questHeading({ title: cleanTitle(title), tier, deadlineLabel }), ...(note ? [`> ${note.trim()}`] : []), ...objectives.map((o) => `- [ ] ${cleanTitle(o)}`).filter((o) => o !== '- [ ] ')];
+  const block = [questHeading({ title: cleanTitle(title), tier, deadlineLabel, tags: tagName(project) ? [tagName(project)] : [] }), ...(note ? [`> ${note.trim()}`] : []), ...objectives.map((o) => `- [ ] ${cleanTitle(o)}`).filter((o) => o !== '- [ ] ')];
   let at;
   if (plan.sections.lastQuestEnd >= 0) at = plan.sections.lastQuestEnd + 1;
   else if (plan.sections.firstDayLine >= 0) at = plan.sections.firstDayLine;
@@ -412,13 +447,13 @@ function addReminder(content, { at, text, action = '' }) {
   return lines.join(eol).replace(/\n{3,}/g, '\n\n');
 }
 
-function inlineLine(q, { title, tier, deadlineLabel }, oldLine) {
+function inlineLine(q, { title, tier, deadlineLabel, tags }, oldLine) {
   // 單行任務：保留 - [x] 與 ✅ 日期，換掉文字與記號
   const m = oldLine.match(/^(\s*[-*+]\s+\[[ xX]\]\s+)/);
   const doneTag = (oldLine.match(/\s*✅\s*20\d{2}-\d{1,2}-\d{1,2}/u) || [''])[0];
   const tok = tier === 'main' ? ' ⭐' : tier === 'side' ? ' 🌿' : '';
   const due = deadlineLabel ? ` 📅 ${deadlineLabel}` : '';
-  return `${m ? m[1] : '- [ ] '}${cleanTitle(title)}${tok}${due}${doneTag}`;
+  return `${m ? m[1] : '- [ ] '}${cleanTitle(title)}${tok}${due}${tagText(tags)}${doneTag}`;
 }
 
 // 編輯任務的名稱／類型／截止／台詞（目標不動）
@@ -429,10 +464,12 @@ function editQuest(content, questId, fields) {
   const q = plan.quests.find((x) => x.id === questId);
   if (!q) throw new Error(`找不到任務 ${questId}`);
   const f = { title: q.title, tier: q.tier, deadlineLabel: q.deadlineLabel === '本週內' ? '' : q.deadlineLabel, note: q.reason, ...fields };
+  f.tags = tagsFor(q, fields.project);
   if (q.inline) {
     lines[q.headerLine] = inlineLine(q, f, lines[q.headerLine]);
   } else {
-    lines[q.headerLine] = questHeading({ title: f.title, tier: f.tier, deadlineLabel: f.deadlineLabel });
+    const level = (lines[q.headerLine].match(/^(#{2,4})\s/) || [, '##'])[1].length; // 保留原本的標題層級（### 任務在專案底下）
+    lines[q.headerLine] = questHeading({ title: f.title, tier: f.tier, deadlineLabel: f.deadlineLabel, tags: f.tags, level });
     if (q.noteLine >= 0) { if (f.note) lines[q.noteLine] = `> ${f.note.trim()}`; else lines.splice(q.noteLine, 1); }
     else if (f.note) lines.splice(q.headerLine + 1, 0, `> ${f.note.trim()}`);
   }
@@ -499,4 +536,4 @@ function removeLine(content, lineNo) {
   return lines.join(eol);
 }
 
-module.exports = { parsePlan, setObjective, setProgress, addQuest, editQuest, deleteQuest, addObjective: addObjectiveLine, deleteObjective, addScheduleRow, setDayTheme, addReminder, setScheduleDone, removeLine, parseQuestTokens, parseDayHeading, shortHash, unescapeMd: cleanTitle };
+module.exports = { tagName, parsePlan, setObjective, setProgress, addQuest, editQuest, deleteQuest, addObjective: addObjectiveLine, deleteObjective, addScheduleRow, setDayTheme, addReminder, setScheduleDone, removeLine, parseQuestTokens, parseDayHeading, shortHash, unescapeMd: cleanTitle };

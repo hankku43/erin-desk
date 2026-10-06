@@ -97,21 +97,22 @@ function ensureActive(plan, ps, now) {
   return { quest: next, changed: !!next };
 }
 
-function grant(state, reward, reason, rewards = DEFAULT_REWARDS) {
+// now：紀錄的時間（引擎傳自己的時鐘進來，週報才算得對；測試可以假時間）
+function grant(state, reward, reason, rewards = DEFAULT_REWARDS, now = new Date()) {
   const before = levelInfo(state.player.xp, rewards.levelStep);
   state.player.xp += reward.xp;
   state.player.gold += reward.gold;
   const after = levelInfo(state.player.xp, rewards.levelStep);
-  state.history.unshift({ at: new Date().toISOString(), reason, xp: reward.xp, gold: reward.gold });
+  state.history.unshift({ at: now.toISOString(), reason, xp: reward.xp, gold: reward.gold });
   state.history = state.history.slice(0, 300);
   return { ...reward, reason, levelUp: after.level > before.level ? after : null, level: after };
 }
 
 // 勾選目標：第一次完成才給獎勵
-function onObjective(state, ps, questId, objective, done, rewards = DEFAULT_REWARDS) {
+function onObjective(state, ps, questId, objective, done, rewards = DEFAULT_REWARDS, now = new Date()) {
   if (!done || ps.awardedObjectives[objective.id]) return null;
   ps.awardedObjectives[objective.id] = true;
-  return grant(state, rewards.objective, `完成目標：${objective.text}`, rewards);
+  return grant(state, rewards.objective, `完成目標：${objective.text}`, rewards, now);
 }
 
 function submitQuest(state, ps, plan, questId, report = '', now = new Date(), rewards = DEFAULT_REWARDS) {
@@ -126,30 +127,30 @@ function submitQuest(state, ps, plan, questId, report = '', now = new Date(), re
   ps.submitted[questId] = { at: now.toISOString(), onTime, report, ...reward };
   state.player.questsDone += 1;
   state.player.onTimeStreak = onTime ? state.player.onTimeStreak + 1 : 0;
-  const g = grant(state, reward, `交付任務：${v.title}${onTime ? '（準時）' : ''}`, rewards);
+  const g = grant(state, reward, `交付任務：${v.title}${onTime ? '（準時）' : ''}`, rewards, now);
   if (report) remember(state, `交付「${v.title}」時回報：${report}`);
   if (ps.activeQuestId === questId) ps.activeQuestId = null;
   const next = ensureActive(plan, ps, now).quest;
   return { ...g, onTime, quest: v, next };
 }
 
-function onDailyRow(state, ps, rowId, label, done, rewards = DEFAULT_REWARDS) {
+function onDailyRow(state, ps, rowId, label, done, rewards = DEFAULT_REWARDS, now = new Date()) {
   if (done) {
     if (ps.dailyDone[rowId]) return null;
     ps.dailyDone[rowId] = true;
-    return grant(state, rewards.dailyRow, `完成行程：${label}`, rewards);
+    return grant(state, rewards.dailyRow, `完成行程：${label}`, rewards, now);
   }
   // 取消勾選只改狀態，不收回經驗
   ps.dailyDone[rowId] = false;
   return null;
 }
 
-function onDailyReport(state, ps, dateISO, fields, rewards = DEFAULT_REWARDS) {
+function onDailyReport(state, ps, dateISO, fields, rewards = DEFAULT_REWARDS, now = new Date()) {
   const first = !ps.dailyReported[dateISO];
   ps.dailyReported[dateISO] = true;
   const summary = [fields.done && `完成：${fields.done}`, fields.blocker && `卡點：${fields.blocker}`, fields.next && `明日：${fields.next}`].filter(Boolean).join('；');
   if (summary) remember(state, `${dateISO} 日報 ${summary}`);
-  return first ? grant(state, rewards.dailyReport, `${dateISO} 下班回報`, rewards) : null;
+  return first ? grant(state, rewards.dailyReport, `${dateISO} 下班回報`, rewards, now) : null;
 }
 
 function remember(state, note) {

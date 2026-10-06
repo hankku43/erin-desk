@@ -1,7 +1,7 @@
 // Electron 主程式：透明置頂的桌面 NPC 視窗
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell, powerMonitor, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -417,6 +417,7 @@ function menuTemplate() {
       { label: f ? `🔮 今日運勢：${f.rank}` : '🔮 抽今日運勢', click: () => { if (mini) setMini(false); push('ui:fortune'); } },
       { label: `✨ 占卜魔法（${engine.divCfg().cost} 金幣）…`, click: open('divine') },
       { label: `📒 ${npcName}的小本子（偷看）`, click: open('notebook') },
+      { label: '📖 冒險日誌・週報', click: open('journal') },
     ] },
     { type: 'separator' },
     { label: '📂 週計畫', submenu: [
@@ -614,6 +615,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('divine:check', wrap((q) => engine.divineCheck(q)));
   ipcMain.handle('divine:cast', wrap((opts) => engine.divineCast(opts || {})));
   ipcMain.handle('divine:read', wrap((id) => engine.divineRead(id)));
+  ipcMain.handle('journal:open', wrap((key, quiet) => engine.journalOpen(key ? String(key) : null, !!quiet)));
+  ipcMain.handle('journal:comment', wrap((key, force) => engine.journalComment(key ? String(key) : null, !!force)));
+  ipcMain.handle('journal:export', wrap((key) => { const r = engine.journalExport(key ? String(key) : null); shell.showItemInFolder(r.path); return r; }));
+  ipcMain.handle('journal:copy', wrap((text) => { clipboard.writeText(String(text || '')); return {}; }));
   ipcMain.handle('notebook:peek', wrap((quiet) => engine.peekNotebook(!!quiet)));
   ipcMain.handle('notebook:forget', wrap((id) => engine.forgetNote(String(id))));
   ipcMain.handle('notebook:clear', wrap(() => engine.clearNotebook()));

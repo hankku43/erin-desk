@@ -24,6 +24,7 @@ const MH = require('./meihua');
 const A = require('./affection');
 const T = require('./tutorial');
 const M = require('./memory');
+const J = require('./journal');
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -104,6 +105,7 @@ class Engine {
       focus: { minutes: 25, rest: 5, xp: 15, gold: 3 }, // 🍅 專注模式
       divination: { cost: 10, repeatHours: 24 }, // ✨ 占卜魔法：每次花費的金幣、一事不二占的時間
       notebook: { enabled: true }, // 📒 艾琳的小本子（其他欄位見 memory.js DEFAULTS）
+      journal: { enabled: true }, // 📖 冒險日誌＋週報（labels、keep 見 journal.js DEFAULTS）
       reminders: {
         weekdaysOnly: true, graceMinutes: 15,
         items: [
@@ -170,6 +172,7 @@ class Engine {
   }
 
   saveState() {
+    this.syncJournal(); // 📖 這週的日誌跟著存（換下一週的計畫檔之後還翻得到）
     const tmp = this.savePath + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2), 'utf8');
     fs.renameSync(tmp, this.savePath);
@@ -458,6 +461,7 @@ class Engine {
       schedule: this.scheduleInfo(),
       llm: { enabled: !!this.config.llm.enabled, model: this.config.llm.model },
       notebook: { count: this.nb().items.length, enabled: this.nbCfg().enabled !== false },
+      projects: J.projects(this.state), // 以前用過的專案（新任務表單的選項）
     };
   }
 
@@ -597,7 +601,7 @@ class Engine {
   async setObjective(questId, index, done) {
     this.writePlan(this.P.setObjective(this.planText, questId, index, done));
     const q = this.plan.quests.find((x) => x.id === questId);
-    const reward = G.onObjective(this.state, this.ps, questId, q.objectives[index], done, this.config.rewards);
+    const reward = G.onObjective(this.state, this.ps, questId, q.objectives[index], done, this.config.rewards, this.now());
     this.saveState();
     const lines = [];
     if (done) {
@@ -676,7 +680,7 @@ class Engine {
     stats.count += 1;
     this.state.focusStats = stats;
     this.state.focus = null;
-    const reward = G.grant(this.state, { xp: c.xp, gold: c.gold }, `完成專注 ${Math.round(f.minutes)} 分鐘（今天第 ${stats.count} 顆🍅）`, this.config.rewards);
+    const reward = G.grant(this.state, { xp: c.xp, gold: c.gold }, `完成專注 ${Math.round(f.minutes)} 分鐘（今天第 ${stats.count} 顆🍅）`, this.config.rewards, this.now());
     if (f.minutes >= 10) this.affect(this.affCfg().gain.focus, '完成專注');
     this.saveState();
     const lines = [this.focusLine('focus_done', { minutes: Math.round(f.minutes), count: stats.count })];
@@ -750,7 +754,7 @@ class Engine {
       const st = A.stageOf(a.points, a.stage, this.affCfg().thresholds);
       if (st > a.stage) {
         extra.push(this.affTpl(`stageup_${st}`));
-        if (st > (a.maxStage || 1)) { G.grant(this.state, { xp: 0, gold: 10 * st }, '艾琳的心意', this.config.rewards); a.maxStage = st; }
+        if (st > (a.maxStage || 1)) { G.grant(this.state, { xp: 0, gold: 10 * st }, '艾琳的心意', this.config.rewards, this.now()); a.maxStage = st; }
       } else if (st < a.stage) extra.push(this.affTpl('stagedown'));
       a.stage = st;
     }
@@ -780,13 +784,13 @@ class Engine {
     if (!item) return false;
     t.done[key] = this.now().toISOString();
     const label = item.label.replace('艾琳', this.config.npc.name);
-    G.grant(this.state, T.STEP_REWARD, `新手任務：${label}`, this.config.rewards);
+    G.grant(this.state, T.STEP_REWARD, `新手任務：${label}`, this.config.rewards, this.now());
     const n = Object.keys(t.done).length, total = T.TUTORIAL.length;
     const tpl = (k, f) => { const l = { ...this.npc.template(k, f), event: 'tutorial' }; delete l.tpl; return l; };
     this.tutPending.push(tpl('tutorial_step', { label, n, total }));
     if (n >= total) {
       t.finished = true;
-      G.grant(this.state, T.GRADUATE_REWARD, '新手村畢業', this.config.rewards);
+      G.grant(this.state, T.GRADUATE_REWARD, '新手村畢業', this.config.rewards, this.now());
       this.tutPending.push(tpl('tutorial_done', {}));
     }
     this.saveState();
@@ -907,7 +911,7 @@ class Engine {
     if (prev) return { repeat: true, record: prev, lines: [{ ...this.npc.template('divine_repeat', this.divineFacts(prev)), event: 'divine' }], view: this.view() };
     if (this.state.player.gold < c.cost) return { poor: true, lines: [{ ...this.npc.template('divine_poor', { cost: c.cost, gold: this.state.player.gold }), event: 'divine' }], view: this.view() };
     const r = method === 'time' ? MH.castByTime(this.now()) : MH.castByNumbers(a, b, this.now(), method === 'circle' ? 'circle' : 'numbers');
-    G.grant(this.state, { xp: 0, gold: -c.cost }, `占卜魔法：${r.ben.name}`, this.config.rewards);
+    G.grant(this.state, { xp: 0, gold: -c.cost }, `占卜魔法：${r.ben.name}`, this.config.rewards, this.now());
     const record = { id: `dv${now}`, at: now, question: q, norm, method: r.method, result: r, reading: null };
     list.unshift(record);
     this.state.divinations = list.slice(0, 30);
@@ -943,7 +947,7 @@ class Engine {
     const rank = FORTUNE_RANKS.find((x) => (r -= x.w) < 0) || FORTUNE_RANKS[FORTUNE_RANKS.length - 1];
     const fortune = { date: today, rank: rank.name, advice: pick(FORTUNE_ADVICE), item: pick(FORTUNE_ITEMS), xp: rank.xp, gold: rank.gold, tier: rank.tier };
     this.state.fortune = fortune;
-    const reward = G.grant(this.state, { xp: rank.xp, gold: rank.gold }, `今日運勢：${rank.name}`, this.config.rewards);
+    const reward = G.grant(this.state, { xp: rank.xp, gold: rank.gold }, `今日運勢：${rank.name}`, this.config.rewards, this.now());
     this.saveState();
     const lines = [{ ...this.npc.template('fortune', fortune), event: 'fortune' }];
     if (reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
@@ -962,7 +966,7 @@ class Engine {
     const t = this.todayInfo();
     const row = [...this.plan.days.flatMap((d) => d.rows)].find((r) => r.id === rowId);
     const label = row ? (t.branch && this.ps.branch[t.date] === 'b' ? row.b : row.a) : rowId;
-    const reward = G.onDailyRow(this.state, this.ps, rowId, label, done, this.config.rewards);
+    const reward = G.onDailyRow(this.state, this.ps, rowId, label, done, this.config.rewards, this.now());
     this.saveState();
     // 新格式：時段勾選也寫回檔案（- [x] 09:00–10:30 …）
     if (!this.legacy && row && row.line !== undefined && this.P.setScheduleDone) {
@@ -1068,13 +1072,15 @@ class Engine {
     const date = G.todayISO(this.now());
     let writeError = null;
     try { this.writePlan(this.P.setProgress(this.planText, date, fields)); } catch (e) { writeError = e.message; }
-    const reward = G.onDailyReport(this.state, this.ps, date, fields, this.config.rewards);
+    const reward = G.onDailyReport(this.state, this.ps, date, fields, this.config.rewards, this.now());
     if (reward) this.affect(this.affCfg().gain.report, '下班回報');
     this.saveState();
     const report = [fields.done, fields.blocker && `卡點：${fields.blocker}`, fields.next && `明天：${fields.next}`].filter(Boolean).join('；');
     const lines = [await this.act('daily_report', { report })];
     if (reward && reward.levelUp) lines.push(await this.act('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }));
-    return this.settle({ reward, lines, writeError, view: this.view() });
+    const wk = await this.weekEndHandOver(date);
+    if (wk) lines.push(wk.line);
+    return this.settle({ reward, lines, writeError, journal: wk ? wk.key : null, view: this.view() });
   }
 
   async chat(text) {
@@ -1289,7 +1295,7 @@ class Engine {
       else if (item.self) {
         const gold = this.nbCfg().birthdayGold;
         if (item.giftYear !== year && gold > 0) {
-          G.grant(this.state, { xp: 0, gold }, '艾琳的生日禮物', this.config.rewards);
+          G.grant(this.state, { xp: 0, gold }, '艾琳的生日禮物', this.config.rewards, this.now());
           item.giftYear = year; f.gold = gold; key = 'date_birthday';
           about = `今天是${call}的生日！祝他生日快樂，送他 ${gold} 金幣當禮物（一定要提到）`;
         } else { key = 'date_birthday_again'; about = `今天是${call}的生日，祝他生日快樂`; }
@@ -1303,6 +1309,76 @@ class Engine {
     }
     this.saveState();
     return lines;
+  }
+
+  // ---- 📖 冒險日誌＋週報 ----
+  jCfg() { const c = { ...J.DEFAULTS, ...(this.config.journal || {}) }; c.labels = { ...J.DEFAULTS.labels, ...((this.config.journal || {}).labels || {}) }; return c; }
+  weeks() { return (this.state.journal || (this.state.journal = { weeks: {} })).weeks; }
+  syncJournal() {
+    if (!this.plan || !this.ps || !this.plan.quests || !this.plan.quests.length || this.jCfg().enabled === false) return null;
+    try { return J.store(this.state, J.snapshot({ plan: this.plan, ps: this.ps, state: this.state, rewards: this.config.rewards, now: this.now() }), this.jCfg().keep); } catch (_) { return null; } // 日誌壞掉不能害存檔失敗
+  }
+  currentWeekKey() { const w = this.syncJournal(); return w ? w.key : (J.list(this.state)[0] || {}).key || null; }
+  journalView(key) {
+    const cur = this.currentWeekKey();
+    const list = J.list(this.state);
+    const k = key && this.weeks()[key] ? key : cur || (list[0] && list[0].key);
+    const w = k ? this.weeks()[k] : null;
+    if (!w) return { week: null, list, current: cur };
+    const i = list.findIndex((x) => x.key === k);
+    return {
+      week: { ...w, stale: !!w.comment && w.commentSig !== w.sig, report: J.reportText(w, this.jCfg().labels), groups: J.reportGroups(w) },
+      list, current: cur, prev: (list[i + 1] || {}).key || null, next: (list[i - 1] || {}).key || null, labels: this.jCfg().labels,
+    };
+  }
+  // 打開日誌（選單）：她說一句；quiet＝換頁、重畫時不說
+  journalOpen(key, quiet = false) {
+    const l = { ...this.npc.template('journal_open', {}), event: 'journal' }; delete l.tpl;
+    return { journal: this.journalView(key), lines: quiet ? [] : [l], view: this.view() };
+  }
+  // 艾琳寫這週的評語：AI 開著用 AI，沒開就照稱號挑內建句子拼起來
+  async journalComment(key, force = false) {
+    this.syncJournal();
+    const w = this.weeks()[key || this.currentWeekKey()];
+    if (!w) throw new Error('這週還沒有日誌');
+    if (w.comment && !force && w.commentSig === w.sig) return { journal: this.journalView(w.key), view: this.view() };
+    const s = w.stats;
+    const left = w.quests.filter((q) => q.status !== 'done').map((q) => q.title);
+    const f = { ...s, left: left.slice(0, 2).join('」「') };
+    const parts = [this.npc.template(`journal_${(w.badges[0] || { id: 'rest' }).id}`, f).text];
+    if (w.badges[1]) parts.push(this.npc.template(`journal_${w.badges[1].id}`, f).text);
+    parts.push(this.npc.template(left.length ? 'journal_left' : 'journal_end', f).text);
+    const fallback = parts.join('');
+    const line = await this.say('journal', {
+      quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [],
+      week: `${J.weekFacts(w)}；本週稱號：${w.badges.map((b) => `${b.name}（${b.why}）`).join('、')}`,
+    }, { maxTokens: 360, maxChars: 220 });
+    const ai = line.source === 'llm' && line.text && line.text.length >= 20;
+    Object.assign(w, { comment: ai ? line.text : fallback, commentSource: ai ? 'llm' : 'template', commentSig: w.sig, commentAt: this.now().getTime() });
+    this.saveState();
+    return { journal: this.journalView(w.key), view: this.view() };
+  }
+  // 匯出：data/週報/ 底下一週一個 Markdown（data/ 不進 git，也不會跟計畫檔混在一起）
+  journalExport(key) {
+    const w = this.weeks()[key || this.currentWeekKey()];
+    if (!w) throw new Error('這週還沒有日誌');
+    const dir = path.join(this.dataDir, '週報');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `冒險日誌 ${w.start}.md`);
+    fs.writeFileSync(file, J.toMarkdown(w, { labels: this.jCfg().labels, npcName: this.config.npc.name }), 'utf8');
+    return { path: file, view: this.view() };
+  }
+  // 這週最後一天的下班回報：把日誌交給冒險者（一週一次）
+  async weekEndHandOver(date) {
+    if (this.jCfg().enabled === false || !this.plan.quests.length) return null;
+    const range = J.weekRange(this.plan, this.now());
+    if (date !== range.lastDay) return null;
+    const w = this.syncJournal();
+    if (!w || w.presentedAt) return null;
+    w.presentedAt = this.now().getTime();
+    this.saveState();
+    const line = await this.act('journal_ready', { week: J.weekFacts(w), eventDetail: `這週的冒險日誌整理好了，本週稱號「${w.badges[0] ? w.badges[0].name : ''}」` });
+    return { key: w.key, line };
   }
 
   cancelProposal() {
@@ -1319,7 +1395,7 @@ class Engine {
     const total = { xp: 0, gold: 0, levelUp: null };
     const add = (r) => { if (!r) return; total.xp += r.xp; total.gold += r.gold; if (r.levelUp) total.levelUp = r.levelUp; };
     const done = [], failed = [];
-    let submitted = null, writeError = null;
+    let submitted = null, writeError = null, reported = false;
     let text = this.planText;
     // 先把勾選一次寫進檔案
     for (const it of items.filter((x) => x.type === 'check' || x.type === 'uncheck')) {
@@ -1330,18 +1406,18 @@ class Engine {
       try {
         if (it.type === 'check' || it.type === 'uncheck') {
           const q = this.plan.quests.find((x) => x.id === it.questId);
-          const r0 = G.onObjective(this.state, this.ps, it.questId, q.objectives[it.index], it.type === 'check', this.config.rewards);
+          const r0 = G.onObjective(this.state, this.ps, it.questId, q.objectives[it.index], it.type === 'check', this.config.rewards, this.now());
           if (r0) this.affect(this.affCfg().gain.objective, '完成目標');
           add(r0);
         } else if (it.type === 'activate') {
           this.ps.activeQuestId = it.questId;
         } else if (it.type === 'daily_done' || it.type === 'daily_undo') {
-          add(G.onDailyRow(this.state, this.ps, it.rowId, it.label, it.type === 'daily_done', this.config.rewards));
+          add(G.onDailyRow(this.state, this.ps, it.rowId, it.label, it.type === 'daily_done', this.config.rewards, this.now()));
         } else if (it.type === 'report') {
           try { this.writePlan(this.P.setProgress(this.planText, G.todayISO(this.now()), it.fields)); } catch (e) { writeError = e.message; }
-          const r1 = G.onDailyReport(this.state, this.ps, G.todayISO(this.now()), it.fields, this.config.rewards);
+          const r1 = G.onDailyReport(this.state, this.ps, G.todayISO(this.now()), it.fields, this.config.rewards, this.now());
           if (r1) this.affect(this.affCfg().gain.report, '下班回報');
-          add(r1);
+          add(r1); reported = true;
         } else if (it.type === 'submit') {
           const r = G.submitQuest(this.state, this.ps, this.plan, it.questId, it.report || p.text, this.now(), this.config.rewards);
           add(r); submitted = r;
@@ -1372,7 +1448,9 @@ class Engine {
     } else if (items.some((x) => x.type === 'activate')) {
       G.ensureActive(this.plan, this.ps, this.now());
     }
-    return this.settle({ reward: total.xp ? total : null, lines, writeError, view: this.view() });
+    const wk = reported ? await this.weekEndHandOver(G.todayISO(this.now())) : null; // 聊天裡回報的最後一天也交日誌
+    if (wk) lines.push(wk.line);
+    return this.settle({ reward: total.xp ? total : null, lines, writeError, journal: wk ? wk.key : null, view: this.view() });
   }
 
   // 每分鐘呼叫：作息提醒（午休／上班／下班）＋決策點提醒
