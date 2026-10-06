@@ -1325,3 +1325,168 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(tea && tea.type === 'tea' && tea.emote === 'steam' && !tea.balloon, '奶茶：杯口冒熱氣，沒有舊的泡泡');
   console.log('漂浮表情符號測試通過 ✔');
 })();
+
+// ---------- 📒 小本子：只記冒險者親口說的事、會追問後續、記得重要的日子 ----------
+(() => {
+  const M = require('../src/main/memory');
+  const now = new Date('2026-10-06T10:00:00'); // 週二
+  const ex = (s) => M.extractRules(s, now).map((n) => `${n.kind}:${n.text}${n.date ? '@' + n.date : ''}${n.self ? '(自己)' : ''}`);
+  // 規則：喜好、日子、最近的事、工作、生活
+  assert.deepStrictEqual(ex('我超喜歡無糖綠茶'), ['like:喜歡無糖綠茶']);
+  assert.deepStrictEqual(ex('我不太喜歡加班'), ['like:不喜歡加班'], '「不太喜歡」不是喜歡');
+  assert.deepStrictEqual(ex('10/15 要上台發表'), ['date:上台發表@2026-10-15']);
+  assert.deepStrictEqual(ex('下週三口試'), ['date:口試@2026-10-14'], '「下週三」換成日期');
+  assert.deepStrictEqual(ex('我的生日是10/8'), ['date:生日@10-08(自己)']);
+  assert.deepStrictEqual(ex('我媽的生日是 3/12'), ['date:媽媽的生日@03-12']);
+  assert.deepStrictEqual(ex('這週簡報好趕，壓力好大'), ['event:這週簡報好趕，壓力好大'], '同一句的心情合成一件事');
+  assert.deepStrictEqual(ex('我昨天跟朋友吵架'), ['event:跟朋友吵架'], '「昨天」拿掉（之後追問時就不是昨天了）');
+  assert.deepStrictEqual(ex('我最近在忙新品上市的企劃'), ['work:在忙新品上市的企劃']);
+  assert.deepStrictEqual(ex('我週末都去爬山'), ['life:週末常爬山']);
+  assert.strictEqual(M.extractRules('我考上研究所了！', now)[0].mood, 'good');
+  // 不記：說艾琳的、問句、任務回報、太模糊的
+  for (const s of ['我喜歡你', '你喜歡什麼？', '艾琳喜歡吃魚嗎', '報告寫完了', '我喜歡這個', '我好累']) assert.deepStrictEqual(ex(s), [], s);
+  // AI 寫的筆記：冒險者沒說過的、說艾琳的、沒根據的日子都丟掉；最多 2 則
+  const said = '我週末去看了海，好開心，下週五要去面試';
+  const ai = M.guardAI([
+    { kind: 'event', text: '週末去看海' }, { kind: 'like', text: '喜歡貓咪和咖啡' }, { kind: 'like', text: '喜歡艾琳' },
+    { kind: 'date', text: '面試', date: '2026-10-16' }, { kind: 'nope', text: '看海' },
+  ], said, now);
+  assert.deepStrictEqual(ai.map((n) => n.text), ['週末去看海', '面試'], '只留冒險者親口說的');
+  assert.deepStrictEqual(M.guardAI([{ kind: 'date', text: '面試', date: '2026-10-16' }], '我要去面試', now), [], '沒說日期就不記日子');
+  assert.deepStrictEqual(M.guardAI('亂寫', said, now), []);
+  // 小本子：同一件事更新、喜歡↔不喜歡互相蓋掉、記太多先丟舊的
+  const nb = M.blank();
+  M.add(nb, M.extractRules('我超喜歡香菜', now), now);
+  const r1 = M.add(nb, M.extractRules('我討厭香菜', now), now);
+  assert.ok(nb.items.length === 1 && nb.items[0].text === '討厭香菜' && r1.updated.length === 1, '改口：新的蓋掉舊的');
+  assert.strictEqual(M.add(nb, M.extractRules('我討厭香菜', now), now).updated.length, 0, '一樣的話不重記');
+  const big = M.blank();
+  M.add(big, [{ kind: 'date', text: '生日', date: '10-08', yearly: true, self: true }], new Date('2026-01-01'));
+  ['草莓', '拉麵', '爵士樂', '桌遊', '海邊', '烏龍茶'].forEach((x, i) => M.add(big, [{ kind: 'like', text: `喜歡${x}` }], new Date(now.getTime() + i * 1000), { max: 4 }));
+  assert.ok(big.items.length === 4 && big.items.some((x) => x.self) && !big.items.some((x) => x.text === '喜歡草莓'), '超過上限：丟最舊的，生日留著');
+  // 追問：隔天以後才問、問過不再問；工作每 3 天問一次
+  const fu = M.blank(); const D = 86400000;
+  M.add(fu, M.extractRules('這週簡報好趕，壓力好大', now), now);
+  M.add(fu, M.extractRules('我最近在忙新品上市的企劃', now), now);
+  assert.strictEqual(M.dueFollowUp(fu, new Date(now.getTime() + 3600000)), null, '剛說完不問');
+  const e1 = M.dueFollowUp(fu, new Date(now.getTime() + D));
+  assert.ok(e1 && e1.kind === 'event', '隔天先問最近的事');
+  e1.followed = now.getTime() + D;
+  assert.strictEqual(M.dueFollowUp(fu, new Date(now.getTime() + 2 * D)), null, '問過了；工作還沒到 3 天');
+  assert.strictEqual(M.dueFollowUp(fu, new Date(now.getTime() + 3 * D)).kind, 'work', '3 天後問工作進度');
+  assert.strictEqual(M.dueFollowUp(fu, new Date(now.getTime() + 40 * D)), null, '太久以前的就不問了');
+  // 重要的日子：前一天提醒、當天說；每年的照月日
+  const dd = M.blank();
+  M.add(dd, [...M.extractRules('10/15 要上台發表', now), ...M.extractRules('我的生日是10/8', now)], now);
+  const at = (s) => M.dueDates(dd, new Date(s)).map((x) => `${x.when}:${x.item.text}`);
+  assert.deepStrictEqual(at('2026-10-07T09:00:00'), [], '前一天的生日不提（每年的只在當天）');
+  assert.deepStrictEqual(at('2026-10-08T09:00:00'), ['today:生日']);
+  assert.deepStrictEqual(at('2026-10-14T09:00:00'), ['eve:上台發表']);
+  assert.deepStrictEqual(at('2027-10-08T09:00:00'), ['today:生日'], '明年也記得');
+  dd.items.find((x) => x.self).saidOn = '2026-10-08';
+  assert.deepStrictEqual(at('2026-10-08T15:00:00'), [], '同一天只說一次');
+  // 聊天時給 AI 的筆記：有關的才給；問「你記得嗎」就多給
+  const rel = M.blank();
+  M.add(rel, [...M.extractRules('我超喜歡無糖綠茶', now), ...M.extractRules('我家養了一隻貓叫麻糬', now)], now);
+  assert.deepStrictEqual(M.relevant(rel, '今天喝了無糖綠茶', now).map((x) => x.text), ['喜歡無糖綠茶']);
+  assert.strictEqual(M.relevant(rel, '你還記得我說過什麼嗎', now).length, 2);
+  assert.ok(/【小本子】/.test(M.contextText(M.relevant(rel, '無糖綠茶', now), now)) && M.contextText([], now) === '');
+  console.log('小本子規則測試通過 ✔');
+})();
+
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const { TEMPLATES } = require('../src/main/npc');
+  const loreFile = path.join(__dirname, '..', 'lore', '艾琳.md');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-nb-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30 } }));
+  const Y = new Date().getFullYear();
+  let t = new Date(`${Y}-10-06T10:00:00`).getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  const M_iso = require('../src/main/memory').iso;
+  const tplOf = (k) => TEMPLATES[k].map(([x]) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者'));
+  const fills = (k, text) => tplOf(k).some((x) => new RegExp('^' + x.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '.*') + '$').test(text));
+  // 離線聊天也會記；回傳 noted 給畫面跳提示
+  const c1 = await E.chat('我超喜歡無糖綠茶');
+  assert.deepStrictEqual(c1.noted, ['喜歡無糖綠茶']);
+  const c2 = await E.chat('我的生日是10/8');
+  assert.deepStrictEqual(c2.noted, ['10/8 生日']);
+  assert.ok(fills('note_taken', c2.lines[0].text) && /10\/8 生日/.test(c2.lines[0].text), '說自己生日：不接成艾琳的生日，說記下來了：' + c2.lines[0].text);
+  await E.chat('這週簡報好趕，壓力好大');
+  const c3 = await E.chat('你喜歡什麼？');
+  assert.deepStrictEqual(c3.noted, [], '問句不記');
+  assert.strictEqual(E.notebookView().count, 3);
+  // 偷看：熟了比較害羞；劃掉、全部劃掉
+  const pk = E.peekNotebook();
+  assert.ok(pk.notebook.groups.length === 3 && pk.notebook.enabled && pk.notebook.sketch === 0 && fills('notebook_peek', pk.lines[0].text));
+  assert.strictEqual(E.peekNotebook(true).lines.length, 0, '安靜更新不說話');
+  E.aff().points = 120; E.aff().stage = 3;
+  const pk3 = E.peekNotebook();
+  assert.ok(fills('notebook_peek_close', pk3.lines[0].text) && pk3.notebook.sketch === 1, '第 3 階：害羞、最後一頁有貼紙蓋住的畫');
+  E.aff().points = 40; E.aff().stage = 2;
+  // 主動追問（第 2 階以上）：隔天問「最近的事」，AI 關掉時用內建台詞
+  t += 86400000; E.rand = () => 0.1; E.touch(); t += 30 * 60000;
+  const p1 = await E.proactive({});
+  assert.ok(p1 && p1.kind === 'topic' && p1.lines[0].topic === '小本子' && /簡報好趕/.test(p1.lines[0].text) && fills('followup', p1.lines[0].text), '隔天關心簡報：' + (p1 && p1.lines[0].text));
+  assert.ok(E.state.notebook.items.find((x) => x.kind === 'event').followed, '問過了');
+  // 回她的關心：AI 知道在聊小本子上的事
+  E.config.llm.enabled = true; E.npc.llm.enabled = true; E.npc.status.online = true;
+  const sent = [];
+  let reply = { line: '太好了～', emotion: 'happy', actions: [], notes: [{ kind: 'event', text: '簡報順利講完了' }, { kind: 'like', text: '喜歡吃拉麵' }] };
+  E.npc.fetchJSON = async (_p, body) => { sent.push(body); return { message: { content: JSON.stringify(reply) } }; };
+  t += 60000;
+  const c4 = await E.chat('簡報順利講完了，超開心');
+  const req = sent[sent.length - 1];
+  assert.ok(/【話題】剛才是你主動關心冒險者之前說的「這週簡報好趕/.test(req.messages[0].content), '告訴 AI 剛剛在關心哪件事');
+  assert.ok(/【小本子】冒險者在「這句話」裡/.test(req.messages[0].content) && req.format.properties.notes, 'AI 可以記筆記');
+  assert.deepStrictEqual(c4.noted, ['簡報順利講完了'], 'AI 記的：冒險者說過的才留（拉麵沒說過）');
+  // AI 看得到有關的筆記
+  reply = { line: '嗯嗯', emotion: 'normal', actions: [] };
+  await E.chat('等等去買無糖綠茶');
+  assert.ok(/【小本子】艾琳記得冒險者說過：喜歡無糖綠茶/.test(sent[sent.length - 1].messages.map((m) => m.content).join('\n')), '聊到綠茶：給 AI 看小本子');
+  E.config.llm.enabled = false; E.npc.llm.enabled = false;
+  // 重要的日子：生日當天打招呼時祝福＋送金幣（一年一次），前一天提醒一次性的事
+  t = new Date(`${Y}-10-08T09:00:00`).getTime();
+  const g0 = E.state.player.gold;
+  const g = await E.greet();
+  const bd = g.lines.find((l) => l.event === 'note');
+  assert.ok(bd && fills('date_birthday', bd.text) && /20/.test(bd.text) && E.state.player.gold === g0 + 20, '生日：祝福＋20 金幣');
+  t += 3600000; E.touch(); t += 120000;
+  assert.notStrictEqual(E.proactiveDue({}), 'note', '同一天不再說');
+  E.state.notebook.items.find((x) => x.self).saidOn = '';
+  const again = await E.noteDateLines();
+  assert.ok(fills('date_birthday_again', again[0].text) && E.state.player.gold === g0 + 20, '同一年不再送金幣');
+  await E.chat('10/15 要上台發表');
+  t = new Date(`${Y}-10-14T13:00:00`).getTime(); E.touch(); t += 120000;
+  assert.strictEqual(E.proactiveDue({}), 'note', '前一天：不用等間隔就提醒');
+  const ev = await E.proactive({});
+  assert.ok(ev.kind === 'note' && fills('date_eve', ev.lines[0].text) && /上台發表/.test(ev.lines[0].text) && ev.lines[0].ambient);
+  t += 120000; assert.notStrictEqual(E.proactiveDue({}), 'note', '提醒過了');
+  // 劃掉、全部劃掉、關掉
+  const id = E.notebookView().groups[0].items[0].id;
+  const n0 = E.notebookView().count;
+  const fg = E.forgetNote(id);
+  assert.ok(fg.notebook.count === n0 - 1 && fills('notebook_forget', fg.lines[0].text));
+  assert.throws(() => E.forgetNote(id), /不在小本子上/);
+  const cl = E.clearNotebook();
+  assert.ok(cl.notebook.count === 0 && fills('notebook_clear', cl.lines[0].text));
+  const off = E.setNotebook(false);
+  assert.ok(!off.notebook.enabled && fills('notebook_off', off.lines[0].text) && E.view().notebook.enabled === false);
+  assert.deepStrictEqual((await E.chat('我超喜歡貓')).noted, [], '關掉就不記');
+  E.state.notebook.items.push({ id: 'n99', kind: 'date', text: '生日', date: M_iso(E.now()).slice(5), yearly: true, self: true, at: t, updatedAt: t });
+  E.touch(); t += 120000;
+  assert.ok(E.proactiveDue({}) !== 'note' && (await E.noteDateLines()).length === 0, '收起來時不提日子');
+  E.state.notebook.items.pop();
+  assert.ok(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).notebook.enabled === false, '設定存起來');
+  E.setNotebook(true);
+  assert.deepStrictEqual((await E.chat('我超喜歡貓')).noted, ['喜歡貓']);
+  // 罵人的那句不記
+  t += 5 * 60000;
+  const rude = await E.chat('我討厭香菜，你這個白癡');
+  assert.ok(rude.noted.length === 0 && rude.lines[0].emotion === 'disdain', '罵人的那句不記');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('小本子測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

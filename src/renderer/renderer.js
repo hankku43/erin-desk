@@ -344,6 +344,7 @@ async function run(fn, { thinking = true, talk = false } = {}) {
   }
   if (r.writeError) toast(`⚠ 回寫計畫檔失敗：${r.writeError}`, 5000);
   if (r.reward) celebrate(r.reward);
+  if (r.noted && r.noted.length) { toast(`📒 ${(state.view && state.view.npc && state.view.npc.name) || '艾琳'}記下來了：${r.noted.join('、')}`, 3200); notebookRefresh(); }
   if (r.lines && r.lines.length) enqueue(r.lines);
   else if (r.speechQueued) { if (!state.typing && !state.queue.length && !$('#dialog').classList.contains('hidden')) showThinking(); } // 艾琳在想要說什麼
   else if (thinking) { if (state.lastLine) showLine(state.lastLine); else closeDialog(); } // 這次沒話要說：把「思考中」收掉
@@ -1050,6 +1051,7 @@ function renderPanelInner(el, v) {
   if (state.panel === 'divine') renderDivine(el, v);
   if (state.panel === 'onboard') renderOnboard(el, v);
   if (state.panel === 'health') renderHealth(el, v);
+  if (state.panel === 'notebook') renderNotebook(el, v);
 
   if (state.panel === 'report') {
     const t = v.today;
@@ -1127,6 +1129,7 @@ $('#panel').addEventListener('click', async (e) => {
   if (state.panel === 'divine' && await divineClick(e)) return;
   if (state.panel === 'onboard' && await onboardClick(e)) return;
   if (state.panel === 'health' && await healthClick(e)) return;
+  if (state.panel === 'notebook' && await notebookClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }
   if (t.closest('[data-back]')) { backFromForm(); return; }
@@ -1243,6 +1246,7 @@ api.on('ui:shrink', () => goMini());
 api.on('ui:open', (kind) => {
   if (kind === 'onboard') { state.ob = null; openOnboard('welcome'); return; }
   if (kind === 'health') { openHealth(); return; }
+  if (kind === 'notebook') { openNotebook(); return; }
   openPanel(kind); if (kind === 'daily') run(() => api.daily(), { talk: true });
 });
 

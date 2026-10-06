@@ -416,6 +416,7 @@ function menuTemplate() {
     { label: '✨ 更多玩法', submenu: [
       { label: f ? `🔮 今日運勢：${f.rank}` : '🔮 抽今日運勢', click: () => { if (mini) setMini(false); push('ui:fortune'); } },
       { label: `✨ 占卜魔法（${engine.divCfg().cost} 金幣）…`, click: open('divine') },
+      { label: `📒 ${npcName}的小本子（偷看）`, click: open('notebook') },
     ] },
     { type: 'separator' },
     { label: '📂 週計畫', submenu: [
@@ -437,6 +438,7 @@ function menuTemplate() {
     { label: '⚙ 設定與資料', submenu: [
       { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
+      { label: `📒 讓${npcName}記小本子（記住你說過的事）`, type: 'checkbox', checked: engine.nbCfg().enabled !== false, click: (m) => { const r = engine.setNotebook(m.checked); push('npc:lines', r.lines); push('view:update', { view: r.view }); } },
       { label: '🖥 固定在顯示器', submenu: displayMenu() },
       { label: '縮到工作列', click: () => win.minimize() },
       { type: 'separator' },
@@ -612,6 +614,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('divine:check', wrap((q) => engine.divineCheck(q)));
   ipcMain.handle('divine:cast', wrap((opts) => engine.divineCast(opts || {})));
   ipcMain.handle('divine:read', wrap((id) => engine.divineRead(id)));
+  ipcMain.handle('notebook:peek', wrap((quiet) => engine.peekNotebook(!!quiet)));
+  ipcMain.handle('notebook:forget', wrap((id) => engine.forgetNote(String(id))));
+  ipcMain.handle('notebook:clear', wrap(() => engine.clearNotebook()));
+  ipcMain.handle('notebook:set', wrap((on) => engine.setNotebook(!!on)));
   ipcMain.handle('ics:export', wrap(() => exportIcs()));
   // 🎓 新手引導
   ipcMain.handle('setup:probe', wrap(async () => ({ probe: await SETUP.probe({ baseUrl: engine.config.llm.baseUrl }) })));

@@ -641,3 +641,32 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .hl-main { flex: 1; min-width: 0; }
 .hl-main b { font-size: 13.5px; }
 .hl-main small { display: block; font-size: 12px; color: var(--ink-soft); line-height: 1.5; word-break: break-all; }
+
+/* ---------- 📒 艾琳的小本子：橫線筆記紙、左邊紅色邊線 ---------- */
+.nb-body { background: #efe6cf; padding: 10px; }
+.nb-paper {
+  position: relative; padding: 6px 12px 12px 30px; border-radius: 4px 10px 10px 4px;
+  background: repeating-linear-gradient(180deg, transparent 0 25px, #cfdcef 25px 26px), #fffdf5;
+  box-shadow: 0 2px 6px rgba(80, 60, 20, .18), inset 3px 0 0 #e8dcc0; line-height: 26px;
+}
+.nb-paper::before { content: ''; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px; background: rgba(224, 86, 122, .45); }
+.nb-sec h3 { margin: 4px 0 0; font-size: 13px; font-weight: 800; color: var(--navy); letter-spacing: 1px; height: 26px; }
+.nb-sec ul { list-style: none; margin: 0; padding: 0; }
+.nb-item { display: flex; align-items: center; gap: 6px; min-height: 26px; font-size: 14px; animation: nbIn .25s ease-out both; }
+.nb-item::before { content: '・'; color: var(--gold-deep); margin-left: -4px; }
+.nb-text { flex: 0 1 auto; min-width: 0; color: #3a3550; position: relative; }
+.nb-when { color: var(--rose); font-weight: 800; margin-right: 6px; font-variant-numeric: tabular-nums; }
+.nb-tag { font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 5px; background: var(--green-soft); color: var(--green); white-space: nowrap; }
+.nb-noted { margin-left: auto; font-size: 11px; color: #a49f8a; font-variant-numeric: tabular-nums; }
+.nb-del { border: none; background: transparent; color: #c4b7a0; font-size: 12px; width: 20px; height: 20px; line-height: 20px; border-radius: 50%; padding: 0; opacity: .45; transition: opacity .15s, background .15s; }
+.nb-item:hover .nb-del { opacity: 1; }
+.nb-del:hover { background: var(--rose-soft); color: var(--rose); }
+.nb-item .nb-text::after { content: ''; position: absolute; left: -2px; top: 50%; height: 2px; width: 0; background: var(--rose); border-radius: 2px; transform: rotate(-1.5deg); transition: width .32s ease-out; }
+.nb-item.striking .nb-text::after { width: calc(100% + 4px); }
+.nb-item.striking { opacity: .55; transition: opacity .32s .1s; }
+.nb-empty { margin: 0; padding: 4px 0; color: var(--ink-soft); font-size: 13px; text-align: center; }
+.nb-off { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 6px; padding: 4px 8px; line-height: 1.5; font-size: 12px; color: #7a5a1a; background: var(--gold-soft); border-radius: 8px; }
+.nb-sketch { margin-top: 10px; padding-top: 4px; border-top: 1px dashed #d8c9a8; font-size: 12px; color: #9a8f78; font-style: italic; }
+.nb-seal { display: inline-block; width: 20px; height: 20px; margin-right: 6px; line-height: 20px; text-align: center; border-radius: 50%; font-style: normal; font-size: 11px; color: #fff; background: radial-gradient(circle at 35% 35%, #ff9db6, var(--rose)); box-shadow: 0 1px 2px rgba(0, 0, 0, .25); vertical-align: middle; }
+.nb-sketch.s2 .nb-seal { background: radial-gradient(circle at 35% 35%, #ffe38e, var(--gold-deep)); }
+@keyframes nbIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }

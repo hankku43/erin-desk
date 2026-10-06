@@ -23,6 +23,7 @@ const ICS = require('./ics');
 const MH = require('./meihua');
 const A = require('./affection');
 const T = require('./tutorial');
+const M = require('./memory');
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -102,6 +103,7 @@ class Engine {
       lore: { path: 'lore/艾琳.md', topK: 3, embeddings: 'auto', embedModel: 'qwen3-embedding:0.6b' },
       focus: { minutes: 25, rest: 5, xp: 15, gold: 3 }, // 🍅 專注模式
       divination: { cost: 10, repeatHours: 24 }, // ✨ 占卜魔法：每次花費的金幣、一事不二占的時間
+      notebook: { enabled: true }, // 📒 艾琳的小本子（其他欄位見 memory.js DEFAULTS）
       reminders: {
         weekdaysOnly: true, graceMinutes: 15,
         items: [
@@ -455,6 +457,7 @@ class Engine {
       tutorial: this.tutorialInfo(),
       schedule: this.scheduleInfo(),
       llm: { enabled: !!this.config.llm.enabled, model: this.config.llm.model },
+      notebook: { count: this.nb().items.length, enabled: this.nbCfg().enabled !== false },
     };
   }
 
@@ -559,6 +562,7 @@ class Engine {
       lines.push(await this.say('greet'));
     }
     if (overdue.length) lines.push(await this.say('overdue', { questView: overdue[0], eventDetail: `逾期任務：${overdue.map((q) => q.title).join('、')}` }));
+    lines.push(...await this.noteDateLines()); // 📒 今天是小本子上的重要日子
     return this.settle({ lines, view: this.view() });
   }
 
@@ -992,6 +996,7 @@ class Engine {
     if (this.state.focus || !(this.state.onboarding && this.state.onboarding.done) || this.isCold()) return null;
     const now = this.now().getTime();
     const p = this.proState();
+    if (this.nbCfg().enabled !== false && M.dueDates(this.nb(), this.now()).length && now - (p.lastAt || 0) > 60000) return 'note'; // 📒 重要的日子：當天一定說（不用等間隔）
     const stage = this.affOn() ? this.affStage() : 1;
     const gap = base * A.pick(this.affCfg().chatty || [1], stage) * 60000; // 越熟越常來
     const lastAt = (p.lastAt || 0) > now ? 0 : (p.lastAt || 0); // 時鐘被調回去過
@@ -1012,7 +1017,8 @@ class Engine {
       const t = this.todayInfo();
       p.slot = `${t.date}|${t.current.id || t.current.slot}`;
       res = await this.daily();
-    } else res = await this.topic();
+    } else if (kind === 'note') res = { lines: await this.noteDateLines(), view: this.view() };
+    else res = await this.topic();
     if (!res || !res.lines || !res.lines.length) return null;
     p.lastAt = now;
     this.saveState();
@@ -1022,6 +1028,10 @@ class Engine {
   async topic() {
     if (this.isCold()) return null;
     const stage = this.affStage();
+    // 📒 小本子上有「最近的事」還沒問後續：多半先關心那件事（第 1 階只記、不追問）
+    const ncfg = this.nbCfg();
+    const fu = ncfg.enabled !== false && (this.affOn() ? stage : 2) >= ncfg.followStage ? M.dueFollowUp(this.nb(), this.now(), ncfg) : null;
+    if (fu && this.rnd() < 0.7) return this.followUp(fu);
     const pool = this.lore.topicPool(stage);
     if (!pool.length) return null;
     const p = this.proState();
@@ -1117,7 +1127,12 @@ class Engine {
     if (apologizing) extra.push(`【道歉】${call}在為剛才的失禮道歉：接受道歉，可以小小抱怨一句，最後原諒他。`);
     if (relationQ) extra.push(`【關係問題】${call}在問你們現在是什麼關係：照【關係】的親近程度，用角色口吻回答一兩句。`);
     if (kw === 'care') extra.push(`${call}現在很痛苦：先溫柔地關心他，建議他找信任的人或專業的人聊聊，這句不要提任務。`);
-    if (replyTopic) extra.push(`【話題】剛才是你主動找${call}聊「${tp.title}」（你說：「${tp.text}」），他現在在回你：先具體回應他說的內容，可以再分享一點你自己的事或接著問一句；不要把話題轉回任務。`);
+    if (replyTopic && tp.noteId) extra.push(`【話題】剛才是你主動關心${call}之前說的「${tp.note}」（你說：「${tp.text}」），他現在在回你近況：先具體回應他說的內容，開心就替他高興、不順就安慰他；不要把話題轉回任務。`);
+    else if (replyTopic) extra.push(`【話題】剛才是你主動找${call}聊「${tp.title}」（你說：「${tp.text}」），他現在在回你：先具體回應他說的內容，可以再分享一點你自己的事或接著問一句；不要把話題轉回任務。`);
+    // 📒 小本子：跟這句話有關的筆記給 AI 看；AI 也可以在 notes 裡記下新的
+    const nbOn = this.nbCfg().enabled !== false;
+    const nbCtx = nbOn ? M.contextText(M.relevant(this.nb(), text, now), now, call, self) : '';
+    if (nbOn) extra.push(M.RULES(call));
     // 這次的情緒：失禮→鄙視；冷戰→冷淡；命中標了害羞的設定（稱讚、秘密、感情）→ 依好感階段擲骰
     // 同一句話在回報進度時不害羞（那時要好好確認）
     let mood = null;
@@ -1132,12 +1147,15 @@ class Engine {
       userText: text,
       history: recent, // npc 會再濾掉備援台詞那幾輪，取最後 4 句
       extraSystem: extra.join('\n'),
-      extraProps: aOn ? { ...I.ACTION_SCHEMA, attitude: { type: 'string', enum: A.ATTITUDES } } : I.ACTION_SCHEMA,
-      extraUser: [I.catalogText(cat), this.lore.contextText(hits)].filter(Boolean).join('\n\n'),
+      extraProps: { ...I.ACTION_SCHEMA, ...(aOn ? { attitude: { type: 'string', enum: A.ATTITUDES } } : {}), ...(nbOn ? M.SCHEMA : {}) },
+      extraUser: [I.catalogText(cat), this.lore.contextText(hits), nbCtx].filter(Boolean).join('\n\n'),
       maxTokens: 320,
     });
     if (line.source === 'llm') line.text = I.decodeKeys(line.text, cat); // 台詞裡的 q4-0 換回名字
     const llmAtt = line.source === 'llm' && line.data ? line.data.attitude : null;
+    const aiNotes = line.source === 'llm' && line.data ? line.data.notes : null;
+    // 📒 記下冒險者說的自己的事（罵人、說自己很痛苦的那句不記）
+    const noted = offenseKw || kw === 'care' ? [] : this.noteFrom(text, aiNotes);
     // AI 給的動作；AI 離線時改用關鍵字解析。被騷擾、罵的那句不處理進度
     const raw = offenseKw ? [] : line.source === 'llm' ? ((line.data && line.data.actions) || []) : workItems;
     const items = I.validate(raw, cat);
@@ -1153,14 +1171,16 @@ class Engine {
     } else if (line.source !== 'llm') {
       const noop = I.explainNoop(text, cat);
       const lore = hits.find((h) => h.strong && h.entry.reply); // 離線：關鍵字直接命中的設定，用預寫台詞回
-      const tpl = (k) => { const t = this.affTpl(k); line.text = t.text; line.emotion = t.emotion; line.source = 'template'; };
+      const tpl = (k, f = {}) => { const t = this.affTpl(k, f); line.text = t.text; line.emotion = t.emotion; line.source = 'template'; };
       if (offenseKw) tpl(offenseKw === 'harass' ? 'offense_harass' : 'offense_rude');
       else if (apologizing) tpl('apology_accept');
       else if (this.isCold()) tpl('cold_chat');
       else if (relationQ) tpl(`relation_${Math.min(5, stage)}`);
       else if (noop) { line.text = noop; line.emotion = 'happy'; }
+      else if (noted.some((x) => x.kind === 'date' || x.kind === 'work')) tpl('note_taken', { note: M.label(noted.find((x) => x.kind === 'date' || x.kind === 'work')) }); // 「我的生日」「最近在忙…」：先說記下了，不要接成艾琳自己的生日、閒聊開場
       else if (lore) { line.text = lore.entry.reply; line.emotion = lore.entry.emotion || 'normal'; line.source = 'lore'; }
       else if (replyTopic) tpl('topic_reply');
+      else if (noted.length) tpl('note_taken', { note: M.label(noted[0]) }); // 離線也看得出她有在聽
       else if (/(完|好了|搞定|取消|交付|提交|勾)/.test(text)) {
         line.text = `嗯……${self}找不到你說的是哪一項。可以說得更具體一點，或直接到任務板勾選喔。`;
         line.emotion = 'thinking';
@@ -1190,7 +1210,99 @@ class Engine {
     this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest, at: this.now().getTime() }); // source=template 的不會再給模型看
     this.state.chat = this.state.chat.slice(-20);
     this.saveState();
-    return this.settle({ lines: [line], proposal, view: this.view() });
+    return this.settle({ lines: [line], proposal, noted: noted.map(M.label), view: this.view() });
+  }
+
+  // ---- 📒 艾琳的小本子：記住冒險者親口說的自己的事 ----
+  nbCfg() { return { ...M.DEFAULTS, ...(this.config.notebook || {}) }; }
+  nb() { return this.state.notebook || (this.state.notebook = M.blank()); }
+  noteFrom(text, aiNotes) {
+    if (this.nbCfg().enabled === false) return [];
+    const now = this.now();
+    const found = [...M.extractRules(text, now), ...M.guardAI(aiNotes, text, now)];
+    if (!found.length) return [];
+    const { added, updated } = M.add(this.nb(), found, now, { max: this.nbCfg().max });
+    return [...added, ...updated];
+  }
+  notebookView() {
+    const stage = this.affOn() ? this.affStage() : 1;
+    return { ...M.view(this.nb(), this.now()), enabled: this.nbCfg().enabled !== false, sketch: stage >= 5 ? 2 : stage >= 3 ? 1 : 0 };
+  }
+  nbLine(key, f = {}) { const l = { ...this.npc.template(key, f), event: 'notebook' }; delete l.tpl; return l; }
+  // 打開小本子（被偷看）：熟了之後比較害羞
+  peekNotebook(quiet = false) {
+    const close = (this.affOn() ? this.affStage() : 1) >= 3;
+    return { notebook: this.notebookView(), lines: quiet ? [] : [this.nbLine(close ? 'notebook_peek_close' : 'notebook_peek')], view: this.view() };
+  }
+  forgetNote(id) {
+    if (!M.forget(this.nb(), id)) throw new Error('這一則已經不在小本子上了');
+    this.saveState();
+    return { notebook: this.notebookView(), lines: [this.nbLine('notebook_forget')], view: this.view() };
+  }
+  clearNotebook() {
+    this.state.notebook = M.blank();
+    this.saveState();
+    return { notebook: this.notebookView(), lines: [this.nbLine('notebook_clear')], view: this.view() };
+  }
+  setNotebook(on) {
+    this.saveConfigPatch({ notebook: { enabled: !!on } });
+    return { notebook: this.notebookView(), lines: [this.nbLine(on ? 'notebook_on' : 'notebook_off')], view: this.view() };
+  }
+  // 主動關心小本子上「最近的事」（或工作上在忙的事）的後續
+  async followUp(item) {
+    const now = this.now(); const at = now.getTime();
+    const { call } = this.npc.names();
+    const ago = M.agoText(item.updatedAt, now);
+    const key = item.kind === 'work' ? 'followup_work' : item.mood === 'good' ? 'followup_good' : 'followup';
+    const t = this.npc.template(key, { note: item.text, ago });
+    const what = item.kind === 'work' ? `${call}${ago}說最近${item.text}` : `${call}${ago}說過「${item.text}」`;
+    const line = await this.say('note', {
+      quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [],
+      topic: `關心後續：${what}。問他後來怎麼樣了（${item.mood === 'good' ? '替他開心' : '溫柔關心'}），1～2 句、用問句結尾。`,
+      opener: t.text,
+    }, { maxTokens: 200 });
+    if (line.source !== 'llm') { line.text = t.text; line.emotion = t.emotion; }
+    line.source = line.source === 'llm' ? 'llm' : 'note';
+    delete line.repeated; delete line.data; delete line.tpl;
+    item.followed = at;
+    const p = this.proState();
+    p.lastTitle = '小本子';
+    p.topic = { key: `note:${item.id}`, title: '小本子', noteId: item.id, note: item.text, text: line.text, at, replied: false };
+    this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest: this.ps.activeQuestId || null, at, topic: '小本子' });
+    this.state.chat = this.state.chat.slice(-20);
+    this.saveState();
+    return { lines: [{ ...line, event: 'topic', topic: '小本子' }], view: this.view() };
+  }
+  // 今天是小本子上的重要日子（或明天就是那件事）：每件一天說一次；冒險者生日送一份金幣（一年一次）
+  async noteDateLines() {
+    const now = this.now();
+    if (this.nbCfg().enabled === false || this.isCold()) return [];
+    const due = M.dueDates(this.nb(), now);
+    if (!due.length) return [];
+    const today = M.iso(now); const year = now.getFullYear();
+    const { call } = this.npc.names();
+    const lines = [];
+    for (const { item, when } of due.slice(0, 2)) {
+      if (when === 'eve') item.eveOn = today; else item.saidOn = today;
+      let key; const f = { note: item.text }; let about;
+      if (when === 'eve') { key = 'date_eve'; about = `明天就是${call}的「${item.text}」，提醒他準備、早點休息`; }
+      else if (item.self) {
+        const gold = this.nbCfg().birthdayGold;
+        if (item.giftYear !== year && gold > 0) {
+          G.grant(this.state, { xp: 0, gold }, '艾琳的生日禮物', this.config.rewards);
+          item.giftYear = year; f.gold = gold; key = 'date_birthday';
+          about = `今天是${call}的生日！祝他生日快樂，送他 ${gold} 金幣當禮物（一定要提到）`;
+        } else { key = 'date_birthday_again'; about = `今天是${call}的生日，祝他生日快樂`; }
+      } else if (item.yearly) { key = 'date_yearly'; about = `今天是${call}的「${item.text}」，提醒他別忘了`; }
+      else { key = 'date_today'; about = `今天就是${call}的「${item.text}」，替他加油打氣`; }
+      const t = this.npc.template(key, f);
+      const line = await this.say('note', { quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [], topic: `${about}。1～2 句。`, opener: t.text }, { maxTokens: 200 });
+      if (line.source !== 'llm') { line.text = t.text; line.emotion = t.emotion; line.source = 'note'; }
+      delete line.repeated; delete line.data; delete line.tpl;
+      lines.push({ ...line, event: 'note' });
+    }
+    this.saveState();
+    return lines;
   }
 
   cancelProposal() {

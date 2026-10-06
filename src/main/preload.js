@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('api', {
   divineCheck: (q) => ipcRenderer.invoke('divine:check', q),
   divineCast: (opts) => ipcRenderer.invoke('divine:cast', opts),
   divineRead: (id) => ipcRenderer.invoke('divine:read', id),
+  notebookPeek: (quiet) => ipcRenderer.invoke('notebook:peek', !!quiet),
+  notebookForget: (id) => ipcRenderer.invoke('notebook:forget', id),
+  notebookClear: () => ipcRenderer.invoke('notebook:clear'),
+  setNotebook: (on) => ipcRenderer.invoke('notebook:set', on),
   // 🎓 新手引導
   setupProbe: () => ipcRenderer.invoke('setup:probe'),
   setupPull: (model) => ipcRenderer.invoke('setup:pull', model),
