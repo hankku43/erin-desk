@@ -244,6 +244,12 @@ code { font-family: Consolas, "Cascadia Mono", "Noto Sans Mono CJK TC", monospac
 .tracker .now { margin-top: 5px; padding-top: 5px; border-top: 1px dashed rgba(255, 255, 255, .25); opacity: .9; }
 .hud-mini { border: none; background: rgba(255, 255, 255, .15); color: #fff; border-radius: 6px; width: 22px; height: 20px; line-height: 14px; font-weight: 900; font-size: 12px; padding: 0; }
 .hud-mini:hover { background: rgba(255, 255, 255, .3); }
+.hud-hide { font-size: 10px; font-weight: 700; }
+.hud-hide:hover { background: rgba(255, 120, 140, .45); }
+/* 狀態欄收起來：只留艾琳（對話框也關掉時畫面上就只有她） */
+body.no-hud #hud, body.no-hud #hudPeek { display: none !important; }
+body.hud-out #hud { animation: fadeDown .3s ease-in both; pointer-events: none; }
+body.hud-back #hud { animation: riseIn .45s ease-out both; }
 
 /* ---------- NPC ---------- */
 /* 呼吸掛在圖片上、說話／跳躍掛在外層，彼此不會互相蓋掉，所以任何狀態下都會一直呼吸 */

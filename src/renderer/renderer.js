@@ -262,6 +262,18 @@ $('#dlgText').addEventListener('wheel', (e) => {
 }, { passive: true });
 $('#aiDot').addEventListener('click', () => api.toggleAI());
 $('#hudMini').addEventListener('click', goMini);
+// 收起狀態欄：先滑下去，再存設定（只剩艾琳）；右鍵選單「📊 顯示狀態欄」再打開
+$('#hudHide').addEventListener('click', (e) => {
+  e.stopPropagation();
+  hidePeek();
+  document.body.classList.add('hud-out');
+  setTimeout(async () => {
+    const r = await api.setHud(false);
+    document.body.classList.remove('hud-out');
+    if (r && r.view) applyView(r.view);
+    toast('📊 狀態欄收起來了。右鍵艾琳 →「📊 顯示狀態欄」可以再打開', 4200);
+  }, 300);
+});
 
 function showThinking() {
   openDialog();
@@ -394,6 +406,10 @@ function applyView(v) {
   state.view = v;
   state.clockOffset = new Date(v.now).getTime() - Date.now(); // 面板倒數用主程式的時間
   state.fx = v.fx !== false;
+  // 狀態欄開關：從關到開時滑回來
+  const noHud = v.hud === false;
+  if (document.body.classList.contains('no-hud') && !noHud) { document.body.classList.add('hud-back'); setTimeout(() => document.body.classList.remove('hud-back'), 700); }
+  document.body.classList.toggle('no-hud', noHud);
   const p = v.player;
   $('#lv').textContent = `Lv.${p.level}`;
   $('#ptitle').textContent = p.title;
@@ -572,7 +588,7 @@ function renderPeek() {
 function hidePeek() { clearTimeout(state.peekTimer); state.peekOpen = false; $('#hudPeek').classList.add('hidden'); }
 $('#tracker').addEventListener('mouseenter', () => {
   clearTimeout(state.peekTimer);
-  state.peekTimer = setTimeout(() => { if (state.mini || state.focusConfirm) return; state.peekOpen = true; renderPeek(); $('#hudPeek').classList.remove('hidden'); }, 280);
+  state.peekTimer = setTimeout(() => { if (state.mini || state.focusConfirm || document.body.classList.contains('no-hud')) return; state.peekOpen = true; renderPeek(); $('#hudPeek').classList.remove('hidden'); }, 280);
 });
 $('#tracker').addEventListener('mouseleave', hidePeek);
 

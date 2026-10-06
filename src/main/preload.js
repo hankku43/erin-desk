@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('api', {
   divineCheck: (q) => ipcRenderer.invoke('divine:check', q),
   divineCast: (opts) => ipcRenderer.invoke('divine:cast', opts),
   divineRead: (id) => ipcRenderer.invoke('divine:read', id),
+  setHud: (on) => ipcRenderer.invoke('ui:setHud', !!on),
   journalOpen: (key, quiet) => ipcRenderer.invoke('journal:open', key || null, !!quiet),
   journalComment: (key, force) => ipcRenderer.invoke('journal:comment', key || null, !!force),
   journalExport: (key) => ipcRenderer.invoke('journal:export', key || null),

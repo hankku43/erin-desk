@@ -420,6 +420,7 @@ function menuTemplate() {
       { label: '📖 冒險日誌・週報', click: open('journal') },
     ] },
     { type: 'separator' },
+    ...(engine.config.window.hud === false && !mini ? [{ label: '📊 顯示狀態欄', click: () => { const r = engine.setHud(true); push('view:update', { view: r.view }); } }] : []), // 狀態欄收起來時：第一層就找得到
     { label: '📂 週計畫', submenu: [
       { label: '選擇週計畫檔…', click: () => choosePlan() },
       { label: '開啟計畫檔', click: () => shell.openPath(engine.planFile()) },
@@ -438,6 +439,7 @@ function menuTemplate() {
     ] },
     { label: '⚙ 設定與資料', submenu: [
       { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
+      { label: '📊 狀態欄（等級、當前任務）', type: 'checkbox', checked: engine.config.window.hud !== false, click: (m) => { const r = engine.setHud(m.checked); push('view:update', { view: r.view }); } },
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
       { label: `📒 讓${npcName}記小本子（記住你說過的事）`, type: 'checkbox', checked: engine.nbCfg().enabled !== false, click: (m) => { const r = engine.setNotebook(m.checked); push('npc:lines', r.lines); push('view:update', { view: r.view }); } },
       { label: '🖥 固定在顯示器', submenu: displayMenu() },
@@ -615,6 +617,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('divine:check', wrap((q) => engine.divineCheck(q)));
   ipcMain.handle('divine:cast', wrap((opts) => engine.divineCast(opts || {})));
   ipcMain.handle('divine:read', wrap((id) => engine.divineRead(id)));
+  ipcMain.handle('ui:setHud', wrap((on) => engine.setHud(!!on)));
   ipcMain.handle('journal:open', wrap((key, quiet) => engine.journalOpen(key ? String(key) : null, !!quiet)));
   ipcMain.handle('journal:comment', wrap((key, force) => engine.journalComment(key ? String(key) : null, !!force)));
   ipcMain.handle('journal:export', wrap((key) => { const r = engine.journalExport(key ? String(key) : null); shell.showItemInFolder(r.path); return r; }));

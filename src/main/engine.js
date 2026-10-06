@@ -450,6 +450,7 @@ class Engine {
       writeBack: this.config.plan.writeBack,
       fx: this.config.window.transformFx !== false,
       idleAnim: this.config.window.idleAnim !== false, // 待機小動作
+      hud: this.config.window.hud !== false, // 左下角的狀態欄（等級、當前任務）；關掉就只剩艾琳
       editable: !this.legacy && !!this.planText,
       smart: { on: this.lore.smartOn(), status: this.lore.embedStatus },
       focus: this.focusInfo(),
@@ -1310,6 +1311,9 @@ class Engine {
     this.saveState();
     return lines;
   }
+
+  // 狀態欄（左下角的等級、經驗值、當前任務）開關；存在設定裡，下次打開還是一樣
+  setHud(on) { this.saveConfigPatch({ window: { hud: !!on } }); return { view: this.view() }; }
 
   // ---- 📖 冒險日誌＋週報 ----
   jCfg() { const c = { ...J.DEFAULTS, ...(this.config.journal || {}) }; c.labels = { ...J.DEFAULTS.labels, ...((this.config.journal || {}).labels || {}) }; return c; }
