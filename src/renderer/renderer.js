@@ -1090,7 +1090,6 @@ function renderPanelInner(el, v) {
   if (state.panel === 'notebook') renderNotebook(el, v);
   if (state.panel === 'journal') renderJournal(el, v);
   if (state.panel === 'shop') renderShop(el, v);
-  if (state.panel === 'collection') renderCollection(el, v);
 
   if (state.panel === 'report') {
     const t = v.today;
@@ -1171,7 +1170,6 @@ $('#panel').addEventListener('click', async (e) => {
   if (state.panel === 'notebook' && await notebookClick(e)) return;
   if (state.panel === 'journal' && await journalClick(e)) return;
   if (state.panel === 'shop' && await shopClick(e)) return;
-  if (state.panel === 'collection' && await collectionClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }
   if (t.closest('[data-back]')) { backFromForm(); return; }
@@ -1291,7 +1289,7 @@ api.on('ui:open', (kind) => {
   if (kind === 'notebook') { openNotebook(); return; }
   if (kind === 'journal') { openJournal(); return; }
   if (kind === 'shop') { openShop(); return; }
-  if (kind === 'collection') { openCollection(); return; }
+  if (kind === 'collection') { openCollection('ach'); return; }
   openPanel(kind); if (kind === 'daily') run(() => api.daily(), { talk: true });
 });
 

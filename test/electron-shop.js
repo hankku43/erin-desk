@@ -27,6 +27,8 @@ module.exports = ({ win, engine, app }) => {
       // 1. 點狀態欄的金幣 → 雜貨舖（雙胞胎打招呼）
       await click('#gold'); await wait(600);
       assert(await js(`state.panel === 'shop' && !!document.querySelector('.sp-keeper .sp-say')`), '點金幣開店');
+      assert((await js(`document.querySelectorAll('.sp-row').length`)) >= 6 && (await js(`[...document.querySelectorAll('.sp-act')].every((b) => b.getBoundingClientRect().height >= 30)`)), '一列一個商品、按鈕夠大');
+      assert((await js(`document.querySelector('#panel .panel-body').scrollHeight / document.querySelector('#panel .panel-body').clientHeight`)) < 3, '不用捲太多');
       assert((await js(`document.querySelectorAll('[data-sp-gift]').length`)) === 9, '九種禮物');
       await shot('s01_gifts');
       // 2. 送奶茶：艾琳的反應、成就「一點心意」跳出來
@@ -57,8 +59,10 @@ module.exports = ({ win, engine, app }) => {
       await click('[data-sp-draw="10"]'); await wait(1600); await flush();
       assert((await js(`document.querySelectorAll('.sp-draw .sp-card').length`)) === 10, '十張');
       assert(await js(`[...document.querySelectorAll('.sp-draw .sp-card')].some((x) => /r[34]/.test(x.className))`), '保底 ★★★');
-      await js(`document.querySelector('#panel .panel-body').scrollTop = 120; 0`); await wait(300);
+      await js(`document.querySelector('#panel .panel-body').scrollTop = 0; 0`); await wait(300);
       await shot('s05_draw');
+      await click('[data-sp-fold]'); await wait(200);
+      assert(await js(`!document.querySelector('.sp-draw') && document.querySelectorAll('.co-card').length === 24`), '收起後就是圖鑑');
       // 5. 錢不夠：雙胞胎說「差一點」（不是錯誤）
       engine.state.player.gold = 3;
       await click('[data-sp-tab="gift"]'); await wait(200);
@@ -67,16 +71,17 @@ module.exports = ({ win, engine, app }) => {
       assert(engine.state.player.gold === 3, '沒有扣錢');
       // 6. 成就與圖鑑
       engine.state.streak = { cur: 5, best: 5, last: require('../src/main/game').todayISO(engine.now()), days: 9 };
-      await click('[data-sp-col]'); await wait(700);
-      assert(await js(`state.panel === 'collection' && document.querySelectorAll('.co-a').length > 20`), '成就牆');
+      wc.send('view:update', { view: engine.view() }); await js(`api.collectionOpen().then((c) => { state.sp.col = c.collection; }); 0`); await wait(300); // 測試直接改了存檔：重抓
+      await click('[data-sp-tab="ach"]'); await wait(400);
+      assert(await js(`state.panel === 'shop' && document.querySelectorAll('.co-a').length > 20`), '成就牆在同一個面板');
       assert(/連續上工 5 天/.test(await js(`document.querySelector('.co-streak').textContent`)), '連續上工');
       assert(await js(`!document.querySelector('#hudStreak').classList.contains('hidden') && document.querySelector('#hudStreak').textContent === '🔥5'`), '狀態欄的 🔥5');
       await shot('s06_achievements');
-      await click('[data-col-tab="cards"]'); await wait(300);
       engine.state.collection.dust = 500;
-      const r2 = await js(`api.collectionOpen().then((r) => { state.col.data = r.collection; renderPanel(); return r.collection.cards.owned; })`);
+      await click('[data-sp-tab="cards"]'); await wait(300);
+      const r2 = await js(`api.shopOpen().then((r) => { state.sp.data = r.shop; renderPanel(); return r.shop.cards.owned; })`);
       await js(`document.querySelector('[data-co-ex]:not([disabled])').click(); 0`); await wait(700);
-      const owned2 = await js(`state.col.data.cards.owned`);
+      const owned2 = await js(`state.sp.data.cards.owned`);
       assert(owned2 === r2 + 1, `星屑換卡：${r2} → ${owned2}`);
       await shot('s07_book');
       console.log('DONE');
