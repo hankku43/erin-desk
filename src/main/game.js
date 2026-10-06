@@ -97,6 +97,16 @@ function ensureActive(plan, ps, now) {
   return { quest: next, changed: !!next };
 }
 
+// 成就用的累計次數：照獎勵的理由記（history 只留 300 筆，這裡是永久的）
+const TALLY = [
+  [/^完成目標/, 'objectives'], [/^交付任務/, 'quests'], [/^交付任務.*（準時）$/, 'onTime'], [/^完成行程/, 'rows'],
+  [/下班回報$/, 'reports'], [/^完成專注/, 'focus'], [/^今日運勢/, 'fortunes'], [/^今日運勢：大吉/, 'daikichi'], [/^占卜魔法/, 'divinations'],
+];
+function tally(state, reason) {
+  const s = state.stats || (state.stats = {});
+  for (const [re, k] of TALLY) if (re.test(reason)) s[k] = (s[k] || 0) + 1;
+}
+
 // now：紀錄的時間（引擎傳自己的時鐘進來，週報才算得對；測試可以假時間）
 function grant(state, reward, reason, rewards = DEFAULT_REWARDS, now = new Date()) {
   const before = levelInfo(state.player.xp, rewards.levelStep);
@@ -104,6 +114,7 @@ function grant(state, reward, reason, rewards = DEFAULT_REWARDS, now = new Date(
   state.player.gold += reward.gold;
   const after = levelInfo(state.player.xp, rewards.levelStep);
   state.history.unshift({ at: now.toISOString(), reason, xp: reward.xp, gold: reward.gold });
+  tally(state, reason);
   state.history = state.history.slice(0, 300);
   return { ...reward, reason, levelUp: after.level > before.level ? after : null, level: after };
 }
@@ -160,5 +171,5 @@ function remember(state, note) {
 
 module.exports = {
   DEFAULT_REWARDS, TIER_NAME, newState, planState, levelInfo, todayISO, daysBetween,
-  questView, pickNextQuest, ensureActive, onObjective, submitQuest, onDailyRow, onDailyReport, remember, grant,
+  questView, pickNextQuest, ensureActive, onObjective, submitQuest, onDailyRow, onDailyReport, remember, grant, tally, TALLY,
 };

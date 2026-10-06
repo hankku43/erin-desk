@@ -418,6 +418,9 @@ function menuTemplate() {
       { label: `✨ 占卜魔法（${engine.divCfg().cost} 金幣）…`, click: open('divine') },
       { label: `📒 ${npcName}的小本子（偷看）`, click: open('notebook') },
       { label: '📖 冒險日誌・週報', click: open('journal') },
+      { type: 'separator' },
+      { label: '🛒 雲朵雜貨舖', click: open('shop') },
+      { label: '🏅 成就與星座圖鑑', click: open('collection') },
     ] },
     { type: 'separator' },
     ...(engine.config.window.hud === false && !mini ? [{ label: '📊 顯示狀態欄', click: () => { const r = engine.setHud(true); push('view:update', { view: r.view }); } }] : []), // 狀態欄收起來時：第一層就找得到
@@ -617,6 +620,13 @@ app.whenReady().then(async () => {
   ipcMain.handle('divine:check', wrap((q) => engine.divineCheck(q)));
   ipcMain.handle('divine:cast', wrap((opts) => engine.divineCast(opts || {})));
   ipcMain.handle('divine:read', wrap((id) => engine.divineRead(id)));
+  ipcMain.handle('shop:open', wrap(() => engine.shopOpen()));
+  ipcMain.handle('shop:gift', wrap((id) => engine.buyGift(String(id))));
+  ipcMain.handle('shop:buy', wrap((id) => engine.buyDecor(String(id))));
+  ipcMain.handle('shop:equip', wrap((slot, id) => engine.equip(String(slot), id ? String(id) : null)));
+  ipcMain.handle('shop:draw', wrap((n) => engine.drawCards(Number(n))));
+  ipcMain.handle('shop:exchange', wrap((id) => engine.exchangeCard(String(id))));
+  ipcMain.handle('collection:open', wrap(() => engine.collectionOpen()));
   ipcMain.handle('ui:setHud', wrap((on) => engine.setHud(!!on)));
   ipcMain.handle('journal:open', wrap((key, quiet) => engine.journalOpen(key ? String(key) : null, !!quiet)));
   ipcMain.handle('journal:comment', wrap((key, force) => engine.journalComment(key ? String(key) : null, !!force)));

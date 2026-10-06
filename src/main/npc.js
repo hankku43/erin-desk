@@ -92,6 +92,7 @@ const EVENT_DESC = {
   all_clear: '本週所有任務都完成了！大肆慶祝。',
   divine: '冒險者請你用奶奶教的「星環占」占卜一件事（其實就是梅花易數）。依【卦象】用角色口吻解讀：先說整體傾向（依體用生剋），再說過程（互卦）和結果（變卦），最後給一個具體、做得到的小建議，最好跟他問的事情有關。卦名可以直接說，體用、五行這些術語少用，改用星環、星象的說法包裝。不要說得太絕對，占卜只是星星的建議；如果問的是健康、法律、金錢這類重大決定，溫柔提醒他還是要問專業的人。',
   chat: '冒險者在跟你聊天。依照狀態回答，若問該做什麼就依【當前任務】與【今日行程】建議。',
+  gift: '冒險者剛在雲朵雜貨舖買了禮物送你（照【禮物】）。照【關係】的親近程度反應：還不熟就有禮貌地驚喜、道謝；越熟越開心、越容易害羞。1～2 句，一定要提到禮物本身。黃瓜是惡作劇（貓族怕黃瓜），要嚇一跳、抗議，但不是真的生氣。不要提任務。',
   journal: '你在冒險日誌上替冒險者寫這週的評語（照【本週】）：3～4 句、像手寫留言，不要條列。先具體稱讚這週做到的事（說出真的委託名稱或數字），再溫柔提一下還沒完成的（不責備），最後替下週打氣。不要編造【本週】沒有的事。',
   journal_ready: '這是這週最後一天的下班回報，你把這週的冒險日誌整理好了，交給冒險者看。1～2 句：說這週辛苦了、日誌整理好了，可以順便提一個這週的亮點（照【本週】）。',
   note: '你想起小本子上記的、關於冒險者的事，自己主動跟他說（照【話題】的要求）：1～2 句、溫暖自然。不要提任務、進度、行程，不要說「小本子上寫著」，也不要編造【話題】以外的細節。',
@@ -152,6 +153,47 @@ const TEMPLATES = {
   notebook_clear: [['……全部劃掉了。那，我們從新的一頁開始吧。', 'worried']],
   notebook_off: [['好，{self}先把小本子收起來，之後不會再記新的事了。', 'normal']],
   notebook_on: [['嗯哼，小本子拿出來了！{call}說的事，{self}會好好記著。', 'happy']],
+  // 🛒 雲朵雜貨舖：收到禮物（low＝還不熟、mid＝熟了、high＝很熟）
+  gift: [['{opener}', 'happy']],
+  gift_tea_low: [['欸？給{self}的？……謝謝！剛好是「剛剛好多一點點」的甜度，雙胞胎一定偷偷告訴你了。', 'happy']],
+  gift_tea_mid: [['奶茶！今天的第……先不要數好了。謝謝{call}，{self}最喜歡這一家。', 'happy']],
+  gift_tea_high: [['{call}連{self}一天喝幾杯都記得嗎……嘿嘿，那這杯{self}要慢慢喝。', 'shy']],
+  gift_fish_low: [['小魚乾……{self}又不是一般的貓——好吧，謝謝，{self}收下了。', 'thinking']],
+  gift_fish_mid: [['狐嬸曬的小魚乾！咬起來脆脆的……啊，不是因為{self}是貓才喜歡喔。', 'happy']],
+  gift_fish_high: [['嘿嘿，那{self}分{call}一半。……不吃嗎？那{self}全部吃掉了喔。', 'happy']],
+  gift_fishbread_low: [['魚形麵包！霜糖麵包坊的！……謝、謝謝，{self}會從尾巴開始吃。', 'surprised']],
+  gift_fishbread_mid: [['是紅豆的！雖然沒有媽媽的好吃……但是很好吃。謝謝{call}。', 'happy']],
+  gift_fishbread_high: [['{call}記得{self}說過媽媽的味道……下次休假，{self}做霜月村的奶油餡給你吃。', 'shy']],
+  gift_bubble_low: [['這、這就是傳說中「有珍珠的魔法奶茶」！？{self}可以喝嗎？真的可以嗎？', 'surprised']],
+  gift_bubble_mid: [['珍珠在嘴巴裡彈來彈去……好神奇！謝謝{call}，{self}今天會一直很開心。', 'cheer']],
+  gift_bubble_high: [['第一次喝珍珠奶茶，是{call}請的……這個要寫進小本子的好事那一頁。', 'shy']],
+  gift_flower_low: [['藍鈴花！聞起來像春天的野餐……謝謝，{self}找個瓶子插起來。', 'happy']],
+  gift_flower_mid: [['{self}把它放在櫃台上，來的冒險者都會問「誰送的」——{self}才不告訴他們。', 'happy']],
+  gift_flower_high: [['挑一朵做成乾燥花寄回霜月村好了……就說，是很重要的人送的。', 'shy']],
+  gift_envelope_low: [['蓋了蠟封章的舊信封！這個章……{self}沒有！謝謝{call}，{self}要好好收著。', 'surprised']],
+  gift_envelope_mid: [['慢慢先生那邊的吧？這個章的花紋好漂亮……{self}的木盒又多一個寶物了。', 'happy']],
+  gift_envelope_high: [['{call}特地去舊書攤翻的嗎……{self}好開心，開心到尾巴停不下來。', 'shy']],
+  gift_ribbon_low: [['紅緞帶？跟{self}頭上這條好像……謝謝，{self}會好好收著的。', 'surprised']],
+  gift_ribbon_mid: [['{self}頭上這條是媽媽綁的……這條就留給特別的日子用吧。', 'happy']],
+  gift_ribbon_high: [['那、那下次……{call}要幫{self}綁嗎？……不、不是現在啦！', 'shy']],
+  gift_seal_low: [['遠方公會的蠟封章……！{self}的收藏變成第 {seals} 個了！謝謝{call}！', 'cheer']],
+  gift_seal_mid: [['第 {seals} 個！{self}今晚要把它們全部排成一列，一個一個看。', 'cheer']],
+  gift_seal_high: [['第 {seals} 個……{self}要把它放在木盒的正中間，因為是{call}送的。', 'shy']],
+  gift_cucumber: [
+    ['喵啊！？黃、黃瓜！？拿、拿遠一點……{call}是故意的對不對！', 'surprised'],
+    ['……{self}會記住這件事的。小本子上會寫「黃瓜事件」。', 'worried'],
+  ],
+  gift_again: [
+    ['{gift}……今天第二份了耶！謝謝{call}，不過不用這麼破費啦。', 'happy'],
+    ['又、又是{gift}？{self}收下了……{call}今天是怎麼了，好奇怪喔。', 'shy'],
+  ],
+  decor_on: [['{item}擺上去了！三號櫃台一下子變得好可愛～', 'happy'], ['嘿嘿，{item}……{self}每天上班都會看到它了。', 'happy']],
+  theme_on: [['櫃台換新顏色了！「{item}」……{self}覺得很好看喔。', 'happy'], ['換成「{item}」了！感覺連空氣都不一樣了～', 'cheer']],
+  card_best: [['那是……「{card}」！{call}的運氣也太好了吧！', 'surprised'], ['「{card}」！{self}在閣樓的窗戶也只看過一次……', 'surprised']],
+  // 🏅 成就、🔥 連續上工
+  achievement: [['解鎖成就「{name}」！公會發了 {gold} 金幣的獎勵，{self}幫你收好了～', 'cheer'], ['「{name}」達成！這個要記在冒險者名冊上，獎勵 {gold} 金幣！', 'cheer']],
+  achievement_many: [['一口氣解鎖了 {count} 個成就！「{names}」……獎勵一共 {gold} 金幣！', 'cheer']],
+  streak_milestone: [['連續上工第 {days} 天！{self}幫你蓋一個火焰章，再加 {gold} 金幣～', 'cheer'], ['{days} 天沒有中斷過！好厲害……這是全勤獎勵 {gold} 金幣！', 'cheer']],
   // 📖 冒險日誌
   journal_ready: [
     ['這週辛苦了！{self}把這週的冒險日誌整理好了，{call}看看～', 'happy'],
@@ -563,6 +605,7 @@ class NPC {
     if (f.topicInfo) L.push(`【話題相關設定】${f.topicInfo}`);
     if (f.report) L.push(`【${this.names().call}的回報】${f.report}`);
     if (f.week) L.push(`【本週】${f.week}`);
+    if (f.gift) L.push(`【禮物】${f.gift}`);
     if (f.memory && f.memory.length) L.push(`【最近紀錄】${f.memory.join('；')}`);
     return L.join('\n');
   }

@@ -25,6 +25,9 @@ const A = require('./affection');
 const T = require('./tutorial');
 const M = require('./memory');
 const J = require('./journal');
+const S = require('./shop');
+const C = require('./cards');
+const AC = require('./achievements');
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -106,6 +109,8 @@ class Engine {
       divination: { cost: 10, repeatHours: 24 }, // ✨ 占卜魔法：每次花費的金幣、一事不二占的時間
       notebook: { enabled: true }, // 📒 艾琳的小本子（其他欄位見 memory.js DEFAULTS）
       journal: { enabled: true }, // 📖 冒險日誌＋週報（labels、keep 見 journal.js DEFAULTS）
+      achievements: { enabled: true }, // 🏅 成就徽章牆
+      streak: { enabled: true }, // 🔥 連續上工（restDays、base、cap、milestones 見 achievements.js STREAK）
       reminders: {
         weekdaysOnly: true, graceMinutes: 15,
         items: [
@@ -169,6 +174,26 @@ class Engine {
   loadState() {
     try { this.state = JSON.parse(fs.readFileSync(this.savePath, 'utf8')); } catch (_) { this.state = G.newState(); }
     this.state = deepMerge(G.newState(), this.state);
+    // 成就用的累計次數：舊存檔第一次打開時，從還留著的紀錄補算（之後每次給獎勵都會記）
+    if (!this.state.stats) this.state.stats = this.bootstrapStats();
+    if (!this.state.shop) this.state.shop = S.blank();
+    if (!this.state.collection) this.state.collection = C.blank();
+    if (!this.state.achievements) this.state.achievements = {};
+    if (!this.state.streak) this.state.streak = AC.blankStreak();
+  }
+  bootstrapStats() {
+    const st = this.state;
+    const plans = Object.values(st.plans || {});
+    const sum = (f) => plans.reduce((n, p) => n + f(p), 0);
+    const hist = (re) => (st.history || []).filter((h) => re.test(h.reason || '')).length;
+    return {
+      objectives: sum((p) => Object.keys(p.awardedObjectives || {}).length),
+      quests: (st.player && st.player.questsDone) || 0,
+      onTime: sum((p) => Object.values(p.submitted || {}).filter((x) => x.onTime).length),
+      rows: sum((p) => Object.values(p.dailyDone || {}).filter(Boolean).length),
+      reports: sum((p) => Object.keys(p.dailyReported || {}).length),
+      focus: hist(/^完成專注/), fortunes: hist(/^今日運勢/), daikichi: hist(/^今日運勢：大吉/), divinations: hist(/^占卜魔法/),
+    };
   }
 
   saveState() {
@@ -463,6 +488,8 @@ class Engine {
       llm: { enabled: !!this.config.llm.enabled, model: this.config.llm.model },
       notebook: { count: this.nb().items.length, enabled: this.nbCfg().enabled !== false },
       projects: J.projects(this.state), // 以前用過的專案（新任務表單的選項）
+      decor: { ...this.state.shop.equip }, // 🛒 主題配色、櫃台吊飾／擺設
+      streak: this.streakOn() ? AC.current(this.state.streak, G.todayISO(this.now()), this.streakOpts()) : 0,
     };
   }
 
@@ -611,6 +638,7 @@ class Engine {
       if (reward && reward.levelUp) lines.push(await this.act('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }));
     }
     if (reward) this.affect(this.affCfg().gain.objective, '完成目標'); // 第一次完成才有（跟星屑一樣）
+    if (reward) this.workDone = true; // 🔥 今天上工了
     if (done) this.tutorialMark('objective');
     return this.settle({ reward, lines, view: this.view() });
   }
@@ -619,6 +647,7 @@ class Engine {
     const r = G.submitQuest(this.state, this.ps, this.plan, questId, report, this.now(), this.config.rewards);
     this.affect(this.affCfg().gain.submit + (r.onTime ? this.affCfg().gain.onTime : 0), r.onTime ? '準時交付任務' : '交付任務');
     this.tutorialMark('submit');
+    this.workDone = true;
     this.saveState();
     const lines = [];
     lines.push(await this.act('submit', {
@@ -683,6 +712,7 @@ class Engine {
     this.state.focus = null;
     const reward = G.grant(this.state, { xp: c.xp, gold: c.gold }, `完成專注 ${Math.round(f.minutes)} 分鐘（今天第 ${stats.count} 顆🍅）`, this.config.rewards, this.now());
     if (f.minutes >= 10) this.affect(this.affCfg().gain.focus, '完成專注');
+    this.workDone = true;
     this.saveState();
     const lines = [this.focusLine('focus_done', { minutes: Math.round(f.minutes), count: stats.count })];
     if (reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
@@ -758,6 +788,28 @@ class Engine {
         if (st > (a.maxStage || 1)) { G.grant(this.state, { xp: 0, gold: 10 * st }, '艾琳的心意', this.config.rewards, this.now()); a.maxStage = st; }
       } else if (st < a.stage) extra.push(this.affTpl('stagedown'));
       a.stage = st;
+    }
+    // 🔥 今天第一次完成事情：上工打卡（金幣），到了 3、7、14…天另外有獎勵
+    if (this.workDone) {
+      this.workDone = false;
+      const ck = this.streakOn() ? AC.checkIn(this.state.streak, G.todayISO(this.now()), this.streakOpts()) : null;
+      if (ck) {
+        G.grant(this.state, { xp: 0, gold: ck.gold }, `連續上工第 ${ck.cur} 天`, this.config.rewards, this.now());
+        if (ck.milestone) {
+          G.grant(this.state, { xp: 0, gold: ck.milestone }, `連續上工 ${ck.cur} 天達成`, this.config.rewards, this.now());
+          extra.push(this.lineOf('streak_milestone', { days: ck.cur, gold: ck.milestone }, 'streak'));
+        }
+        res.streak = ck;
+      }
+    }
+    // 🏅 新達成的成就：每個送一次金幣
+    const got = (this.config.achievements || {}).enabled === false ? [] : AC.check(this.state.achievements, this.achCtx(), this.now().getTime());
+    if (got.length) {
+      for (const a of got) G.grant(this.state, { xp: 0, gold: a.gold }, `成就：${a.name}`, this.config.rewards, this.now());
+      const gold = got.reduce((n, a) => n + a.gold, 0);
+      extra.push(got.length === 1 ? this.lineOf('achievement', { name: got[0].name, gold }, 'achievement')
+        : this.lineOf('achievement_many', { count: got.length, names: got.map((a) => a.name).slice(0, 3).join('」「') + (got.length > 3 ? '」…「' : ''), gold }, 'achievement'));
+      res.achievements = got.map((a) => ({ id: a.id, icon: a.icon, name: a.name, gold: a.gold }));
     }
     this.saveState();
     res.lines = [...lines, ...extra];
@@ -968,6 +1020,7 @@ class Engine {
     const row = [...this.plan.days.flatMap((d) => d.rows)].find((r) => r.id === rowId);
     const label = row ? (t.branch && this.ps.branch[t.date] === 'b' ? row.b : row.a) : rowId;
     const reward = G.onDailyRow(this.state, this.ps, rowId, label, done, this.config.rewards, this.now());
+    if (reward) this.workDone = true;
     this.saveState();
     // 新格式：時段勾選也寫回檔案（- [x] 09:00–10:30 …）
     if (!this.legacy && row && row.line !== undefined && this.P.setScheduleDone) {
@@ -1075,6 +1128,7 @@ class Engine {
     try { this.writePlan(this.P.setProgress(this.planText, date, fields)); } catch (e) { writeError = e.message; }
     const reward = G.onDailyReport(this.state, this.ps, date, fields, this.config.rewards, this.now());
     if (reward) this.affect(this.affCfg().gain.report, '下班回報');
+    this.workDone = true;
     this.saveState();
     const report = [fields.done, fields.blocker && `卡點：${fields.blocker}`, fields.next && `明天：${fields.next}`].filter(Boolean).join('；');
     const lines = [await this.act('daily_report', { report })];
@@ -1312,6 +1366,128 @@ class Engine {
     return lines;
   }
 
+  // ---- 🔥 連續上工、🏅 成就 ----
+  streakOn() { return (this.config.streak || {}).enabled !== false; }
+  streakOpts() { const c = { ...(this.config.streak || {}) }; delete c.enabled; return { ...c, plan: this.plan }; }
+  lineOf(key, f, event) { const l = { ...this.npc.template(key, f), event }; delete l.tpl; return l; }
+  // 成就要看的數字
+  achCtx() {
+    const s = this.state.stats || {};
+    const col = this.state.collection;
+    const sh = this.state.shop;
+    const owned = (r) => C.CARDS.filter((c) => (!r || c.r === r) && col.cards[c.id]).length;
+    const realGifts = S.GIFTS.filter((g) => !g.joke);
+    return {
+      objectives: s.objectives || 0, quests: s.quests || 0, onTime: s.onTime || 0, onTimeStreak: this.state.player.onTimeStreak || 0,
+      focus: s.focus || 0, reports: s.reports || 0, daikichi: s.daikichi || 0, divinations: s.divinations || 0,
+      level: G.levelInfo(this.state.player.xp, this.config.rewards.levelStep).level, streakBest: this.state.streak.best || 0,
+      gifts: Object.values(sh.gifts).reduce((n, x) => n + x, 0), giftKinds: realGifts.filter((g) => sh.gifts[g.id]).length, giftKindsTotal: realGifts.length,
+      cucumber: sh.gifts.cucumber || 0, ornaments: S.ORNAMENTS.filter((o) => sh.owned[o.id]).length, themed: s.themed || 0,
+      cards: owned(0), cardsTotal: C.CARDS.length, cards1: owned(1), cards1Total: C.CARDS.filter((c) => c.r === 1).length, ssr: owned(4),
+      notes: this.nb().items.length, weeks: Object.keys((this.state.journal && this.state.journal.weeks) || {}).length,
+      stage: this.affOn() ? this.affStage() : 0,
+    };
+  }
+  collectionView() {
+    return { achievements: AC.view(this.state.achievements, this.achCtx()), cards: C.view(this.state.collection), streak: { cur: this.view().streak, best: this.state.streak.best || 0, days: this.state.streak.days || 0 } };
+  }
+
+  // ---- 🛒 雲朵雜貨舖（兔族雙胞胎棉棉、朵朵顧店）----
+  shopView(twins) {
+    const gold = this.state.player.gold;
+    return { gold, keepers: S.KEEPERS, catalog: S.catalog(this.state.shop, gold), cards: C.view(this.state.collection), twins: twins || null, seals: this.state.shop.seals };
+  }
+  shopOpen() {
+    const sh = this.state.shop;
+    sh.visits = (sh.visits || 0) + 1;
+    this.saveState();
+    return { shop: this.shopView(S.twinsLine(sh.visits > 3 && this.rnd() < 0.5 ? 'helloBack' : 'hello', () => this.rnd())), view: this.view() };
+  }
+  // 花錢：不夠就回「差一點點」（不算錯誤，雙胞胎會說話）
+  spend(price, reason) {
+    if (this.state.player.gold < price) return false;
+    G.grant(this.state, { xp: 0, gold: -price }, `雜貨舖：${reason}`, this.config.rewards, this.now());
+    return true;
+  }
+  poor() { return { poor: true, shop: this.shopView(S.twinsLine('poor', () => this.rnd())), lines: [], view: this.view() }; }
+  // 買禮物送艾琳：一天第一份加好感（照她喜歡的程度）；黃瓜是惡作劇
+  async buyGift(id) {
+    const g = S.GIFT[id];
+    if (!g) throw new Error('沒有這個商品');
+    if (!this.spend(g.price, `買了${g.name}送給${this.config.npc.name}`)) return this.poor();
+    const sh = this.state.shop;
+    const today = G.todayISO(this.now());
+    if (sh.giftDay !== today) { sh.giftDay = today; sh.giftsToday = 0; }
+    const first = (sh.gifts[id] || 0) === 0;
+    sh.gifts[id] = (sh.gifts[id] || 0) + 1;
+    sh.giftsToday += 1;
+    if (id === 'seal') sh.seals = (sh.seals || 27) + 1;
+    const again = sh.giftsToday > 1 && !g.joke && id !== 'seal'; // 蠟封章每次都要說收藏變幾個
+    if (sh.giftsToday === 1 && g.like > 0) this.affect(g.like, `收到禮物：${g.name}`, { uncapped: true });
+    const stage = this.affOn() ? this.affStage() : 3;
+    const key = g.joke ? 'gift_cucumber' : again ? 'gift_again' : `gift_${id}_${S.giftTier(stage)}`;
+    const t = this.npc.template(key, { gift: g.name, seals: sh.seals });
+    const line = await this.say('gift', {
+      quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [],
+      gift: `${g.name}（${g.desc}）${first ? '，這是第一次收到' : ''}${again ? '，今天已經收過一份了' : ''}${id === 'seal' ? `，收藏變成第 ${sh.seals} 個` : ''}`, opener: t.text,
+    }, { maxTokens: 180 });
+    if (line.source !== 'llm') { line.text = t.text; line.emotion = t.emotion; line.source = 'template'; }
+    delete line.repeated; delete line.data; delete line.tpl;
+    this.saveState();
+    return this.settle({ gift: id, lines: [{ ...line, event: 'gift' }], shop: this.shopView(S.twinsLine(g.joke ? 'giftJoke' : 'gift', () => this.rnd())), view: this.view() });
+  }
+  // 買裝飾（主題配色、吊飾、擺設）：永久擁有，買了直接換上
+  buyDecor(id) {
+    const item = S.THEME[id] || S.ORN[id];
+    if (!item) throw new Error('沒有這個商品');
+    const sh = this.state.shop;
+    if (sh.owned[id]) return { shop: this.shopView(S.twinsLine('owned', () => this.rnd())), lines: [], view: this.view() };
+    if (!this.spend(item.price, item.name)) return this.poor();
+    sh.owned[id] = true;
+    const r = this.equip(S.THEME[id] ? 'theme' : item.slot, id);
+    r.shop = this.shopView(S.twinsLine(S.THEME[id] ? 'buyTheme' : 'buyDecor', () => this.rnd()));
+    return r;
+  }
+  // 換上／拿下（id 給 null＝拿下；主題拿下＝換回預設）
+  equip(slot, id) {
+    const sh = this.state.shop;
+    if (!['theme', 'hang', 'desk'].includes(slot)) throw new Error('沒有這個位置');
+    if (slot === 'theme' && !id) id = 'navy';
+    if (id) {
+      const item = slot === 'theme' ? S.THEME[id] : S.ORN[id];
+      if (!item || (slot !== 'theme' && item.slot !== slot)) throw new Error('放不上去');
+      if (!sh.owned[id]) throw new Error('還沒買這個');
+    }
+    const changed = sh.equip[slot] !== id;
+    sh.equip[slot] = id || null;
+    const lines = [];
+    if (changed && id) {
+      if (slot === 'theme') { if (id !== 'navy') this.state.stats.themed = (this.state.stats.themed || 0) + 1; lines.push(this.lineOf('theme_on', { item: S.THEME[id].name }, 'decor')); }
+      else lines.push(this.lineOf('decor_on', { item: S.ORN[id].name }, 'decor'));
+    }
+    this.saveState();
+    return this.settle({ lines, shop: this.shopView(), view: this.view() });
+  }
+  // 抽星座卡：一張 30、十張 270（最後一張保底 ★★★）
+  drawCards(n) {
+    n = Number(n) >= 10 ? 10 : 1;
+    const price = n === 10 ? C.PRICE.ten : C.PRICE.one;
+    if (!this.spend(price, `星座卡 ×${n}`)) return this.poor();
+    const results = C.draw(this.state.collection, n, () => this.rnd(), this.now().getTime());
+    const best = Math.max(...results.map((x) => x.card.r));
+    const lines = [];
+    if (best >= 3) { const top = results.find((x) => x.card.r === best).card; lines.push(this.lineOf('card_best', { card: top.name }, 'card')); }
+    this.saveState();
+    const tw = best === 4 ? 'drawBest' : best === 3 ? 'drawGood' : results.some((x) => !x.isNew) ? 'dup' : 'draw';
+    return this.settle({ draw: results.map((x) => ({ id: x.card.id, name: x.card.name, r: x.card.r, n: x.card.n, isNew: x.isNew, dust: x.dust })), lines, shop: this.shopView(S.twinsLine(tw, () => this.rnd())), view: this.view() });
+  }
+  exchangeCard(id) {
+    const r = C.exchange(this.state.collection, id, this.now().getTime());
+    this.saveState();
+    return this.settle({ card: { id: r.card.id, name: r.card.name, r: r.card.r }, lines: [], shop: this.shopView(S.twinsLine('exchange', () => this.rnd())), view: this.view() });
+  }
+  collectionOpen() { return this.settle({ collection: this.collectionView(), lines: [], view: this.view() }); }
+
   // 狀態欄（左下角的等級、經驗值、當前任務）開關；存在設定裡，下次打開還是一樣
   setHud(on) { this.saveConfigPatch({ window: { hud: !!on } }); return { view: this.view() }; }
 
@@ -1430,7 +1606,7 @@ class Engine {
         done.push(it.label);
       } catch (e) { failed.push(`${it.label}（${e.message}）`); }
     }
-    if (done.length) this.tutorialMark('progress');
+    if (done.length) { this.tutorialMark('progress'); this.workDone = true; }
     if (submitted) this.tutorialMark('submit');
     this.saveState();
     const lines = [];

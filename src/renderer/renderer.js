@@ -365,6 +365,8 @@ async function run(fn, { thinking = true, talk = false } = {}) {
   }
   if (r.writeError) toast(`⚠ 回寫計畫檔失敗：${r.writeError}`, 5000);
   if (r.reward) celebrate(r.reward);
+  if (r.achievements && r.achievements.length) showAchievements(r.achievements); // 🏅
+  if (r.streak && !r.streak.milestone) toast(`🔥 連續上工第 ${r.streak.cur} 天　🪙 +${r.streak.gold}`, 2600);
   if (r.journal && state.panel !== 'journal' && state.panel !== 'report') setTimeout(() => openJournal(r.journal, { quiet: true }), 400); // 聊天裡回報最後一天
   if (r.noted && r.noted.length) { toast(`📒 ${(state.view && state.view.npc && state.view.npc.name) || '艾琳'}記下來了：${r.noted.join('、')}`, 3200); notebookRefresh(); }
   if (r.lines && r.lines.length) enqueue(r.lines);
@@ -422,6 +424,8 @@ function applyView(v) {
   const p = v.player;
   $('#lv').textContent = `Lv.${p.level}`;
   $('#ptitle').textContent = p.title;
+  const sk = $('#hudStreak'); sk.textContent = `🔥${v.streak || 0}`; sk.classList.toggle('hidden', !(v.streak >= 2)); // 🔥 連續上工 2 天以上才顯示
+  if (typeof applyDecor === 'function') applyDecor(v); // 🛒 主題配色、櫃台吊飾／擺設（shop.js 比較晚載入：還沒載入時由它自己補畫）
   $('#gold').textContent = `🪙 ${p.gold}`;
   $('#xpfill').style.width = `${Math.min(100, (p.xpInLevel / p.xpForNext) * 100)}%`;
   $('#xptext').textContent = `${p.xpInLevel} / ${p.xpForNext} XP`;
@@ -632,7 +636,12 @@ function showFortuneCard(f, reward) {
 }
 function hideFortuneCard() { const c = $('#fortuneCard'); c.classList.add('bye'); setTimeout(() => { c.className = 'hidden'; }, 350); }
 $('#fortuneCard').addEventListener('click', hideFortuneCard);
-$('#hudTop').addEventListener('click', (e) => { if (e.target.closest('button')) return; drawFortune(); });
+$('#hudTop').addEventListener('click', (e) => {
+  if (e.target.closest('button')) return;
+  if (e.target.closest('#gold')) { openShop(); return; } // 點金幣：雲朵雜貨舖
+  if (e.target.closest('#hudStreak')) { openCollection('ach'); return; }
+  drawFortune();
+});
 
 // ---------- ✨ 占卜魔法（星環占＝梅花易數）----------
 const DV_METHODS = [
@@ -1080,6 +1089,8 @@ function renderPanelInner(el, v) {
   if (state.panel === 'health') renderHealth(el, v);
   if (state.panel === 'notebook') renderNotebook(el, v);
   if (state.panel === 'journal') renderJournal(el, v);
+  if (state.panel === 'shop') renderShop(el, v);
+  if (state.panel === 'collection') renderCollection(el, v);
 
   if (state.panel === 'report') {
     const t = v.today;
@@ -1159,6 +1170,8 @@ $('#panel').addEventListener('click', async (e) => {
   if (state.panel === 'health' && await healthClick(e)) return;
   if (state.panel === 'notebook' && await notebookClick(e)) return;
   if (state.panel === 'journal' && await journalClick(e)) return;
+  if (state.panel === 'shop' && await shopClick(e)) return;
+  if (state.panel === 'collection' && await collectionClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }
   if (t.closest('[data-back]')) { backFromForm(); return; }
@@ -1277,6 +1290,8 @@ api.on('ui:open', (kind) => {
   if (kind === 'health') { openHealth(); return; }
   if (kind === 'notebook') { openNotebook(); return; }
   if (kind === 'journal') { openJournal(); return; }
+  if (kind === 'shop') { openShop(); return; }
+  if (kind === 'collection') { openCollection(); return; }
   openPanel(kind); if (kind === 'daily') run(() => api.daily(), { talk: true });
 });
 

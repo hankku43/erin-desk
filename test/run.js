@@ -494,7 +494,8 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const { Engine } = require('../src/main/engine');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-fun-'));
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, achievements: { enabled: false }, streak: { enabled: false }, // 舊測試算的是確切的金幣：成就、連續上工另外測
+    llm: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
   let t = new Date(`${new Date().getFullYear()}-09-30T10:00:00`).getTime();
   const mk = () => new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
   let E = mk();
@@ -1606,4 +1607,157 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('冒險日誌測試通過 ✔');
   function J_list(e) { return require('../src/main/journal').list(e.state); }
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🛒 雲朵雜貨舖、🌌 星座卡、🏅 成就、🔥 連續上工：規則 ----------
+(() => {
+  const C = require('../src/main/cards');
+  const AC = require('../src/main/achievements');
+  const S = require('../src/main/shop');
+  const G2 = require('../src/main/game');
+  const Art = require('../src/renderer/art');
+  let seed = 3; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  // 稀有度：大概照權重；十抽最後一張保底 ★★★；50 抽沒出 ★★★★ 下一張一定是
+  const n = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  for (let i = 0; i < 20000; i++) n[C.rollRarity(rnd)]++;
+  assert.ok(n[1] > 11500 && n[1] < 13300 && n[4] > 150 && n[4] < 460, '權重：' + JSON.stringify(n));
+  for (let k = 0; k < 30; k++) { const col = C.blank(); assert.ok(C.draw(col, 10, rnd).some((x) => x.card.r >= 3), '十抽保底'); }
+  const pc = C.blank(); pc.sinceTop = C.PITY - 1;
+  assert.strictEqual(C.draw(pc, 1, () => 0.01)[0].card.r, 4, '50 抽保底');
+  assert.strictEqual(pc.sinceTop, 0);
+  // 重複的換星屑；星屑換還沒有的卡
+  const col = C.blank();
+  const a = C.draw(col, 1, () => 0.01)[0]; const b = C.draw(col, 1, () => 0.01)[0];
+  assert.ok(a.isNew && !b.isNew && b.dust === C.RARITY[1].dust && col.dust === C.RARITY[1].dust);
+  assert.throws(() => C.exchange(col, a.card.id), /已經有了/);
+  assert.throws(() => C.exchange(col, 'meteor'), /星屑不夠/);
+  col.dust = 400; C.exchange(col, 'meteor');
+  assert.ok(col.cards.meteor === 1 && col.dust === 100 && C.view(col).owned === 2);
+  assert.strictEqual(new Set(C.CARDS.map((c) => c.id)).size, C.CARDS.length, '卡片 id 不重複');
+  // 成就：只送一次；hidden 的達成前看不到
+  const got = {};
+  const ctx = { objectives: 1, quests: 0, onTime: 0, onTimeStreak: 0, focus: 0, reports: 0, weeks: 0, level: 1, streakBest: 0, daikichi: 0, divinations: 0, gifts: 0, giftKinds: 0, giftKindsTotal: 8, cucumber: 0, ornaments: 0, themed: 0, cards: 0, cards1: 0, cards1Total: 10, ssr: 0, cardsTotal: 24, notes: 0, stage: 1 };
+  assert.deepStrictEqual(AC.check(got, ctx).map((x) => x.id), ['obj1']);
+  assert.deepStrictEqual(AC.check(got, ctx), [], '同一個不會再送');
+  const vw = AC.view(got, { ...ctx, quests: 4 });
+  assert.ok(vw.find((x) => x.id === 'obj1').got && vw.find((x) => x.id === 'cucumber').name === '？？？' && vw.find((x) => x.id === 'quest10').progress.n === 4);
+  assert.strictEqual(new Set(AC.ACH.map((x) => x.id)).size, AC.ACH.length);
+  // 連續上工：週末不算斷、平日沒上工就斷、計畫裡沒排的平日（放假）不算斷、同一天只打卡一次
+  const st = AC.blankStreak();
+  assert.strictEqual(AC.checkIn(st, '2026-10-01').cur, 1); // 週四
+  assert.strictEqual(AC.checkIn(st, '2026-10-01'), null, '同一天');
+  assert.strictEqual(AC.checkIn(st, '2026-10-02').cur, 2);
+  const mon = AC.checkIn(st, '2026-10-05'); // 週末跳過
+  assert.ok(mon.cur === 3 && mon.kept && mon.milestone === AC.STREAK.milestones[3] && mon.gold === AC.STREAK.base + 3);
+  assert.strictEqual(AC.current(st, '2026-10-07'), 0, '週二沒上工：週三看是 0');
+  assert.strictEqual(AC.checkIn(st, '2026-10-07').cur, 1, '斷了重來');
+  const plan = { weekStart: '2026-10-05', weekEnd: '2026-10-09', days: [{ date: '2026-10-05' }, { date: '2026-10-07' }, { date: '2026-10-08' }] };
+  const st2 = { cur: 4, best: 4, last: '2026-10-05', days: 4 };
+  assert.ok(AC.isRest('2026-10-06', { plan }) && !AC.isRest('2026-10-07', { plan }) && AC.isRest('2026-10-10'));
+  assert.strictEqual(AC.checkIn(st2, '2026-10-07', { plan }).cur, 5, '計畫裡沒排的平日（放假）不算斷');
+  // 給獎勵時順便記次數（成就用）
+  const s0 = G2.newState();
+  for (const r of ['完成目標：a', '交付任務：b（準時）', '交付任務：c', '2026-10-01 下班回報', '完成專注 25 分鐘（今天第 1 顆🍅）', '今日運勢：大吉', '占卜魔法：乾', '雜貨舖：小魚乾', '成就：第一步']) G2.grant(s0, { xp: 1, gold: 1 }, r);
+  assert.deepStrictEqual(s0.stats, { objectives: 1, quests: 2, onTime: 1, reports: 1, focus: 1, fortunes: 1, daikichi: 1, divinations: 1 });
+  // 圖：每一種都畫得出來、漸層 id 不撞、同一張卡每次一樣
+  for (const o of S.ORNAMENTS) assert.ok(Art.ornament(o.id).startsWith('<svg'), o.id);
+  for (const g of S.GIFTS) assert.ok(Art.gift(g.id).startsWith('<svg'), g.id);
+  for (const c of C.CARDS) assert.strictEqual(Art.constellation(c.id, c.n).length, c.n, c.id + ' 的星星數');
+  assert.deepStrictEqual(Art.constellation('greatbell', 8), Art.constellation('greatbell', 8), '同一張卡每次一樣');
+  const x1 = Art.gift('tea'), x2 = Art.gift('tea');
+  assert.notStrictEqual(x1.match(/id="(\w+)"/)[1], x2.match(/id="(\w+)"/)[1], '漸層 id 每張不同');
+  for (const [, ref] of Art.hang('bell').matchAll(/url\(#(\w+)\)/g)) assert.ok(Art.hang('bell').includes(`id="${ref.replace(/_\d+$/, '')}`), ref);
+  assert.ok(!/[\u{1F300}-\u{1FAFF}]/u.test(Art.ornament('pigeon') + Art.twins('duo') + Art.card(C.CARDS[0])), '圖裡沒有 emoji');
+  console.log('雜貨舖規則測試通過 ✔');
+})();
+
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const { TEMPLATES } = require('../src/main/npc');
+  const loreFile = path.join(__dirname, '..', 'lore', '艾琳.md');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-shop-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false } }));
+  // 舊存檔（沒有 stats）：第一次打開從還留著的紀錄補算
+  fs.mkdirSync(path.join(dir, 'data'));
+  fs.writeFileSync(path.join(dir, 'data', 'save.json'), JSON.stringify({ version: 1, player: { xp: 500, gold: 40, questsDone: 3, onTimeStreak: 1 }, plans: { 舊計畫: { submitted: { a: { onTime: true }, b: { onTime: false } }, awardedObjectives: { x: true, y: true, z: true }, dailyDone: { r1: true }, dailyReported: { '2026-09-01': true } } }, history: [{ at: '2026-09-01T10:00:00Z', reason: '完成專注 25 分鐘', xp: 15, gold: 3 }, { at: '2026-09-01T09:00:00Z', reason: '今日運勢：大吉', xp: 10, gold: 12 }], memory: [], chat: [{ role: 'user', content: 'hi' }], onboarding: { done: true } }));
+  const Y = new Date().getFullYear();
+  let t = new Date(`${Y}-10-01T10:00:00`).getTime(); // 週四
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  assert.deepStrictEqual(E.state.stats, { objectives: 3, quests: 3, onTime: 1, rows: 1, reports: 1, focus: 1, fortunes: 1, daikichi: 1, divinations: 0 }, '補算舊存檔');
+  let seed = 5; E.rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const fill = (k) => TEMPLATES[k].map(([x]) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者'));
+  const like = (k, text) => fill(k).some((x) => new RegExp('^' + x.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '.*') + '$').test(text));
+  // 第一個動作：補發舊存檔已經達成的成就（第一步、準時交件、好運到），一次說一句
+  const g0 = E.state.player.gold;
+  const q = E.plan.quests[0];
+  const r1 = await E.setObjective(q.id, 0, true);
+  const ids = r1.achievements.map((a) => a.id);
+  assert.ok(['obj1', 'ontime1', 'daikichi'].every((x) => ids.includes(x)), '補發：' + ids);
+  assert.ok(r1.lines.some((l) => l.event === 'achievement' && like('achievement_many', l.text)));
+  assert.ok(r1.streak && r1.streak.cur === 1 && r1.streak.gold === 3, '今天第一次上工');
+  const achGold = r1.achievements.reduce((n, a) => n + a.gold, 0);
+  assert.strictEqual(E.state.player.gold - g0, 5 + 3 + achGold, '目標 5＋打卡 3＋成就');
+  assert.strictEqual((await E.setObjective(q.id, 1, true)).streak, undefined, '同一天只打卡一次');
+  // 連續上工：週五、（週末）、週一
+  t = new Date(`${Y}-10-02T10:00:00`).getTime(); await E.setObjective(q.id, 2, true);
+  t = new Date(`${Y}-10-05T10:00:00`).getTime();
+  const mon = await E.submit(q.id);
+  assert.ok(mon.streak.cur === 3 && mon.streak.milestone === 10 && mon.lines.some((l) => l.event === 'streak' && like('streak_milestone', l.text)), '第 3 天的獎勵');
+  assert.strictEqual(E.view().streak, 3);
+  // 雜貨舖：錢不夠不扣錢、雙胞胎說話
+  E.state.player.gold = 10;
+  const poor = await E.buyGift('seal');
+  assert.ok(poor.poor && E.state.player.gold === 10 && /差|再來/.test(poor.shop.twins.text) && !E.state.shop.gifts.seal);
+  // 送禮：一天第一份加好感（照喜歡的程度，不受每日上限），第二份不加；蠟封章說收藏變幾個
+  E.state.player.gold = 5000;
+  const a0 = E.aff().points; E.aff().gainedToday = 99;
+  const tea = await E.buyGift('tea');
+  assert.ok(E.aff().points === a0 + 3 && E.state.player.gold === 5000 - 25 + 10, '奶茶 +3 好感（成就一點心意 +10 金幣）');
+  assert.ok(like('gift_tea_low', tea.lines[0].text) && tea.achievements.some((x) => x.id === 'gift1'));
+  assert.strictEqual(E.state.history.find((h) => /^雜貨舖/.test(h.reason)).gold, -25, '花錢記在紀錄裡');
+  const seal = await E.buyGift('seal');
+  assert.ok(E.aff().points === a0 + 3 && E.state.shop.seals === 28 && /28/.test(seal.lines[0].text), '第二份不加好感；收藏第 28 個');
+  const cuke = await E.buyGift('cucumber');
+  assert.ok(like('gift_cucumber', cuke.lines[0].text) && cuke.achievements.some((x) => x.id === 'cucumber'), '黃瓜：嚇一跳＋隱藏成就');
+  assert.ok(!cuke.lines.some((l) => l.emotion === 'disdain'), '黃瓜不會鄙視（不扣好感）');
+  // 熟了（第 4 階）：反應不一樣
+  t += 86400000; E.aff().points = 200; E.aff().stage = 4;
+  assert.ok(like('gift_ribbon_high', (await E.buyGift('ribbon')).lines[0].text));
+  // AI 開著：照【禮物】說
+  E.config.llm.enabled = true; E.npc.llm.enabled = true; E.npc.status.online = true;
+  let sent = null;
+  E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '藍鈴花！冒險者怎麼知道艾琳喜歡這個？', emotion: 'happy' }) } }; };
+  const fl = await E.buyGift('flower');
+  assert.ok(/【禮物】藍鈴花束/.test(sent.messages.map((m) => m.content).join('\n')) && fl.lines[0].text === '藍鈴花！冒險者怎麼知道艾琳喜歡這個？');
+  E.config.llm.enabled = false; E.npc.llm.enabled = false;
+  // 裝飾：買了直接換上；已經有的不再收錢；換主題算成就；不能放錯位置
+  const bell = E.buyDecor('bell');
+  assert.ok(E.view().decor.hang === 'bell' && like('decor_on', bell.lines[0].text) && bell.achievements.some((x) => x.id === 'decor1'));
+  const gb = E.state.player.gold;
+  assert.ok(/已經有了/.test(E.buyDecor('bell').shop.twins.text) && E.state.player.gold === gb);
+  const th = E.buyDecor('forest');
+  assert.ok(E.view().decor.theme === 'forest' && th.achievements.some((x) => x.id === 'theme1'));
+  assert.throws(() => E.equip('desk', 'bell'), /放不上去/);
+  assert.throws(() => E.equip('desk', 'piggy'), /還沒買/);
+  E.equip('hang', null); E.equip('theme', null);
+  assert.ok(E.view().decor.hang === null && E.view().decor.theme === 'navy', '拿下、換回預設');
+  // 星座卡
+  const gd = E.state.player.gold;
+  const d10 = E.drawCards(10);
+  assert.ok(d10.draw.length === 10 && d10.draw.some((x) => x.r >= 3) && E.state.player.gold <= gd - 270 + 200, '十抽 270');
+  assert.ok(E.collectionView().cards.owned >= 1 && E.state.history.some((h) => h.reason === '雜貨舖：星座卡 ×10'));
+  E.state.collection.dust = 999;
+  const miss = E.collectionView().cards.cards.find((c) => !c.count);
+  assert.strictEqual(E.exchangeCard(miss.id).card.id, miss.id);
+  // 成就牆、關掉成就
+  const cv = E.collectionView();
+  assert.ok(cv.achievements.find((a) => a.id === 'cucumber').name === '惡作劇' && cv.streak.best === 3);
+  E.config.achievements = { enabled: false };
+  E.state.stats.focus = 999;
+  assert.strictEqual((await E.setObjective(E.plan.quests[1].id, 0, true)).achievements, undefined, '關掉就不發');
+  E.config.achievements = { enabled: true };
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('雜貨舖與成就測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
