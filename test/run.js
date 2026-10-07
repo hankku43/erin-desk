@@ -1780,3 +1780,30 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const [tpl] of TEMPLATES.fortune) assert.ok(/\{opener\}/.test(tpl) && /\{advice\}/.test(tpl) && /\{item\}/.test(tpl) && /\{gold\}/.test(tpl));
   console.log('今日運勢文案測試通過 ✔');
 })();
+
+// ---------- 🖥 Windows 10 也顯示得出來：介面、台詞、設定、範例裡不能用 Emoji 13 以後才有的字 ----------
+//   Windows 10 的 Segoe UI Emoji 只到 Emoji 12（2019），新的字會變成方塊（例如金幣 U+1FA99、盆栽 U+1FAB4）。
+//   需要的圖示請畫成 SVG（例如 src/renderer/coin.svg），或換成舊的 emoji
+(() => {
+  const NEW_EMOJI = [[0x26A7, 0x26A7], [0x1F6D6, 0x1F6DF], [0x1F6FB, 0x1F6FF], [0x1F7F0, 0x1F7FF], [0x1F90C, 0x1F90C], [0x1F972, 0x1F972], [0x1F977, 0x1F979],
+    [0x1F9A3, 0x1F9A4], [0x1F9AB, 0x1F9AD], [0x1F9CB, 0x1F9CC], [0x1FA74, 0x1FA77], [0x1FA7B, 0x1FA7F], [0x1FA83, 0x1FA8F], [0x1FA96, 0x1FAFF]];
+  const isNew = (cp) => NEW_EMOJI.some(([a, b]) => cp >= a && cp <= b);
+  assert.ok(isNew(0x1FA99) && isNew(0x1FAB4) && !isNew(0x1F4B0) && !isNew(0x1F9EA) && !isNew(0x1FA7A), '範圍本身');
+  const root = path.join(__dirname, '..');
+  const files = [];
+  const walk = (dir) => { for (const f of fs.readdirSync(dir, { withFileTypes: true })) { const p = path.join(dir, f.name); if (f.isDirectory()) walk(p); else if (/\.(js|html|css|svg|md)$/.test(f.name)) files.push(p); } };
+  walk(path.join(root, 'src')); walk(path.join(root, 'lore'));
+  files.push(path.join(root, 'plans', '_template.md'), path.join(root, 'plans', 'week_sample.md'), path.join(root, 'config.example.json'));
+  const bad = [];
+  for (const f of files) {
+    fs.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      for (const ch of line) if (isNew(ch.codePointAt(0))) bad.push(`${path.relative(root, f)}:${i + 1} U+${ch.codePointAt(0).toString(16).toUpperCase()} ${ch}`);
+    });
+  }
+  assert.deepStrictEqual(bad, [], 'Windows 10 顯示不出來的 emoji：\n' + bad.join('\n'));
+  // 金幣一律用圖示：COIN 定義在 renderer.js、CSS 有 .coin、圖檔存在
+  assert.ok(/const COIN = '<i class="coin"/.test(fs.readFileSync(path.join(root, 'src/renderer/renderer.js'), 'utf8')));
+  assert.ok(/\.coin \{[^}]*url\(coin\.svg\)/.test(fs.readFileSync(path.join(root, 'src/renderer/style.css'), 'utf8')));
+  assert.ok(/^<svg[^>]*viewBox/.test(fs.readFileSync(path.join(root, 'src/renderer/coin.svg'), 'utf8')));
+  console.log('Windows 10 字型測試通過 ✔');
+})();

@@ -31,7 +31,7 @@ const ACH = [
   { id: 'gift1', icon: '🎁', name: '一點心意', desc: '第一次送艾琳禮物', gold: 10, test: (c) => c.gifts >= 1 },
   { id: 'giftall', icon: '💝', name: '送禮專家', desc: '每一種禮物都送過一次（黃瓜不算）', gold: 100, test: (c) => c.giftKinds >= c.giftKindsTotal, goal: (c) => [c.giftKinds, c.giftKindsTotal] },
   { id: 'cucumber', icon: '🥒', name: '惡作劇', desc: '送了艾琳一根黃瓜', gold: 5, hidden: true, test: (c) => c.cucumber >= 1 },
-  { id: 'decor1', icon: '🪴', name: '布置櫃台', desc: '買了第一個吊飾或擺設', gold: 10, test: (c) => c.ornaments >= 1 },
+  { id: 'decor1', icon: '🎐', name: '布置櫃台', desc: '買了第一個吊飾或擺設', gold: 10, test: (c) => c.ornaments >= 1 },
   { id: 'theme1', icon: '🎨', name: '換個心情', desc: '換過一次主題配色', gold: 10, test: (c) => c.themed >= 1 },
   // 星座卡
   { id: 'cards10', icon: '🌌', name: '星座收藏家', desc: '收集 10 張星座卡', gold: 50, test: (c) => c.cards >= 10, goal: (c) => [c.cards, 10] },

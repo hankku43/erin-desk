@@ -12,6 +12,8 @@ window.addEventListener('unhandledrejection', (e) => console.error('[renderer re
 // ---------- 小工具 ----------
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function rich(s) { return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>'); }
+// 金幣圖示：不用 emoji（U+1FA99 是 Emoji 13，Windows 10 的字型沒有，會變成方塊），改用 coin.svg
+const COIN = '<i class="coin" aria-hidden="true"></i>';
 function dueChip(q) {
   if (q.status === 'done') return `<span class="chip ok">${q.submitted.onTime ? '✔ 準時完成' : '✔ 已完成'}</span>`;
   if (q.daysLeft === null) return '';
@@ -35,13 +37,14 @@ function histIcon(reason) {
 }
 // 紀錄的獎勵欄：占卜是花錢（負數），沒有經驗值就不顯示 XP
 function gainHtml(h) {
-  const g = h.gold < 0 ? `<small class="spend">🪙 −${-h.gold}</small>` : `<small>🪙 +${h.gold}</small>`;
+  const g = h.gold < 0 ? `<small class="spend">${COIN}−${-h.gold}</small>` : `<small>${COIN}+${h.gold}</small>`;
   return h.xp ? `+${h.xp} XP${g}` : g;
 }
 // 提示小條：貼在畫面上看得到的東西旁邊，不要飄在透明視窗的最上面
 //   面板／對話框開著 → 貼在最上面那張卡片的上緣；都關著 → 艾琳頭上；at: 'hud' → 狀態欄原本的位置（收起狀態欄時用）
-function toast(msg, ms = 2600, { at } = {}) {
-  const t = $('#toast'); t.textContent = msg;
+//   html: true → msg 是已經處理好的 HTML（例如帶金幣圖示）；預設當純文字
+function toast(msg, ms = 2600, { at, html } = {}) {
+  const t = $('#toast'); if (html) t.innerHTML = msg; else t.textContent = msg;
   t.classList.remove('hidden', 'low', 'at-hud'); t.style.top = '';
   if (at === 'hud') t.classList.add('at-hud');
   else {
@@ -366,7 +369,7 @@ async function run(fn, { thinking = true, talk = false } = {}) {
   if (r.writeError) toast(`⚠ 回寫計畫檔失敗：${r.writeError}`, 5000);
   if (r.reward) celebrate(r.reward);
   if (r.achievements && r.achievements.length) showAchievements(r.achievements); // 🏅
-  if (r.streak && !r.streak.milestone) toast(`🔥 連續上工第 ${r.streak.cur} 天　🪙 +${r.streak.gold}`, 2600);
+  if (r.streak && !r.streak.milestone) toast(`🔥 連續上工第 ${+r.streak.cur} 天　${COIN}+${+r.streak.gold}`, 2600, { html: true });
   if (r.journal && state.panel !== 'journal' && state.panel !== 'report') setTimeout(() => openJournal(r.journal, { quiet: true }), 400); // 聊天裡回報最後一天
   if (r.noted && r.noted.length) { toast(`📒 ${(state.view && state.view.npc && state.view.npc.name) || '艾琳'}記下來了：${r.noted.join('、')}`, 3200); notebookRefresh(); }
   if (r.lines && r.lines.length) enqueue(r.lines);
@@ -382,7 +385,7 @@ function celebrate(reward) {
   const fx = $('#fx');
   const el = document.createElement('div');
   el.className = 'float-reward';
-  el.innerHTML = `<span>✨ +${reward.xp} XP</span><span class="g">🪙 +${reward.gold}</span>`;
+  el.innerHTML = `<span>✨ +${reward.xp} XP</span><span class="g">${COIN}+${reward.gold}</span>`;
   fx.appendChild(el); setTimeout(() => el.remove(), 2100);
   if (reward.levelUp) {
     const lv = document.createElement('div');
@@ -426,7 +429,7 @@ function applyView(v) {
   $('#ptitle').textContent = p.title;
   const sk = $('#hudStreak'); sk.textContent = `🔥${v.streak || 0}`; sk.classList.toggle('hidden', !(v.streak >= 2)); // 🔥 連續上工 2 天以上才顯示
   if (typeof applyDecor === 'function') applyDecor(v); // 🛒 主題配色、櫃台吊飾／擺設（shop.js 比較晚載入：還沒載入時由它自己補畫）
-  $('#gold').textContent = `🪙 ${p.gold}`;
+  $('#gold').innerHTML = `${COIN}${+p.gold || 0}`;
   $('#xpfill').style.width = `${Math.min(100, (p.xpInLevel / p.xpForNext) * 100)}%`;
   $('#xptext').textContent = `${p.xpInLevel} / ${p.xpForNext} XP`;
   $('#npcName').textContent = v.npc.name;
@@ -627,7 +630,7 @@ function showFortuneCard(f, reward) {
   c.innerHTML = `<div class="fc-inner"><div class="fc-back"><div class="fc-emblem">🔮</div><div>星盾公會・今日運勢</div></div>
     <div class="fc-front"><div class="fc-date">${+f.date.slice(5, 7)}/${+f.date.slice(8, 10)} 的運勢</div><div class="fc-rank">${esc(f.rank)}</div>
       <div class="fc-advice">${esc(f.advice)}</div><div class="fc-item">幸運物：<b>${esc(f.item)}</b></div>
-      <div class="fc-reward">${reward ? `✨ +${reward.xp} XP　🪙 +${reward.gold}` : '今天已經抽過囉'}</div></div></div>`;
+      <div class="fc-reward">${reward ? `✨ +${reward.xp} XP　${COIN}+${reward.gold}` : '今天已經抽過囉'}</div></div></div>`;
   c.style.bottom = `${$('#hud').offsetHeight + 22}px`;
   void c.offsetWidth;
   c.classList.add('show');
@@ -677,7 +680,7 @@ function dvDetail(r) {
 function renderDivine(el, v) {
   const d = state.dv; if (!d) return;
   const info = d.info || v.divination || { cost: 10, repeatHours: 24, recent: [] };
-  const goldChip = `<span class="dv-gold">🪙 ${v.player.gold}</span>`;
+  const goldChip = `<span class="dv-gold">${COIN}${v.player.gold}</span>`;
   if (d.step === 'ask') {
     const tiles = DV_METHODS.map((m) => {
       const off = m.key === 'time' && !info.timeAvailable;
@@ -994,7 +997,7 @@ function renderPanelInner(el, v) {
             <div class="q-actions">${editTools}
               ${!confirming && q.status !== 'done' && !q.active ? `<button class="btn small" data-activate="${q.id}">📌 設為當前任務</button>` : ''}
               ${!confirming && q.status === 'ready' ? `<button class="btn small gold" data-submit="${q.id}">🏆 交付任務</button>` : ''}
-              ${q.status === 'done' ? `<span class="chip ok">✨ +${q.submitted.xp} XP　🪙 +${q.submitted.gold}</span>` : ''}
+              ${q.status === 'done' ? `<span class="chip ok">✨ +${q.submitted.xp} XP　${COIN}+${q.submitted.gold}</span>` : ''}
             </div></div>` : ''}
         </div>`;
       }
@@ -1113,7 +1116,7 @@ function renderPanelInner(el, v) {
     const xp = Math.round(base[0] * (onTime ? 1.2 : 1)), gold = Math.round(base[1] * (onTime ? 1.2 : 1));
     el.innerHTML = head('🏆 交付任務', rich(q.title)) + `<div class="panel-body">
       ${q.objectives.map((o) => `<div class="obj checked"><input type="checkbox" checked disabled><span>${rich(o.text)}</span></div>`).join('')}
-      <div class="reward-card"><span class="rc-title">🎁 任務報酬</span><span class="rc-num">✨ ${xp}<small>XP</small></span><span class="rc-num">🪙 ${gold}</span><span class="rc-bonus ${onTime ? '' : 'late'}">${onTime ? '⏱ 準時加成 +20%' : '⚠ 已逾期，沒有加成'}</span></div>
+      <div class="reward-card"><span class="rc-title">🎁 任務報酬</span><span class="rc-num">✨ ${xp}<small>XP</small></span><span class="rc-num">${COIN}${gold}</span><span class="rc-bonus ${onTime ? '' : 'late'}">${onTime ? '⏱ 準時加成 +20%' : '⚠ 已逾期，沒有加成'}</span></div>
       <div class="field">💬 給${esc(v.npc.name)}的回報（選填）<textarea id="sReport" placeholder="做了什麼、有什麼發現…"></textarea></div></div>
       <div class="panel-foot"><button class="btn ghost" data-close>再等等</button><button class="btn gold" id="sSend">🏆 交付！</button></div>`;
   }

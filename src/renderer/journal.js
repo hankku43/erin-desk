@@ -34,7 +34,7 @@ const JN_TILES = (s) => [
   ['⏰', '行程', `${s.rows}<small>/${s.rowsTotal}</small>`, s.rowsTotal ? '格' : '沒有時間表'],
   ['📝', '下班回報', `${s.reports}<small> 天</small>`, ''],
   ['✨', '經驗值', `+${s.xp}`, s.levelEnd > s.levelStart ? `Lv.${s.levelStart} → ${s.levelEnd}` : `Lv.${s.levelEnd}`],
-  ['🪙', '金幣', `+${s.gold}`, s.spent ? `花了 ${s.spent}` : ''],
+  [COIN, '金幣', `+${s.gold}`, s.spent ? `花了 ${s.spent}` : ''],
   ['🍅', '專注', `${s.focus}<small> 顆</small>`, s.focus ? `${s.focusMin} 分鐘` : ''],
   ['🔮', '運勢', s.fortunes.length ? esc(s.fortunes[s.fortunes.length - 1]) : '—', s.fortunes.length > 1 ? `抽了 ${s.fortunes.length} 次` : s.divinations ? `占卜 ${s.divinations} 次` : ''],
 ];

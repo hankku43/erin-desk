@@ -13,7 +13,7 @@ function openShop(tab) {
   });
 }
 function openCollection(tab) { openShop(tab === 'cards' ? 'cards' : 'ach'); }
-const spCoin = (p, ok) => `<span class="sp-coin ${ok ? '' : 'short'}">🪙${p}</span>`;
+const spCoin = (p, ok) => `<span class="sp-coin ${ok ? '' : 'short'}">${COIN}${p}</span>`;
 function renderShop(el) {
   const sp = state.sp || {};
   const d = sp.data, col = sp.col;
@@ -62,10 +62,10 @@ function renderShop(el) {
         <div class="co-ach">${[...col.achievements].sort((a, b) => (b.got ? 1 : 0) - (a.got ? 1 : 0)).map((a) => `
         <div class="co-a ${a.got ? 'got' : ''} ${a.hidden && !a.got ? 'secret' : ''}"><span class="co-medal">${a.icon}</span>
           <div><b>${esc(a.name)}</b><small>${esc(a.desc)}</small>${a.progress ? `<div class="co-prog"><i style="width:${Math.round((a.progress.n / a.progress.of) * 100)}%"></i><span>${a.progress.n}/${a.progress.of}</span></div>` : ''}</div>
-          <span class="co-gold">${a.got ? '✓' : `🪙${a.gold}`}</span></div>`).join('')}</div>`;
+          <span class="co-gold">${a.got ? '✓' : `${COIN}${a.gold}`}</span></div>`).join('')}</div>`;
     }
   }
-  el.innerHTML = head('🛒 雲朵雜貨舖', `🪙 ${d.gold}`, tabs) + `<div class="panel-body sp-body">${sp.tab === 'ach' ? '' : keeper}${body}</div>`;
+  el.innerHTML = head('🛒 雲朵雜貨舖', `${COIN}${d.gold}`, tabs) + `<div class="panel-body sp-body">${sp.tab === 'ach' ? '' : keeper}${body}</div>`;
 }
 async function shopAct(fn, { talk = false } = {}) {
   const r = await run(fn, { thinking: talk, talk });
@@ -120,7 +120,7 @@ function showAchievements(list) {
     const el = document.createElement('div');
     el.className = 'ach-pop';
     el.style.setProperty('--i', i);
-    el.innerHTML = `<span class="co-medal">${a.icon}</span><div><small>成就解鎖</small><b>${esc(a.name)}</b></div><span class="g">🪙 +${a.gold}</span>`;
+    el.innerHTML = `<span class="co-medal">${a.icon}</span><div><small>成就解鎖</small><b>${esc(a.name)}</b></div><span class="g">${COIN}+${a.gold}</span>`;
     $('#fx').appendChild(el);
     setTimeout(() => el.remove(), 3600 + i * 300);
   });

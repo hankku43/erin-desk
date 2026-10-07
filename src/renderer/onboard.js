@@ -267,7 +267,7 @@ function tutorialHtml(v) {
   if (!t) return '';
   if (t.finished) return `<div class="tut done"><div class="tut-head">🎓 新手村畢業 ✔<span class="spacer"></span><button class="btn small ghost" data-tut-hide>收起</button></div></div>`;
   const next = t.items.find((i) => !i.done);
-  return `<div class="tut"><div class="tut-head">🎓 新手任務 <b>${t.count}/${t.total}</b><small>每個 +10 XP、🪙 +5，全部完成再 +50</small><button class="icon-btn" data-tut-hide title="不需要了，收起來">✕</button></div>
+  return `<div class="tut"><div class="tut-head">🎓 新手任務 <b>${t.count}/${t.total}</b><small>每個 +10 XP、${COIN}+5，全部完成再 +50</small><button class="icon-btn" data-tut-hide title="不需要了，收起來">✕</button></div>
     ${next ? `<div class="tut-next">▶ 下一個：<b>${esc(next.label)}</b>　<small>${esc(next.hint)}</small></div>` : ''}
     <div class="tut-list">${t.items.map((i) => `<span class="tut-i ${i.done ? 'done' : ''}" title="${esc(i.label)}：${esc(i.hint)}">${i.done ? '✔' : i.icon} ${esc(i.label)}</span>`).join('')}</div></div>`;
 }

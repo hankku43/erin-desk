@@ -472,7 +472,7 @@ npm start
 | `src/main/tutorial.js` | 新手任務清單與獎勵 |
 | `src/main/lore.js` | 角色設定檢索（BM25 ＋ 可選向量） |
 | `src/main/displays.js` | 多顯示器位置 |
-| `src/renderer/` | 介面：`index.html`、`style.css`、`renderer.js`（對話、面板、特效）、`onboard.js`（新手教學、新手任務、健康檢查）、`notebook.js`（📒 小本子面板）、`journal.js`（📖 冒險日誌面板）、`shop.js`（🛒 雜貨舖面板：禮物／裝飾／星座卡／成就四個分頁、櫃台吊飾／擺設、主題配色）、`art.js`（吊飾、擺設、禮物、雙胞胎、星座卡的 SVG 圖）、`idle-brain.js`＋`idle.js`＋`emotes.js`（待機小動作：決定做什麼＋演出來＋飄在頭旁邊的 SVG 表情符號） |
+| `src/renderer/` | 介面：`index.html`、`style.css`、`renderer.js`（對話、面板、特效）、`onboard.js`（新手教學、新手任務、健康檢查）、`notebook.js`（📒 小本子面板）、`journal.js`（📖 冒險日誌面板）、`shop.js`（🛒 雜貨舖面板：禮物／裝飾／星座卡／成就四個分頁、櫃台吊飾／擺設、主題配色）、`art.js`（吊飾、擺設、禮物、雙胞胎、星座卡的 SVG 圖）、`idle-brain.js`＋`idle.js`＋`emotes.js`（待機小動作：決定做什麼＋演出來＋飄在頭旁邊的 SVG 表情符號）、`coin.svg`（金幣圖示；不用金幣 emoji，因為 Windows 10 沒有這個字） |
 | `build/` | 打包用的圖示（`icon.ico`、`icon.png`）；`package.json` 的 `build` 是 electron-builder 設定 |
 | `lore/艾琳.md` | 角色設定 |
 | `assets/character/` | 角色圖（去背後）；`assets/raw/` 是原圖；`assets/ui/` 是提示圖示 |
