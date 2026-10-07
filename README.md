@@ -327,6 +327,8 @@
 
 **AI 生成提示詞**（白髮藍眼貓娘＋貓咪縮圖）請看 `assets/character/PROMPTS.md`。
 
+雜貨舖的禮物、吊飾、擺設和兩位店員的頭像也是 AI 畫的（`assets/shop/`，提示詞在 `assets/shop/PROMPTS.md`）。幾個物品畫在同一張合輯裡（原圖在 `assets/raw/shop/`），用 `python tools/cut_sheet.py` 去背、切開、縮成固定大小；只重生一個物品時用 `python tools/cut_sheet.py --one 新圖.png tea gift`。
+
 頭上的提示圖示（藍色貓耳問號＝可以交付、粉色貓耳驚嘆號＝有新訊息）放在 `assets/ui/`。想換成自己的圖，就把 `marker_ready.png`、`marker_alert.png` 放進 `assets/character/`，建議做成 128×128 的透明 PNG。
 
 - 格式：PNG 或 WebP，**要透明背景**。建議高度 800–1200px，程式會自動縮放。
@@ -475,11 +477,11 @@ npm start
 | `src/main/tutorial.js` | 新手任務清單與獎勵 |
 | `src/main/lore.js` | 角色設定檢索（BM25 ＋ 可選向量） |
 | `src/main/displays.js` | 多顯示器位置 |
-| `src/renderer/` | 介面：`index.html`、`style.css`、`renderer.js`（對話、面板、特效）、`onboard.js`（新手教學、新手任務、健康檢查）、`notebook.js`（📒 小本子面板）、`journal.js`（📖 冒險日誌面板）、`shop.js`（🛒 雜貨舖面板：禮物／裝飾／星座卡／成就四個分頁、櫃台吊飾／擺設、主題配色）、`art.js`（吊飾、擺設、禮物、雙胞胎、星座卡的 SVG 圖）、`idle-brain.js`＋`idle.js`＋`emotes.js`（待機小動作：決定做什麼＋演出來＋飄在頭旁邊的 SVG 表情符號）、`coin.svg`（金幣圖示；不用金幣 emoji，因為 Windows 10 沒有這個字） |
+| `src/renderer/` | 介面：`index.html`、`style.css`、`renderer.js`（對話、面板、特效）、`onboard.js`（新手教學、新手任務、健康檢查）、`notebook.js`（📒 小本子面板）、`journal.js`（📖 冒險日誌面板）、`shop.js`（🛒 雜貨舖面板：禮物／裝飾／星座卡／成就四個分頁、櫃台吊飾／擺設、主題配色）、`art.js`（吊飾、擺設、禮物、雙胞胎用 `assets/shop/` 的圖，沒有圖時退回 SVG；星座卡的 SVG）、`idle-brain.js`＋`idle.js`＋`emotes.js`（待機小動作：決定做什麼＋演出來＋飄在頭旁邊的 SVG 表情符號）、`coin.svg`（金幣圖示；不用金幣 emoji，因為 Windows 10 沒有這個字） |
 | `build/` | 打包用的圖示（`icon.ico`、`icon.png`）；`package.json` 的 `build` 是 electron-builder 設定 |
 | `lore/艾琳.md` | 角色設定 |
-| `assets/character/` | 角色圖（去背後）；`assets/raw/` 是原圖；`assets/ui/` 是提示圖示 |
-| `tools/` | 去背腳本、佔位圖產生器、舊格式轉換 `convert_plan.js` |
+| `assets/character/` | 角色圖（去背後）；`assets/shop/` 是雜貨舖的物品和店員圖；`assets/raw/` 是原圖；`assets/ui/` 是提示圖示 |
+| `tools/` | 去背腳本（角色 `remove_bg.py`、雜貨舖合輯 `cut_sheet.py`）、佔位圖產生器、舊格式轉換 `convert_plan.js` |
 | `test/run.js` | 單元測試（`npm test`）：解析、回寫、引擎的新增／編輯／刪除、行事曆匯入匯出、聊天改進度、角色檢索；`test/electron-*.js` 是用 xvfb 跑的畫面測試，用法：`QUEST_NPC_TEST=test/electron-tour.js npx electron .`（`electron-edit.js` 會把每個表單走一遍並檢查檔案內容） |
 
 ## 開發

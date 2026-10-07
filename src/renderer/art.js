@@ -1,5 +1,7 @@
 // 🎨 雜貨舖的小圖：櫃台吊飾／擺設、禮物圖示、兔族雙胞胎的頭像、星座卡的卡面
-// 跟 emotes.js 同一套畫風：粗圓的海軍藍描邊、柔和漸層、一點白色光澤；不用 emoji 字型
+// 禮物、吊飾、擺設、雙胞胎頭像：用 AI 畫的圖（assets/shop/<id>.png，跟艾琳立繪同一種畫風；
+//   提示詞在 assets/shop/PROMPTS.md，原圖 assets/raw/shop/，tools/cut_sheet.py 去背切割）。
+//   PNG 清單裡沒有的 id 用下面的 SVG（跟 emotes.js 同一套畫風：粗圓的海軍藍描邊、柔和漸層），星座卡也是 SVG
 // UMD：畫面用 window.Art，測試可以 require
 (function (root) {
   'use strict';
@@ -168,13 +170,29 @@
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 120" class="art card-art r${c.r}">${body}</svg>`;
   }
 
-  const Art = {
-    HANG: Object.keys(HANG), DESK: Object.keys(DESK), GIFT: Object.keys(GIFT),
+  // ---------- AI 畫的圖：有 PNG 就用 PNG ----------
+  // 路徑相對 src/renderer/index.html；打包後在 app.asar 裡一樣找得到（package.json build.files 有 assets/shop）
+  const PNG = new Set(['tea', 'fish', 'fishbread', 'bubble', 'cucumber', 'flower', 'envelope', 'ribbon', 'seal',
+    'bell', 'chime', 'starcharm', 'lantern', 'bluebell', 'pillow', 'piggy', 'pigeon', 'sealbox', 'mian', 'duo']);
+  const PNG_DIR = '../../assets/shop/';
+  const img = (id, cls) => `<img class="art ${cls}" src="${PNG_DIR}${id}.png" alt="" draggable="false">`;
+  const svg = {
     hang: (id) => (HANG[id] ? wrap(60, 110, HANG[id](), `hang ${id}`) : ''),
     desk: (id) => (DESK[id] ? wrap(72, 72, DESK[id](), `desk ${id}`) : ''),
-    ornament: (id) => (HANG[id] ? Art.hang(id) : DESK[id] ? Art.desk(id) : ''),
     gift: (id) => (GIFT[id] ? wrap(48, 48, GIFT[id](), `gift ${id}`) : ''),
-    twins, card, constellation,
+    twins,
+  };
+  const Art = {
+    HANG: Object.keys(HANG), DESK: Object.keys(DESK), GIFT: Object.keys(GIFT), PNG, PNG_DIR, svg,
+    hang: (id) => (PNG.has(id) ? img(id, `hang ${id}`) : svg.hang(id)),
+    desk: (id) => (PNG.has(id) ? img(id, `desk ${id}`) : svg.desk(id)),
+    ornament: (id) => (HANG[id] ? Art.hang(id) : DESK[id] ? Art.desk(id) : ''),
+    gift: (id) => (PNG.has(id) ? img(id, `gift ${id}`) : svg.gift(id)),
+    // 店員頭像：說話的那個在前面、亮的；另一個在後面、淡一點
+    twins: (speaker) => (PNG.has('mian') && PNG.has('duo')
+      ? `<span class="tw-pair">${['mian', 'duo'].map((w) => img(w, `tw ${w} ${(w === 'duo') === (speaker === 'duo') ? 'on' : ''}`)).join('')}</span>`
+      : svg.twins(speaker)),
+    card, constellation,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Art;
   else root.Art = Art;

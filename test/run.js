@@ -1660,14 +1660,22 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const r of ['完成目標：a', '交付任務：b（準時）', '交付任務：c', '2026-10-01 下班回報', '完成專注 25 分鐘（今天第 1 顆🍅）', '今日運勢：大吉', '占卜魔法：乾', '雜貨舖：小魚乾', '成就：第一步']) G2.grant(s0, { xp: 1, gold: 1 }, r);
   assert.deepStrictEqual(s0.stats, { objectives: 1, quests: 2, onTime: 1, reports: 1, focus: 1, fortunes: 1, daikichi: 1, divinations: 1 });
   // 圖：每一種都畫得出來、漸層 id 不撞、同一張卡每次一樣
-  for (const o of S.ORNAMENTS) assert.ok(Art.ornament(o.id).startsWith('<svg'), o.id);
-  for (const g of S.GIFTS) assert.ok(Art.gift(g.id).startsWith('<svg'), g.id);
+  // AI 畫的圖：每個商品和兩位店員都有 PNG、檔案真的在、打包會帶進去；SVG 備用圖也都畫得出來
+  const fs2 = require('fs'), path2 = require('path');
+  for (const x of [...S.ORNAMENTS, ...S.GIFTS, { id: 'mian' }, { id: 'duo' }]) {
+    assert.ok(Art.PNG.has(x.id), x.id + ' 有 PNG');
+    assert.ok(fs2.existsSync(path2.join(__dirname, '..', 'assets', 'shop', x.id + '.png')), `assets/shop/${x.id}.png`);
+  }
+  for (const o of S.ORNAMENTS) assert.ok(Art.ornament(o.id).startsWith(`<img class="art ${o.slot} ${o.id}" src="../../assets/shop/${o.id}.png"`) && Art.svg[o.slot](o.id).startsWith('<svg'), o.id);
+  for (const g of S.GIFTS) assert.ok(Art.gift(g.id).includes(`assets/shop/${g.id}.png`) && Art.svg.gift(g.id).startsWith('<svg'), g.id);
+  assert.ok(/class="art tw duo on"/.test(Art.twins('duo')) && /class="art tw mian "/.test(Art.twins('duo')) && /class="art tw mian on"/.test(Art.twins('mian')), '說話的店員亮起來');
+  assert.ok(require('../package.json').build.files.includes('assets/shop/*.png'), '打包帶上雜貨舖的圖');
   for (const c of C.CARDS) assert.strictEqual(Art.constellation(c.id, c.n).length, c.n, c.id + ' 的星星數');
   assert.deepStrictEqual(Art.constellation('greatbell', 8), Art.constellation('greatbell', 8), '同一張卡每次一樣');
-  const x1 = Art.gift('tea'), x2 = Art.gift('tea');
+  const x1 = Art.svg.gift('tea'), x2 = Art.svg.gift('tea');
   assert.notStrictEqual(x1.match(/id="(\w+)"/)[1], x2.match(/id="(\w+)"/)[1], '漸層 id 每張不同');
-  for (const [, ref] of Art.hang('bell').matchAll(/url\(#(\w+)\)/g)) assert.ok(Art.hang('bell').includes(`id="${ref.replace(/_\d+$/, '')}`), ref);
-  assert.ok(!/[\u{1F300}-\u{1FAFF}]/u.test(Art.ornament('pigeon') + Art.twins('duo') + Art.card(C.CARDS[0])), '圖裡沒有 emoji');
+  for (const [, ref] of Art.svg.hang('bell').matchAll(/url\(#(\w+)\)/g)) assert.ok(Art.svg.hang('bell').includes(`id="${ref.replace(/_\d+$/, '')}`), ref);
+  assert.ok(!/[\u{1F300}-\u{1FAFF}]/u.test(Art.svg.desk('pigeon') + Art.svg.twins('duo') + Art.card(C.CARDS[0])), '圖裡沒有 emoji');
   console.log('雜貨舖規則測試通過 ✔');
 })();
 

@@ -788,7 +788,9 @@ body[data-theme="frost"] { --navy: #4a6a92; --navy-2: #34506f; --frame: #6c8fb8;
 #decor .d-desk { left: 0; bottom: 2px; width: 66px; height: 66px; }
 #decor .pop { animation: dPop .45s cubic-bezier(.3, 1.6, .5, 1) both; }
 #decor .d-hang.pop { animation: dPop .45s cubic-bezier(.3, 1.6, .5, 1) both, dSway 4.2s ease-in-out .45s infinite; }
-#decor svg { width: 100%; height: 100%; display: block; }
+#decor svg, #decor img { width: 100%; height: 100%; display: block; }
+#decor img { object-fit: contain; object-position: 50% 100%; }
+#decor .d-hang img { object-position: 50% 0; }
 body.mini #decor, #npcWrap.transforming #decor, #npcWrap.shrinking #decor { display: none; }
 @keyframes dSway { 0%, 100% { rotate: -3deg; } 50% { rotate: 3deg; } }
 @keyframes dRing { 0% { rotate: 0; } 20% { rotate: 14deg; } 45% { rotate: -10deg; } 70% { rotate: 6deg; } 100% { rotate: 0; } }
@@ -800,6 +802,14 @@ body.mini #decor, #npcWrap.transforming #decor, #npcWrap.shrinking #decor { disp
 .sp-keeper { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .sp-face { width: 66px; height: 34px; flex: none; }
 .sp-face svg { width: 100%; height: 100%; }
+/* AI 畫的頭像（120×150：下面是圓、頭頂和耳朵可以超出圓）：說話的在前面 */
+.sp-face:has(.tw-pair) { width: 78px; height: 52px; }
+.tw-pair { position: relative; display: block; width: 100%; height: 100%; }
+.tw-pair .tw { position: absolute; bottom: 0; width: 42px; height: 52px; transform-origin: 50% 100%; transition: transform .2s, opacity .2s, filter .2s; }
+.tw-pair .tw.mian { left: 0; }
+.tw-pair .tw.duo { right: 0; }
+.tw-pair .tw:not(.on) { opacity: .6; transform: scale(.84); filter: saturate(.6); }
+.tw-pair .tw.on { z-index: 1; filter: drop-shadow(0 1px 2px rgba(20, 24, 60, .25)); }
 .sp-say { position: relative; flex: 1; background: var(--surface); border: 1.5px solid #e7d6b8; border-radius: var(--r-m); padding: 4px 10px; font-size: var(--fs-s); line-height: 1.4; animation: jnIn .25s ease-out; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sp-say b { color: #b9783f; margin-right: 6px; }
 .sp-list { display: flex; flex-direction: column; gap: 4px; }
@@ -814,7 +824,7 @@ body.mini #decor, #npcWrap.transforming #decor, #npcWrap.shrinking #decor { disp
 .sp-ico { width: 40px; height: 40px; flex: none; }
 .sp-ico.hang { width: 30px; height: 48px; margin: -4px 5px; }
 .sp-ico.desk { width: 44px; height: 44px; }
-.sp-ico svg { width: 100%; height: 100%; }
+.sp-ico svg, .sp-ico img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .sp-sw { display: flex; flex: none; width: 40px; justify-content: center; }
 .sp-sw i { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid rgba(0, 0, 0, .25); margin-right: -5px; }
 .sp-act { flex: none; min-width: 92px; min-height: 32px; padding: 4px 10px; font-size: var(--fs-m); display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
