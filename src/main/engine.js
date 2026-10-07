@@ -31,29 +31,7 @@ const AC = require('./achievements');
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
-// 🔮 今日運勢：沒有「凶」，最差也是末吉；tier 給畫面配色用
-const FORTUNE_RANKS = [
-  { name: '大吉', w: 12, xp: 10, gold: 12, tier: 5 },
-  { name: '中吉', w: 23, xp: 8, gold: 8, tier: 4 },
-  { name: '小吉', w: 25, xp: 6, gold: 6, tier: 3 },
-  { name: '吉', w: 25, xp: 5, gold: 5, tier: 2 },
-  { name: '末吉', w: 15, xp: 3, gold: 3, tier: 1 },
-];
-const FORTUNE_ADVICE = [
-  '適合先做最小的那一項，星星會一顆一顆亮起來',
-  '適合把拖最久的那件事收尾',
-  '適合開口問人，答案比想像中近',
-  '適合整理桌面和檔案，找東西會變快',
-  '適合準時吃午餐、睡個午覺',
-  '適合下班前寫下明天的第一步',
-  '適合一次只做一件事，其他的先記進小本子',
-  '適合多喝水，精神會比較好',
-  '適合回一封拖了很久的信',
-  '適合把大任務切成三小塊',
-  '適合早一點開始，鐘樓會站在你這邊',
-  '適合對自己說一聲辛苦了',
-];
-const FORTUNE_ITEMS = ['溫奶茶', '魚形麵包', '紅緞帶', '蠟封章', '小銀鈴', '藍色小花', '鐘樓的鐘聲', '傳信鴿', '打氣抽屜的糖', '梟長的羽毛', '舊書攤的信封', '霜月村的初雪']
+const F = require('./fortune'); // 🔮 今日運勢的文案
 
 function deepMerge(a, b) {
   const out = { ...a };
@@ -994,11 +972,8 @@ class Engine {
     const today = G.todayISO(this.now());
     const had = this.fortuneToday();
     if (had) return { again: true, fortune: had, lines: [{ ...this.npc.template('fortune_again', had), event: 'fortune' }], view: this.view() };
-    const rnd = this.rand || Math.random;
-    const pick = (arr) => arr[Math.floor(rnd() * arr.length) % arr.length];
-    let r = rnd() * FORTUNE_RANKS.reduce((n, x) => n + x.w, 0);
-    const rank = FORTUNE_RANKS.find((x) => (r -= x.w) < 0) || FORTUNE_RANKS[FORTUNE_RANKS.length - 1];
-    const fortune = { date: today, rank: rank.name, advice: pick(FORTUNE_ADVICE), item: pick(FORTUNE_ITEMS), xp: rank.xp, gold: rank.gold, tier: rank.tier };
+    const { rank, opener, advice, item } = F.draw(this.rand || Math.random);
+    const fortune = { date: today, rank: rank.name, opener, advice, item, xp: rank.xp, gold: rank.gold, tier: rank.tier };
     this.state.fortune = fortune;
     const reward = G.grant(this.state, { xp: rank.xp, gold: rank.gold }, `今日運勢：${rank.name}`, this.config.rewards, this.now());
     this.saveState();

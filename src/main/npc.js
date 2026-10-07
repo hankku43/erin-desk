@@ -324,7 +324,11 @@ const TEMPLATES = {
     ['時間到！{self}幫你記下今天第 {count} 顆番茄了。喝口水、看看遠方，休息 {rest} 分鐘再回來～', 'happy'],
     ['喵～時間到！{minutes} 分鐘的專注，今天第 {count} 顆番茄，星屑 +{xp}。休息 {rest} 分鐘，伸個懶腰吧。', 'cheer'],
   ],
-  fortune: [['🔮 今天的運勢是……「{rank}」！{advice}。幸運物是「{item}」，公會送你 {gold} 金幣～', 'cheer']],
+  fortune: [ // {opener} 依等級不同（fortune.js），後面接建議和幸運物
+    ['{opener}{advice}。幸運物是「{item}」，公會送你 {gold} 金幣～', 'cheer'],
+    ['{opener}{advice}。今天的幸運物是「{item}」！{gold} 金幣收好喔～', 'cheer'],
+    ['{opener}{advice}。幸運物「{item}」，還有公會的 {gold} 金幣～', 'happy'],
+  ],
   fortune_again: [
     ['今天已經抽過囉，是「{rank}」。記得：{advice}～', 'happy'],
     ['今天已經抽過了喔，是「{rank}」——{advice}。明天再來看新的運勢吧～', 'normal'],

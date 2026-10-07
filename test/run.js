@@ -1761,3 +1761,22 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('雜貨舖與成就測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🔮 今日運勢文案：每個等級有自己的開場與建議、口吻正確、所有組合都能填滿 ----------
+(() => {
+  const F = require('../src/main/fortune');
+  const { TEMPLATES } = require('../src/main/npc');
+  for (const r of F.RANKS) assert.ok(F.OPENERS[r.tier].length >= 5 && F.ADVICE[r.tier].length >= 8, r.name);
+  assert.ok(F.ADVICE.common.length >= 20 && F.ITEMS.length >= 30);
+  const all = [...Object.values(F.OPENERS).flat(), ...Object.values(F.ADVICE).flat(), ...F.ITEMS];
+  assert.strictEqual(new Set(all).size, all.length, '文案不重複');
+  for (const t of all) assert.ok(!/玩家|您/.test(t) && !/(^|[^我])我(?!們)/.test(t), '口吻：' + t);
+  for (const t of Object.values(F.OPENERS).flat()) assert.ok(t.includes('{rank}'), '開場句要有等級：' + t);
+  for (const t of Object.values(F.ADVICE).flat()) assert.ok(/^適合/.test(t) && !/[。！]$/.test(t), '建議是「適合…」且不帶句號：' + t);
+  // 每個等級都抽得到自己的開場句；大吉的建議池含大吉專屬
+  const seen = {};
+  for (let i = 0; i < 3000; i++) { const d = F.draw(Math.random); (seen[d.rank.tier] = seen[d.rank.tier] || new Set()).add(d.opener); }
+  for (const r of F.RANKS) assert.ok(seen[r.tier].size >= 4, `${r.name} 的開場句有在換：${seen[r.tier].size}`);
+  for (const [tpl] of TEMPLATES.fortune) assert.ok(/\{opener\}/.test(tpl) && /\{advice\}/.test(tpl) && /\{item\}/.test(tpl) && /\{gold\}/.test(tpl));
+  console.log('今日運勢文案測試通過 ✔');
+})();
