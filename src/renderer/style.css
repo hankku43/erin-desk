@@ -985,3 +985,114 @@ body.mini #tip { display: none !important; }
 .co-progrow .co-prog { flex: 1; margin: 0; }
 .co-progrow span { font-size: var(--fs-xs); color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .co-gold { font-size: var(--fs-s); }
+
+/* ---------- 🐰 棉棉和朵朵（半身圖 assets/shop/*_bust.png，下面已經淡出） ---------- */
+.tw-bust { position: absolute; bottom: 0; width: auto; pointer-events: none; user-select: none; transform-origin: 50% 100%; transition: transform .25s, opacity .25s, filter .25s; }
+.tw-bust.back { transform: scale(.86); opacity: .78; filter: saturate(.7) brightness(.98); }
+.tw-bust.on { filter: drop-shadow(0 2px 3px rgba(60, 40, 20, .22)); animation: twBreath 3.6s ease-in-out infinite; }
+.tw-bust.on.hop { animation: twHop .5s ease-out, twBreath 3.6s ease-in-out .5s infinite; }
+@keyframes twHop { 0% { translate: 0 0; } 35% { translate: 0 -9px; } 60% { translate: 0 0; } 80% { translate: 0 -3px; } 100% { translate: 0 0; } }
+@keyframes twBreath { 0%, 100% { scale: 1; } 50% { scale: 1.012; } }
+
+/* 雜貨舖最上面的攤位招牌：說話的站前面，木頭櫃台擋住下半身 */
+.sp-stall { position: relative; height: 132px; margin: 0 0 8px; border-radius: var(--r-m); overflow: hidden; flex: none;
+  background: radial-gradient(circle at 24% 120%, #ffe9d2 0, transparent 60%), linear-gradient(180deg, #fff8ee, #fdebd6); border: 1px solid #ecd9bb; }
+.sp-stall::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 12px; z-index: 0; opacity: .8;
+  background: radial-gradient(circle at 10px 0, #d6e8fa 9px, transparent 10px) 0 0 / 20px 12px repeat-x; } /* 雲朵花邊的遮雨棚 */
+.st-busts { position: absolute; left: 0; top: 0; bottom: 0; width: 200px; z-index: 1; }
+.st-busts .tw-bust { height: 170px; bottom: -32px; }
+.st-busts .tw-bust.on { left: 62px; z-index: 2; }
+.st-busts .tw-bust.back { left: -12px; z-index: 1; }
+.st-counter { position: absolute; left: 0; right: 0; bottom: 0; height: 14px; z-index: 3; background: linear-gradient(180deg, #d6a777, #b07c4c); border-top: 2px solid #f0cf9f; box-shadow: 0 -1px 3px rgba(90, 50, 20, .2); }
+.st-say { position: absolute; left: 218px; right: 10px; top: 20px; bottom: 28px; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  background: #fff; border: 1.5px solid #e7d6b8; border-radius: 12px; padding: 6px 12px; font-size: var(--fs-m); line-height: 1.5; color: var(--ink); box-shadow: 0 2px 6px rgba(120, 80, 30, .12); }
+.st-say::before { content: ''; position: absolute; left: -9px; top: 50%; margin-top: -7px; border: 7px solid transparent; border-right: 9px solid #e7d6b8; border-left: 0; }
+.st-say::after { content: ''; position: absolute; left: -6px; top: 50%; margin-top: -6px; border: 6px solid transparent; border-right: 7px solid #fff; border-left: 0; }
+.st-say b { color: #b9783f; font-size: var(--fs-s); }
+.st-say span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.st-say.fresh { animation: pop .22s ease-out; }
+
+/* 🔖 許願單：留著的東西還差多少；每一列價錢按鈕旁的書籤 */
+.sp-wishes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 8px; font-size: var(--fs-s); color: var(--ink-soft); }
+.sp-wishes .wchip { display: inline-flex; align-items: baseline; gap: 5px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; color: var(--ink); }
+.sp-wishes .wchip small { color: var(--ink-soft); }
+.sp-wishes .wchip.ready { border-color: var(--gold); background: var(--gold-soft); font-weight: 700; }
+.sp-wish { flex: none; width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 1.5px dashed var(--line); background: transparent; font-size: 15px; line-height: 1; opacity: .5; filter: grayscale(.7); cursor: pointer; transition: opacity .15s, transform .15s; }
+.sp-wish:hover { opacity: 1; filter: none; transform: scale(1.08); }
+.sp-wish.on { opacity: 1; filter: none; border-style: solid; border-color: var(--gold); background: var(--gold-soft); }
+.sp-row.flash { animation: rowFlash 1.8s ease-out; }
+@keyframes rowFlash { 0%, 45% { box-shadow: 0 0 0 3px var(--gold); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.sp-ticket { background: linear-gradient(180deg, #fff1c4, #f5c75a) !important; }
+
+/* 🌌 抽卡演出：蓋在雜貨舖面板上；朵朵在左下發牌，★★★★ 時姊姊從右下探出頭來 */
+.dr-stage { position: fixed; z-index: 40; border-radius: var(--r-l); overflow: hidden; cursor: pointer; animation: pop .25s ease-out; box-shadow: var(--shadow); }
+.dr-stage.bye { animation: drOut .26s ease-in both; }
+@keyframes drOut { to { opacity: 0; transform: scale(.97); } }
+.dr-bg { position: absolute; inset: 0; background: radial-gradient(ellipse at 68% 38%, #3b418c 0%, #1e2150 55%, #12133a 100%); }
+.dr-bg::before { content: ''; position: absolute; inset: 0; opacity: 0; transition: opacity .8s; background: radial-gradient(ellipse at 66% 40%, rgba(255, 214, 107, .55) 0%, rgba(255, 170, 60, .18) 35%, transparent 70%); }
+.dr-bg::after { content: ''; position: absolute; inset: 0; opacity: .7;
+  background: radial-gradient(1.2px 1.2px at 12% 20%, #fff, transparent), radial-gradient(1px 1px at 30% 70%, #fff, transparent), radial-gradient(1.4px 1.4px at 54% 12%, #fff, transparent),
+    radial-gradient(1px 1px at 78% 30%, #fff, transparent), radial-gradient(1.3px 1.3px at 90% 64%, #fff, transparent), radial-gradient(1px 1px at 64% 88%, #fff, transparent), radial-gradient(1.2px 1.2px at 42% 44%, #fff, transparent); }
+.done.best3 .dr-bg::before { opacity: .55; }
+.done.best4 .dr-bg::before { opacity: 1; }
+.dr-duo { left: -14px; bottom: -56px; height: 340px; z-index: 3; animation: drFromLeft .5s cubic-bezier(.3, 1.35, .5, 1) both; }
+.dr-duo.hop { animation: twHop .5s ease-out; }
+@keyframes drFromLeft { from { translate: -120px 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+.dr-mian { right: -16px; bottom: -128px; height: 310px; z-index: 3; opacity: 0; translate: 0 120px; transition: opacity .35s, translate .55s cubic-bezier(.3, 1.4, .5, 1); }
+.mian-in .dr-mian { opacity: 1; translate: 0 0; }
+.mian-in .dr-mian.hop { animation: twHop .5s ease-out; }
+.dr-say { position: absolute; left: 14px; right: 14px; top: 12px; z-index: 5; background: #fff; border-radius: 12px; padding: 8px 14px; font-size: var(--fs-l); line-height: 1.45; color: var(--ink); box-shadow: 0 3px 12px rgba(0, 0, 0, .35); }
+.dr-say b { color: #b9783f; margin-right: 8px; font-size: var(--fs-m); }
+.dr-say.fresh { animation: pop .2s ease-out; }
+.dr-cards { position: absolute; z-index: 4; left: 232px; right: 12px; top: 64px; height: 250px; display: grid; place-content: center; gap: 6px 8px; }
+.n1 .dr-cards { grid-template-columns: 124px; }
+.n10 .dr-cards { grid-template-columns: repeat(5, 58px); }
+.dr-card { display: flex; flex-direction: column; align-items: center; gap: 1px; opacity: 0; transform: translate(-200px, 90px) rotate(-24deg) scale(.5);
+  transition: transform .45s cubic-bezier(.3, 1.2, .5, 1) calc(var(--i) * 70ms), opacity .25s calc(var(--i) * 70ms); }
+.dealt .dr-card { opacity: 1; transform: none; }
+.dr-flip { position: relative; width: 100%; aspect-ratio: 90 / 120; transform-style: preserve-3d; transition: transform .5s ease calc(var(--i) * 150ms); }
+.flipped .dr-flip { transform: rotateY(180deg); }
+.dr-face { position: absolute; inset: 0; backface-visibility: hidden; }
+.dr-front { transform: rotateY(180deg); }
+.dr-face svg { width: 100%; height: 100%; display: block; }
+.dr-card b { color: #fff; font-size: var(--fs-xs); white-space: nowrap; opacity: 0; transition: opacity .3s calc(var(--i) * 150ms + .35s); }
+.dr-card small { color: #ffd66b; font-size: var(--fs-xs); font-weight: 700; line-height: 1.1; opacity: 0; transition: opacity .3s calc(var(--i) * 150ms + .35s); }
+.n1 .dr-card b { font-size: var(--fs-l); }
+.flipped .dr-card b, .flipped .dr-card small { opacity: 1; }
+.fast .dr-card, .fast .dr-flip, .fast .dr-card b, .fast .dr-card small { transition-delay: 0s !important; transition-duration: .18s !important; }
+/* 最亮的那張發光（光加在正面那層：加在翻轉的那層會讓 3D 變平、卡片翻不過來） */
+.dr-front { border-radius: 9px; }
+.done .dr-card.top .dr-front { animation: drGlow 1.3s ease-in-out infinite; }
+@keyframes drGlow { 0%, 100% { box-shadow: 0 0 6px 1px rgba(255, 214, 107, .55); } 50% { box-shadow: 0 0 16px 4px rgba(255, 214, 107, .95); } }
+.dr-ok { position: absolute; left: 50%; bottom: 14px; translate: -50% 0; z-index: 6; opacity: 0; pointer-events: none; transition: opacity .3s; min-width: 120px; }
+.done .dr-ok { opacity: 1; pointer-events: auto; }
+
+/* 🐰 跑來櫃台（下午茶外送、道賀、許願單）：一張卡片放在對話框的位置，兩個人從卡片上面探出頭 */
+#twinsVisit { position: relative; flex-shrink: 0; min-height: 108px; padding: 12px 38px 12px 190px; overflow: visible;
+  background: linear-gradient(180deg, #fffaf2, #fff1df); animation: tvIn .4s cubic-bezier(.3, 1.3, .5, 1) both; }
+#twinsVisit.bye { animation: tvOut .38s ease-in both; }
+@keyframes tvIn { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+@keyframes tvOut { to { opacity: 0; transform: translateY(20px); } }
+.tv-busts { position: absolute; left: 4px; bottom: 0; width: 186px; height: 100%; pointer-events: none; z-index: 1; }
+.tv-busts .tw-bust { height: 190px; bottom: 0; }
+.tv-busts .tw-bust.on { left: 40px; z-index: 2; }
+.tv-busts .tw-bust.back { left: -18px; z-index: 1; }
+.tv-busts .tw-bust:not(.hop) { animation-name: tvBust, twBreath; animation-duration: .55s, 3.6s; animation-timing-function: cubic-bezier(.3, 1.3, .5, 1), ease-in-out; animation-delay: 0s, .55s; animation-iteration-count: 1, infinite; animation-fill-mode: both, none; }
+.tv-busts .tw-bust.back:not(.hop) { animation-name: tvBust; animation-delay: .12s; animation-iteration-count: 1; }
+@keyframes tvBust { from { translate: -90px 30px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+.tv-prop { position: absolute; left: 112px; bottom: 6px; z-index: 3; width: 60px; height: 60px; animation: tvProp .5s cubic-bezier(.3, 1.5, .5, 1) .45s both; filter: drop-shadow(0 2px 3px rgba(60, 40, 20, .3)); }
+.tv-prop img, .tv-prop svg { width: 100%; height: 100%; display: block; object-fit: contain; }
+@keyframes tvProp { from { transform: translateY(14px) scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+.tv-prop.ticket { width: 82px; height: 42px; left: 100px; bottom: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; rotate: -8deg;
+  background: linear-gradient(135deg, #fff3c8, #f2b93b); border: 2px solid #c98a1c; border-radius: 6px; color: #6b4300;
+  -webkit-mask: radial-gradient(circle at 0 50%, transparent 6px, #000 6.5px) left / 51% 100% no-repeat, radial-gradient(circle at 100% 50%, transparent 6px, #000 6.5px) right / 51% 100% no-repeat; }
+.tv-prop.ticket span { font-size: var(--fs-xs); font-weight: 800; letter-spacing: 1px; }
+.tv-prop.ticket b { font-size: var(--fs-l); font-weight: 900; }
+.tv-swatch { display: block; width: 100%; height: 100%; border-radius: 50%; background: conic-gradient(var(--navy) 0 33%, var(--gold) 0 66%, var(--paper) 0); }
+.tv-body { position: relative; z-index: 2; }
+.tv-name { display: block; color: #b9783f; font-size: var(--fs-s); font-weight: 800; margin-bottom: 1px; }
+.tv-line { font-size: var(--fs-l); line-height: 1.6; min-height: 52px; cursor: pointer; }
+.tv-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+.tv-actions.hidden { display: none; }
+.tv-close { position: absolute; right: 6px; top: 6px; z-index: 3; }
+body.mini #twinsVisit, body.mini .dr-stage { display: none; }

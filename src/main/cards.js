@@ -43,7 +43,7 @@ const CARDS = [
 ];
 const CARD = Object.fromEntries(CARDS.map((c) => [c.id, c]));
 
-function blank() { return { cards: {}, dust: 0, draws: 0, sinceTop: 0, firstAt: {} }; }
+function blank() { return { cards: {}, dust: 0, draws: 0, sinceTop: 0, firstAt: {}, tickets: 0 }; } // tickets：雙胞胎送的免費抽卡券
 
 // 抽一張的稀有度：保底優先；rnd 是 0～1
 function rollRarity(rnd, { atLeast = 1, top = false } = {}) {

@@ -23,20 +23,24 @@ function renderShop(el) {
   const tabs = `<div class="tabs sp-tabs">${TABS.map(([k, l]) => `<button class="tab ${sp.tab === k ? 'on' : ''}" data-sp-tab="${k}">${l}</button>`).join('')}</div>`;
   if (!d) { el.innerHTML = head('🛒 雲朵雜貨舖', '', tabs) + '<div class="panel-body"><p class="hint">開店中……</p></div>'; return; }
   const tw = d.twins || { who: 'duo', name: '朵朵', text: '歡迎光臨～' };
-  const keeper = `<div class="sp-keeper"><div class="sp-face">${Art.twins(tw.who)}</div><div class="sp-say"><b>${esc(tw.name)}</b>${esc(tw.text)}</div></div>`;
+  const keeper = typeof Twins !== 'undefined' ? Twins.stall(tw) // 🐰 攤位招牌：半身的棉棉和朵朵
+    : `<div class="sp-keeper"><div class="sp-face">${Art.twins(tw.who)}</div><div class="sp-say"><b>${esc(tw.name)}</b>${esc(tw.text)}</div></div>`;
+  // 🔖 請朵朵留著的東西：還差多少
+  const wishes = (d.wish || []).length && sp.tab !== 'cards' ? `<div class="sp-wishes"><span>🔖 留著：</span>${d.wish.map((w) => { const left = (w.price || 0) - d.gold; return `<span class="wchip ${left <= 0 ? 'ready' : ''}">${esc(w.name || '')}${left > 0 ? `<small>差 ${left}</small>` : '<small>買得起了</small>'}</span>`; }).join('')}</div>` : '';
+  const wishBtn = (x) => (x.wished || !x.afford ? `<button class="sp-wish ${x.wished ? 'on' : ''}" data-sp-wish="${x.id}" data-tip="${x.wished ? '不用留了' : '請朵朵留著：金幣存夠了，她們會跑來櫃台說一聲'}" aria-label="留著">🔖</button>` : '');
   let body = '';
   if (sp.tab === 'gift') {
     body = `<div class="sp-list">${d.catalog.gifts.map((x) => `
       <div class="sp-row ${x.joke ? 'joke' : ''}">
         <div class="sp-ico">${Art.gift(x.id)}</div>
         <div class="sp-txt"><b>${esc(x.name)}${x.given ? `<span class="sp-tag">送過 ${x.given} 次</span>` : ''}</b><small>${esc(x.desc)}</small></div>
-        <button class="btn sp-act ${x.joke ? 'ghost' : 'gold'}" data-sp-gift="${x.id}" ${x.afford ? '' : 'disabled'}>${x.joke ? '送？' : '送'}${spCoin(x.price, x.afford)}</button>
+        ${x.joke ? '' : wishBtn(x)}<button class="btn sp-act ${x.joke ? 'ghost' : 'gold'}" data-sp-gift="${x.id}" ${x.afford ? '' : 'disabled'}>${x.joke ? '送？' : '送'}${spCoin(x.price, x.afford)}</button>
       </div>`).join('')}</div>`;
   } else if (sp.tab === 'decor') {
     const act = (x, slot) => x.equipped
       ? (slot === 'theme' ? '<span class="sp-on">✓ 使用中</span>' : `<button class="btn sp-act ghost" data-sp-off="${slot}">拿下</button>`)
       : x.owned ? `<button class="btn sp-act" data-sp-equip="${slot}:${x.id}">換上</button>`
-        : `<button class="btn sp-act gold" data-sp-buy="${x.id}" ${x.afford ? '' : 'disabled'}>買${spCoin(x.price, x.afford)}</button>`;
+        : `${wishBtn(x)}<button class="btn sp-act gold" data-sp-buy="${x.id}" ${x.afford ? '' : 'disabled'}>買${spCoin(x.price, x.afford)}</button>`;
     const sec = (title, note, rows) => `<div class="sp-sec"><b>${title}</b><small>${note}</small></div><div class="sp-list">${rows}</div>`;
     body = sec('主題配色', '整個櫃台一起換色', d.catalog.themes.map((x) => `
       <div class="sp-row ${x.equipped ? 'on' : ''}"><span class="sp-sw">${x.colors.map((c) => `<i style="background:${c}"></i>`).join('')}</span><div class="sp-txt"><b>${esc(x.name)}</b><small>${esc(x.desc)}</small></div>${act(x, 'theme')}</div>`).join(''));
@@ -47,6 +51,7 @@ function renderShop(el) {
   } else if (sp.tab === 'cards') {
     const c = d.cards;
     const bar = `<div class="sp-bar"><div class="sp-txt"><b>露米納星座卡 <span class="sp-tag">${c.owned}/${c.total}</span><span class="sp-tag dust">✦ ${c.dust}</span></b><small>重複的變星屑，星屑換還沒有的卡・再 ${c.pityLeft} 抽必出 ★★★★</small></div>
+      ${c.tickets > 0 ? `<button class="btn sp-act gold sp-ticket" data-sp-ticket data-tip="棉棉和朵朵送的：一張抽一次，不用金幣">抽卡券<span class="sp-coin">×${+c.tickets}</span></button>` : ''}
       <button class="btn sp-act gold" data-sp-draw="1" ${d.gold >= c.price.one ? '' : 'disabled'}>抽 1 張${spCoin(c.price.one, d.gold >= c.price.one)}</button>
       <button class="btn sp-act gold" data-sp-draw="10" ${d.gold >= c.price.ten ? '' : 'disabled'} data-tip="最後一張保底 ★★★ 以上">抽 10 張${spCoin(c.price.ten, d.gold >= c.price.ten)}</button></div>`;
     const res = sp.draw ? `<div class="sp-draw"><div class="sp-draw-grid">${sp.draw.map((x, i) => `<div class="sp-card r${x.r} ${x.isNew ? 'new' : ''}" style="--i:${i}">${Art.card(x)}<b>${esc(x.name)}</b><small>${x.isNew ? 'NEW!' : `✦ +${x.dust}`}</small></div>`).join('')}</div><button class="btn small ghost" data-sp-fold>收起</button></div>` : '';
@@ -60,7 +65,7 @@ function renderShop(el) {
     }).join('')}</div>` : '';
     body = bar + res + ownHtml + missHtml;
   }
-  el.innerHTML = head('🛒 雲朵雜貨舖', `${COIN}${d.gold}`, tabs) + `<div class="panel-body sp-body">${keeper}${body}</div>`;
+  el.innerHTML = head('🛒 雲朵雜貨舖', `${COIN}${d.gold}`, tabs) + `<div class="panel-body sp-body">${keeper}${wishes}${body}</div>`;
 }
 async function shopAct(fn, { talk = false } = {}) {
   const r = await run(fn, { thinking: talk, talk });
@@ -80,7 +85,16 @@ async function shopClick(e) {
   const buy = t.closest('[data-sp-buy]'); if (buy) { await shopAct(() => api.shopBuy(buy.dataset.spBuy)); return true; }
   const eq = t.closest('[data-sp-equip]'); if (eq) { const [slot, id] = eq.dataset.spEquip.split(':'); await shopAct(() => api.shopEquip(slot, id)); return true; }
   const off = t.closest('[data-sp-off]'); if (off) { await shopAct(() => api.shopEquip(off.dataset.spOff, null)); return true; }
-  const dr = t.closest('[data-sp-draw]'); if (dr) { sp.draw = null; await shopAct(() => api.shopDraw(Number(dr.dataset.spDraw))); const b = document.querySelector('#panel .panel-body'); if (b) b.scrollTop = 0; return true; }
+  // 抽卡：結果先畫在面板裡，上面蓋一層朵朵發牌、翻牌的演出（點一下跳過）
+  const dr = t.closest('[data-sp-draw]'), tk = t.closest('[data-sp-ticket]');
+  if (dr || tk) {
+    sp.draw = null;
+    const r = await shopAct(() => (tk ? api.shopDraw(1, true) : api.shopDraw(Number(dr.dataset.spDraw))));
+    const b = document.querySelector('#panel .panel-body'); if (b) b.scrollTop = 0;
+    if (r && r.ok && r.draw && typeof Twins !== 'undefined' && state.panel === 'shop') await Twins.drawShow(r.draw, r.shop && r.shop.twins);
+    return true;
+  }
+  const wi = t.closest('[data-sp-wish]'); if (wi) { await shopAct(() => api.shopWish(wi.dataset.spWish)); return true; }
   if (t.closest('[data-sp-fold]')) { sp.draw = null; renderPanel(); return true; }
   const ex = t.closest('[data-co-ex]');
   if (ex) { const r = await shopAct(() => api.shopExchange(ex.dataset.coEx)); if (r && r.ok) toast(`✦ 換到了「${r.card.name}」`); return true; }

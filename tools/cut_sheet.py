@@ -14,7 +14,8 @@
 # 切割：透明度 > 0.15 的連通區塊，指派給最近的物品中心（SHEETS 表裡的相對座標）；碎屑、繩子跟著最近的物品。
 # 輸出（畫面大小的 2 倍左右）：
 #   gift 96×96 置中｜desk 144×144 底部貼齊（放在艾琳腳邊）｜hang 120×220 繩子對準中線、上端淡出（不會像從半空中垂下來）
-#   twins：店員頭像 120×150，圓形底色在下方、頭頂和耳朵可以超出圓（mian／duo）
+#   twins：店員頭像 120×150，圓形底色在下方、頭頂和耳朵可以超出圓（mian／duo）；
+#          半身 mian_bust／duo_bust 高 400（下面淡出，攤位招牌、抽卡、外送、道賀用）
 import os, sys, math, numpy as np, cv2
 from PIL import Image
 
@@ -33,6 +34,10 @@ SHEETS = {
 }
 # 店員頭像：圓的中心與直徑（原圖像素）、底色
 TWINS = ('sheet_twins.png', [('mian', 440, 400, 560, (223, 236, 250)), ('duo', 1290, 425, 560, (253, 228, 234))])
+# 店員半身（攤位招牌、抽卡、外送、道賀用）：原圖的左右範圍（兩個人用同一個縮放，頭的高度才對得上）、
+# 碰到原圖邊緣的那一側（那裡是被切掉的袖子，淡出）
+BUSTS = [('mian', 0, 790, 'left'), ('duo', 940, 1672, 'right')]
+BUST_H = 400
 
 _sess = None
 def rembg_mask(pil):
@@ -170,6 +175,24 @@ def twins():
         base.alpha_composite(Image.fromarray(A.clip(0, 255).astype(np.uint8), 'RGBA'))
         base.save(os.path.join(OUT, f'{iid}.png'), optimize=True)
         print(f'  {iid}.png')
+    # 半身：整張高度一起縮放；下面 24% 淡出（原圖在腰部被切掉），碰到原圖邊緣的那側也淡出
+    sh = rgba.shape[0]
+    s = BUST_H / sh
+    for iid, x0, x1, cut in BUSTS:
+        im = resize(rgba[:, x0:x1], s)
+        A = np.asarray(im).astype(np.float32)
+        h, w = A.shape[:2]
+        y = np.arange(h, dtype=np.float32)
+        t = np.clip((h - 1 - y) / (0.24 * h), 0, 1)
+        A[..., 3] *= (t * t * (3 - 2 * t))[:, None]
+        x = np.arange(w, dtype=np.float32)
+        side = np.clip((x if cut == 'left' else (w - 1 - x)) / (0.10 * w), 0, 1)
+        lower = np.clip((y - 0.55 * h) / (0.15 * h), 0, 1)[:, None]   # 只有下半身（袖子）那段淡出，頭髮不動
+        A[..., 3] *= 1 - lower * (1 - (side * side * (3 - 2 * side))[None, :])
+        ys, xs = np.nonzero(A[..., 3] > 8)
+        out = Image.fromarray(A.clip(0, 255).astype(np.uint8), 'RGBA').crop((xs.min(), 0, xs.max() + 1, h))
+        out.save(os.path.join(OUT, f'{iid}_bust.png'), optimize=True)
+        print(f'  {iid}_bust.png {out.width}×{out.height}')
 
 def do_sheet(key):
     fn, kind, key_only, items = SHEETS[key]

@@ -1098,13 +1098,16 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const heard = [], asked = [];
   E.onSpeech = (ls) => heard.push(...ls);
   E.npc.status.online = true;
-  E.npc.fetchJSON = async (_p, body) => { asked.push(body); await new Promise((r) => setTimeout(r, 600)); return { message: { content: JSON.stringify({ line: `好的（第 ${asked.length} 句）`, emotion: 'happy' }) } }; };
+  // AI 先「卡住」不回話（gate 關著）：勾選如果在等 AI 就會一直卡著 → 5 秒後失敗；不用量時間，慢的電腦也不會誤判
+  let openGate; const gate = new Promise((r) => { openGate = r; });
+  E.npc.fetchJSON = async (_p, body) => { asked.push(body); await gate; await new Promise((r) => setTimeout(r, 600)); return { message: { content: JSON.stringify({ line: `好的（第 ${asked.length} 句）`, emotion: 'happy' }) } }; };
+  const noWait = (p) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('勾選在等 AI 回話')), 5000); })]).finally(() => clearTimeout(t)); };
   const q = E.plan.quests[0];
   // 連勾三個目標：每一個都馬上完成，不用等 AI
-  const t0 = Date.now();
   const rs = [];
-  for (let i = 0; i < 3; i++) rs.push(await E.setObjective(q.id, i, true));
-  assert.ok(Date.now() - t0 < 450, '勾選不用等 AI（AI 一句要 600ms，等的話要 1.8 秒）：' + (Date.now() - t0) + 'ms');
+  for (let i = 0; i < 3; i++) rs.push(await noWait(E.setObjective(q.id, i, true)));
+  assert.ok(heard.length === 0, 'AI 還沒回話，三個都勾好了（勾選不用等 AI）');
+  openGate();
   assert.ok(rs.every((r) => !r.lines.some((l) => l.event === 'objective')), '回傳裡沒有 AI 的話（晚點推）');
   assert.ok(rs[2].view.quests.find((x) => x.id === q.id).objectives.every((o) => o.done), '三個都勾好了');
   assert.ok(rs[0].view.rev < rs[1].view.rev && rs[1].view.rev < rs[2].view.rev, '畫面有新舊順序');
@@ -1768,6 +1771,104 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.config.achievements = { enabled: true };
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('雜貨舖與成就測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🐰 棉棉和朵朵出場：下午茶外送、道賀（抽卡券）、許願單 ----------
+(async () => {
+  const TW = require('../src/main/twins');
+  const G3 = require('../src/main/game');
+  const d = (x) => new Date(x);
+  const Y = new Date().getFullYear();
+  // 規則：下午茶的時段、平日、一天一次
+  const tw = TW.blank(1);
+  assert.ok(TW.teaDue(tw, d(`${Y}-10-07T15:10:00`), { today: `${Y}-10-07`, weekdaysOnly: false }), '三點多');
+  assert.ok(!TW.teaDue(tw, d(`${Y}-10-07T14:59:00`), { today: 'x' }) && !TW.teaDue(tw, d(`${Y}-10-07T17:00:00`), { today: 'x' }), '時段外不來');
+  const sat = new Date(`${Y}-10-03T15:10:00`); while (sat.getDay() !== 6) sat.setDate(sat.getDate() + 1);
+  assert.ok(!TW.teaDue(tw, sat, { today: 'x' }) && TW.teaDue(tw, sat, { today: 'x', weekdaysOnly: false }), '週末看作息設定');
+  tw.teaDay = 'x'; assert.ok(!TW.teaDue(tw, d(`${Y}-10-07T15:30:00`), { today: 'x', weekdaysOnly: false }), '一天一次');
+  // 台詞：每一組都填得滿、名字對；道賀的抽卡券一次最多 3 張
+  for (const kind of ['tea', 'level', 'streak', 'allclear', 'many', 'wish', 'wishMany']) {
+    for (let i = 0; i < TW.SCRIPTS[kind].length; i++) {
+      const rnd = () => (i + 0.5) / TW.SCRIPTS[kind].length;
+      const data = { level: 5, title: '銅牌冒險者', levels: 1, streak: kind === 'streak' || kind === 'many' ? 7 : 0, allclear: kind === 'allclear' || kind === 'many', items: kind === 'wishMany' ? [{ id: 'a', name: '紅緞帶', price: 90 }, { id: 'b', name: '小銀鈴', price: 150 }] : [{ id: 'a', name: '紅緞帶', price: 90 }] };
+      if (kind === 'streak' || kind === 'allclear') data.levels = 0;
+      const v = TW.build(['tea', 'wish'].includes(kind) ? kind : kind === 'wishMany' ? 'wish' : 'congrats', data, rnd);
+      assert.ok(v.lines.length >= 2 && v.lines.every((l) => TW.NAMES[l.who] === l.name && l.text && !/\{\w+\}/.test(l.text)), kind + ' 台詞填滿：' + JSON.stringify(v.lines));
+    }
+  }
+  assert.strictEqual(TW.build('congrats', { level: 9, levels: 3, streak: 30, allclear: true }, () => 0).tickets, 3, '一次最多 3 張');
+  assert.strictEqual(TW.build('congrats', { streak: 30 }, () => 0).tickets, 2, '30 天 2 張');
+  assert.deepStrictEqual(TW.mergeCongrats({ level: 3, title: 'a', levels: 1 }, { allclear: true }), { level: 3, title: 'a', levels: 1, streak: undefined, allclear: true });
+  for (const who of ['mian', 'duo']) assert.ok(fs.existsSync(path.join(__dirname, '..', 'assets', 'shop', `${who}_bust.png`)), who + ' 的半身圖');
+  for (const t of Object.values(TW.ERIN_TEA).flat()) assert.ok(!/玩家|您/.test(t) && !/(^|[^我])我(?!們)/.test(t), '艾琳的口吻：' + t);
+  // 許願單：買得起時通知一次；錢變少再存夠會再說一次；擁有了就拿掉
+  const w = { wish: ['ribbon', 'bell'], wishReady: {} };
+  const price = (id) => ({ ribbon: { name: '紅緞帶', price: 90 }, bell: null }[id]);
+  assert.deepStrictEqual(TW.wishCheck(w, 100, price).map((x) => x.id), ['ribbon']);
+  assert.deepStrictEqual(w.wish, ['ribbon'], '擁有的裝飾自動拿掉');
+  assert.strictEqual(TW.wishCheck(w, 100, price).length, 0, '同一件不重複說');
+  TW.wishCheck(w, 10, price); assert.strictEqual(TW.wishCheck(w, 95, price).length, 1, '花掉又存夠了：再說一次');
+
+  // 引擎：放進排隊、畫面有空時拿出來（抽卡券、好感在那時候給）
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-twins-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] } }));
+  fs.mkdirSync(path.join(dir, 'data'));
+  fs.writeFileSync(path.join(dir, 'data', 'save.json'), JSON.stringify({ version: 1, player: { xp: 500, gold: 40 }, history: [{ at: '2026-09-01T10:00:00Z', reason: 'x', xp: 1, gold: 1 }], onboarding: { done: true } }));
+  const wed = new Date(`${Y}-10-07T15:05:00`); while (wed.getDay() !== 3) wed.setDate(wed.getDate() + 1);
+  let t = wed.getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  let seed = 7; E.rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const lv0 = G3.levelInfo(500, E.config.rewards.levelStep).level;
+  assert.strictEqual(E.state.twins.level, lv0, '舊存檔從現在的等級開始，不補道賀');
+  assert.strictEqual(E.view().twins.waiting, 0);
+  await E.tick(); await E.tick();
+  assert.strictEqual(E.view().twins.waiting, 1, '三點後排一次下午茶（不重複）');
+  E.aff().gainedToday = 0; const a0 = E.aff().points;
+  const tea = E.twinsTake();
+  assert.ok(tea.visit.kind === 'tea' && tea.visit.lines.length >= 2 && tea.visit.erin && /艾琳|冒險者/.test(tea.visit.erin.text), '外送');
+  assert.strictEqual(E.aff().points - a0, 2, '好感 +2');
+  assert.strictEqual(E.twinsTake().visit, null, '拿完就沒了');
+  // 到了 17:00 還沒演（例如一直在專注）：過期不來
+  E.state.twins.teaDay = ''; t = wed.getTime() + 110 * 60000; await E.tick(); assert.strictEqual(E.view().twins.waiting, 1);
+  t = wed.getTime() + 116 * 60000; await E.tick(); assert.strictEqual(E.view().twins.waiting, 0, '17:00 過期');
+  t = wed.getTime() + 60000;
+  // 升級＋整週完成：同一次道賀（抽卡券在演出時才給）
+  G3.grant(E.state, { xp: 400, gold: 0 }, 'x', E.config.rewards, E.now());
+  E.allClearPending = true; E.settle({ lines: [] });
+  assert.strictEqual(E.view().twins.waiting, 1, '合成一次');
+  const lv1 = G3.levelInfo(E.state.player.xp, E.config.rewards.levelStep).level;
+  assert.ok(lv1 > lv0);
+  const cg = E.twinsTake();
+  assert.ok(cg.visit.kind === 'congrats' && cg.visit.tickets === Math.min(3, lv1 - lv0 + 1) && E.view().twins.tickets === cg.visit.tickets, '抽卡券 ' + cg.visit.tickets);
+  assert.ok(cg.visit.actions.some((a) => a.id === 'draw'));
+  // 抽卡券：不花金幣、一張抽一次；用完了雙胞胎會說
+  const g0 = E.state.player.gold; const k0 = E.view().twins.tickets;
+  const dr = E.drawCards(10, { ticket: true });
+  assert.ok(dr.ticket && dr.draw.length === 1 && E.state.player.gold === g0 + (dr.achievements || []).reduce((n, a) => n + a.gold, 0) && E.view().twins.tickets === k0 - 1, '用券抽一張');
+  E.state.collection.tickets = 0;
+  const no = E.drawCards(1, { ticket: true });
+  assert.ok(!no.draw && /用完/.test(no.shop.twins.text), '沒有券');
+  // 許願單：留著 → 金幣夠了來說一次 → 買了就拿掉
+  E.state.player.gold = 10;
+  const ws = E.wishToggle('ribbon');
+  assert.ok(ws.shop.catalog.gifts.find((x) => x.id === 'ribbon').wished && /留著/.test(ws.shop.twins.text) && ws.shop.wish[0].name === '紅緞帶');
+  assert.throws(() => E.wishToggle('cucumber'), /不用留/);
+  E.wishToggle('bell'); E.wishToggle('lantern');
+  assert.ok(/三樣/.test(E.wishToggle('chime').shop.twins.text) && E.state.twins.wish.length === 3, '最多三樣');
+  E.state.player.gold = 120; E.settle({ lines: [] });
+  const wv = E.twinsTake();
+  assert.ok(wv.visit.kind === 'wish' && wv.visit.items.map((x) => x.id).join() === 'ribbon' && /紅緞帶/.test(wv.visit.lines.map((l) => l.text).join()), '金幣夠了');
+  E.settle({ lines: [] }); assert.strictEqual(E.view().twins.waiting, 0, '不重複說');
+  await E.buyGift('ribbon');
+  assert.ok(!E.state.twins.wish.includes('ribbon'), '買了就拿掉');
+  // 關掉：不排隊、畫面看到 0
+  E.setTwins(false); E.state.twins.teaDay = ''; await E.tick();
+  assert.strictEqual(E.view().twins.waiting, 0);
+  assert.strictEqual(E.view().twins.enabled, false);
+  console.log('雙胞胎出場測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
 
 // ---------- 🔮 今日運勢文案：每個等級有自己的開場與建議、口吻正確、所有組合都能填滿 ----------

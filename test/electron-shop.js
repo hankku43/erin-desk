@@ -26,13 +26,13 @@ module.exports = ({ win, engine, app }) => {
       wc.send('view:update', { view: engine.view() }); await wait(200);
       // 1. 點狀態欄的金幣 → 雜貨舖（雙胞胎打招呼）
       await click('#gold'); await wait(600);
-      assert(await js(`state.panel === 'shop' && !!document.querySelector('.sp-keeper .sp-say')`), '點金幣開店');
+      assert(await js(`state.panel === 'shop' && !!document.querySelector('.sp-stall .st-say')`), '點金幣開店');
       assert((await js(`document.querySelectorAll('.sp-row').length`)) >= 6 && (await js(`[...document.querySelectorAll('.sp-act')].every((b) => b.getBoundingClientRect().height >= 30)`)), '一列一個商品、按鈕夠大');
       assert((await js(`document.querySelector('#panel .panel-body').scrollHeight / document.querySelector('#panel .panel-body').clientHeight`)) < 3, '不用捲太多');
       assert(await js(`document.querySelector('#dialog').classList.contains('hidden')`), '雙胞胎說話時，艾琳的泡泡收起來');
       assert((await js(`document.querySelectorAll('[data-sp-gift]').length`)) === 9, '九種禮物');
       await wait(300);
-      assert(await js(`document.querySelectorAll('.sp-ico img.gift').length === 9 && [...document.querySelectorAll('.sp-ico img, .sp-face img')].every((x) => x.complete && x.naturalWidth > 0)`), '禮物和店員是 AI 畫的圖');
+      assert(await js(`document.querySelectorAll('.sp-ico img.gift').length === 9 && [...document.querySelectorAll('.sp-ico img, .sp-stall img')].every((x) => x.complete && x.naturalWidth > 0)`), '禮物和店員是 AI 畫的圖');
       await shot('s01_gifts');
       // 2. 送奶茶：艾琳的反應、成就「一點心意」跳出來
       await click('[data-sp-gift="tea"]');
@@ -52,7 +52,7 @@ module.exports = ({ win, engine, app }) => {
       await click('[data-sp-buy="bluebell"]'); await wait(600); await flush();
       assert(await js(`!!document.querySelector('#decor .d-hang.on img') && !!document.querySelector('#decor .d-desk.on img')`), '吊飾、擺設擺上去了');
       await wait(300);
-      assert(await js(`[...document.querySelectorAll('#decor img, .sp-ico img, .sp-face img')].every((x) => x.complete && x.naturalWidth > 0)`), 'AI 畫的圖都讀得到');
+      assert(await js(`[...document.querySelectorAll('#decor img, .sp-ico img, .sp-stall img')].every((x) => x.complete && x.naturalWidth > 0)`), 'AI 畫的圖都讀得到');
       await js(`document.querySelector('#panel .panel-body').scrollTop = 0; 0`); await wait(200);
       await shot('s03_decor');
       // 只看艾琳和櫃台
@@ -72,7 +72,7 @@ module.exports = ({ win, engine, app }) => {
       engine.state.player.gold = 3;
       await click('[data-sp-tab="gift"]'); await wait(200);
       await click('[data-sp-gift="seal"]'); await wait(500);
-      assert(/差|還不夠|再來/.test(await js(`document.querySelector('.sp-say').textContent`)), '錢不夠的台詞');
+      assert(/差|還不夠|再來/.test(await js(`document.querySelector('.st-say').textContent`)), '錢不夠的台詞');
       assert(engine.state.player.gold === 3, '沒有扣錢');
       // 6. 成就與圖鑑
       engine.state.streak = { cur: 5, best: 5, last: require('../src/main/game').todayISO(engine.now()), days: 9 };

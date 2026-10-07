@@ -28,6 +28,7 @@ const J = require('./journal');
 const S = require('./shop');
 const C = require('./cards');
 const AC = require('./achievements');
+const TW = require('./twins'); // 🐰 棉棉和朵朵跑來櫃台：下午茶外送、道賀、許願單
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -158,6 +159,7 @@ class Engine {
     if (!this.state.collection) this.state.collection = C.blank();
     if (!this.state.achievements) this.state.achievements = {};
     if (!this.state.streak) this.state.streak = AC.blankStreak();
+    if (!this.state.twins) this.state.twins = TW.blank(G.levelInfo(this.state.player.xp, this.config.rewards.levelStep).level); // 舊存檔：從現在的等級開始算，不補道賀
   }
   bootstrapStats() {
     const st = this.state;
@@ -468,6 +470,7 @@ class Engine {
       projects: J.projects(this.state), // 以前用過的專案（新任務表單的選項）
       decor: { ...this.state.shop.equip }, // 🛒 主題配色、櫃台吊飾／擺設
       streak: this.streakOn() ? AC.current(this.state.streak, G.todayISO(this.now()), this.streakOpts()) : 0,
+      twins: { waiting: this.twinsWaiting(), tickets: this.state.collection.tickets || 0, enabled: this.twCfg().enabled !== false }, // 🐰 排隊要來櫃台的次數、抽卡券
     };
   }
 
@@ -637,6 +640,7 @@ class Engine {
     if (r.next) {
       lines.push(await this.act('assign', { questView: G.questView(this.plan, this.ps, this.now()).find((x) => x.id === r.next.id), eventDetail: `指派新任務「${r.next.title}」` }));
     } else {
+      this.allClearPending = true; // 🐰 這週全部完成：雙胞胎來道賀
       lines.push(await this.act('all_clear'));
     }
     return this.settle({ reward: r, lines, view: this.view() });
@@ -776,6 +780,7 @@ class Engine {
         if (ck.milestone) {
           G.grant(this.state, { xp: 0, gold: ck.milestone }, `連續上工 ${ck.cur} 天達成`, this.config.rewards, this.now());
           extra.push(this.lineOf('streak_milestone', { days: ck.cur, gold: ck.milestone }, 'streak'));
+          this.twinsQueue('congrats', { streak: ck.cur }); // 🐰 雙胞胎來道賀
         }
         res.streak = ck;
       }
@@ -789,6 +794,7 @@ class Engine {
         : this.lineOf('achievement_many', { count: got.length, names: got.map((a) => a.name).slice(0, 3).join('」「') + (got.length > 3 ? '」…「' : ''), gold }, 'achievement'));
       res.achievements = got.map((a) => ({ id: a.id, icon: a.icon, name: a.name, gold: a.gold }));
     }
+    this.twinsCheck(); // 🐰 升級、整週完成 → 道賀；許願單的東西買得起了 → 來說一聲
     this.saveState();
     res.lines = [...lines, ...extra];
     if (res.view) res.view = this.view();
@@ -1370,7 +1376,11 @@ class Engine {
   // ---- 🛒 雲朵雜貨舖（兔族雙胞胎棉棉、朵朵顧店）----
   shopView(twins) {
     const gold = this.state.player.gold;
-    return { gold, keepers: S.KEEPERS, catalog: S.catalog(this.state.shop, gold), cards: C.view(this.state.collection), twins: twins || null, seals: this.state.shop.seals };
+    const wish = (this.state.twins && this.state.twins.wish) || [];
+    const cat = S.catalog(this.state.shop, gold);
+    for (const k of ['gifts', 'themes', 'ornaments']) for (const x of cat[k]) x.wished = wish.includes(x.id); // 🔖 請朵朵留著的
+    const cards = { ...C.view(this.state.collection), tickets: this.state.collection.tickets || 0 };
+    return { gold, keepers: S.KEEPERS, catalog: cat, cards, twins: twins || null, seals: this.state.shop.seals, wish: wish.map((id) => ({ id, ...(this.wishItem(id) || {}) })), wishMax: this.twCfg().wishMax };
   }
   shopOpen() {
     const sh = this.state.shop;
@@ -1390,6 +1400,7 @@ class Engine {
     const g = S.GIFT[id];
     if (!g) throw new Error('沒有這個商品');
     if (!this.spend(g.price, `買了${g.name}送給${this.config.npc.name}`)) return this.poor();
+    this.unwish(id);
     const sh = this.state.shop;
     const today = G.todayISO(this.now());
     if (sh.giftDay !== today) { sh.giftDay = today; sh.giftsToday = 0; }
@@ -1419,6 +1430,7 @@ class Engine {
     if (sh.owned[id]) return { shop: this.shopView(S.twinsLine('owned', () => this.rnd())), lines: [], view: this.view() };
     if (!this.spend(item.price, item.name)) return this.poor();
     sh.owned[id] = true;
+    this.unwish(id);
     const r = this.equip(S.THEME[id] ? 'theme' : item.slot, id);
     r.shop = this.shopView(S.twinsLine(S.THEME[id] ? 'buyTheme' : 'buyDecor', () => this.rnd()));
     return r;
@@ -1444,17 +1456,24 @@ class Engine {
     return this.settle({ lines, shop: this.shopView(), view: this.view() });
   }
   // 抽星座卡：一張 30、十張 270（最後一張保底 ★★★）
-  drawCards(n) {
+  drawCards(n, { ticket = false } = {}) {
     n = Number(n) >= 10 ? 10 : 1;
-    const price = n === 10 ? C.PRICE.ten : C.PRICE.one;
-    if (!this.spend(price, `星座卡 ×${n}`)) return this.poor();
+    const col = this.state.collection;
+    if (ticket) { // 🎟 雙胞胎送的抽卡券：一張抽一次，不花金幣
+      if (!(col.tickets > 0)) return { shop: this.shopView(TW.stallLine('noTicket', {}, () => this.rnd())), lines: [], view: this.view() };
+      col.tickets -= 1; n = 1;
+    } else {
+      const price = n === 10 ? C.PRICE.ten : C.PRICE.one;
+      if (!this.spend(price, `星座卡 ×${n}`)) return this.poor();
+    }
     const results = C.draw(this.state.collection, n, () => this.rnd(), this.now().getTime());
     const best = Math.max(...results.map((x) => x.card.r));
     const lines = [];
     if (best >= 3) { const top = results.find((x) => x.card.r === best).card; lines.push(this.lineOf('card_best', { card: top.name }, 'card')); }
     this.saveState();
     const tw = best === 4 ? 'drawBest' : best === 3 ? 'drawGood' : results.some((x) => !x.isNew) ? 'dup' : 'draw';
-    return this.settle({ draw: results.map((x) => ({ id: x.card.id, name: x.card.name, r: x.card.r, n: x.card.n, isNew: x.isNew, dust: x.dust })), lines, shop: this.shopView(S.twinsLine(tw, () => this.rnd())), view: this.view() });
+    const say = ticket && best < 3 ? TW.stallLine('ticket', {}, () => this.rnd()) : S.twinsLine(tw, () => this.rnd());
+    return this.settle({ draw: results.map((x) => ({ id: x.card.id, name: x.card.name, r: x.card.r, n: x.card.n, isNew: x.isNew, dust: x.dust })), ticket: !!ticket, lines, shop: this.shopView(say), view: this.view() });
   }
   exchangeCard(id) {
     const r = C.exchange(this.state.collection, id, this.now().getTime());
@@ -1462,6 +1481,82 @@ class Engine {
     return this.settle({ card: { id: r.card.id, name: r.card.name, r: r.card.r }, lines: [], shop: this.shopView(S.twinsLine('exchange', () => this.rnd())), view: this.view() });
   }
   collectionOpen() { return this.settle({ collection: this.collectionView(), lines: [], view: this.view() }); }
+
+  // ---- 🐰 棉棉和朵朵跑來櫃台（下午茶外送、道賀、許願單）----
+  twCfg() { return TW.cfg(this.config); }
+  setTwins(on) { this.saveConfigPatch({ twins: { enabled: !!on } }); return { view: this.view() }; }
+  twinsWaiting() {
+    const tw = this.state.twins; if (!tw || this.twCfg().enabled === false) return 0;
+    const now = this.now().getTime();
+    return tw.queue.filter((v) => !v.until || v.until > now).length;
+  }
+  // 排隊：道賀、許願單還沒演出來的話，把新的事情併進去（不會連來好幾次）
+  twinsQueue(kind, data = {}) {
+    const c = this.twCfg(); const tw = this.state.twins;
+    if (!tw || c.enabled === false || c[kind] === false) return;
+    const old = kind !== 'tea' && tw.queue.find((v) => v.kind === kind);
+    if (old) {
+      if (kind === 'congrats') old.data = TW.mergeCongrats(old.data, data);
+      else for (const it of data.items || []) if (!old.data.items.some((x) => x.id === it.id)) old.data.items.push(it);
+      return;
+    }
+    const now = this.now().getTime();
+    tw.seq = (tw.seq || 0) + 1;
+    tw.queue.push({ id: tw.seq, kind, data, at: now, until: data.until || now + 24 * 3600 * 1000 });
+    this.twinsDirty = true;
+  }
+  // 許願單上的東西：名字、價錢；已經擁有的裝飾、黃瓜（惡作劇）不能留
+  wishItem(id) {
+    const g = S.GIFT[id];
+    if (g) return g.joke ? null : { name: g.name, price: g.price };
+    const d = S.THEME[id] || S.ORN[id];
+    return d && !this.state.shop.owned[id] ? { name: d.name, price: d.price } : null;
+  }
+  unwish(id) { const tw = this.state.twins; if (!tw) return; tw.wish = (tw.wish || []).filter((x) => x !== id); delete (tw.wishReady || {})[id]; }
+  twinsCheck() {
+    const tw = this.state.twins; if (!tw) return;
+    const lv = G.levelInfo(this.state.player.xp, this.config.rewards.levelStep);
+    if (!(tw.level >= 1) || lv.level < tw.level) tw.level = lv.level;
+    else if (lv.level > tw.level) { this.twinsQueue('congrats', { level: lv.level, title: lv.title, levels: lv.level - tw.level }); tw.level = lv.level; }
+    if (this.allClearPending) { this.allClearPending = false; this.twinsQueue('congrats', { allclear: true }); }
+    const ready = TW.wishCheck(tw, this.state.player.gold, (id) => this.wishItem(id));
+    if (ready.length) this.twinsQueue('wish', { items: ready });
+  }
+  // 🔖 請朵朵留著（再按一次＝不用留了）；最多 wishMax 個
+  wishToggle(id) {
+    const it = this.wishItem(id);
+    if (!it) throw new Error('這個不用留喔');
+    const tw = this.state.twins; const r = () => this.rnd();
+    let line;
+    if (tw.wish.includes(id)) { this.unwish(id); line = TW.stallLine('wishOff', {}, r); }
+    else if (tw.wish.length >= this.twCfg().wishMax) line = TW.stallLine('wishFull', {}, r);
+    else {
+      tw.wish.push(id);
+      if (this.state.player.gold >= it.price) (tw.wishReady || (tw.wishReady = {}))[id] = true; // 現在就買得起：不用特地跑來說
+      line = TW.stallLine('wishSet', { item: it.name }, r);
+    }
+    this.saveState();
+    return { shop: this.shopView(line), view: this.view() };
+  }
+  // 畫面有空了：拿下一次出場來演（抽卡券、好感在這時候給）
+  twinsTake() {
+    const tw = this.state.twins;
+    const now = this.now().getTime();
+    tw.queue = tw.queue.filter((v) => !v.until || v.until > now);
+    const v = this.twCfg().enabled === false ? null : tw.queue.shift();
+    if (!v) { this.saveState(); return { visit: null, lines: [], view: this.view() }; }
+    const r = () => this.rnd();
+    const name = this.config.npc.name;
+    const visit = TW.build(v.kind, { ...v.data, maxTickets: this.twCfg().maxTickets }, r);
+    visit.id = v.id;
+    for (const l of visit.lines) l.text = l.text.replace(/艾琳/g, name);
+    if (visit.kind === 'congrats') this.state.collection.tickets = (this.state.collection.tickets || 0) + visit.tickets;
+    if (visit.kind === 'tea') {
+      visit.erin = { text: TW.erinTea(S.giftTier(this.affOn() ? this.affStage() : 3), r).replace(/艾琳/g, name), emotion: 'happy' };
+      if (this.affOn()) this.affect(this.twCfg().teaAffection, '下午茶外送：雲朵茶舖的奶茶');
+    }
+    return this.settle({ visit, lines: [], view: this.view() });
+  }
 
   // 狀態欄（左下角的等級、經驗值、當前任務）開關；存在設定裡，下次打開還是一樣
   setHud(on) { this.saveConfigPatch({ window: { hud: !!on } }); return { view: this.view() }; }
@@ -1599,7 +1694,7 @@ class Engine {
     if (total.levelUp) lines.push(await this.act('levelup', { level: total.levelUp.level, title: total.levelUp.title, eventDetail: `升到 Lv.${total.levelUp.level}，新稱號「${total.levelUp.title}」` }));
     if (submitted) {
       if (submitted.next) lines.push(await this.act('assign', { questView: G.questView(this.plan, this.ps, this.now()).find((x) => x.id === submitted.next.id), eventDetail: `指派新任務「${submitted.next.title}」` }));
-      else lines.push(await this.act('all_clear'));
+      else { this.allClearPending = true; lines.push(await this.act('all_clear')); }
     } else if (items.some((x) => x.type === 'activate')) {
       G.ensureActive(this.plan, this.ps, this.now());
     }
@@ -1646,7 +1741,17 @@ class Engine {
         out.push(await this.say('reminder', { label: d.label, action: d.action, eventDetail: `決策點「${d.label}」到了，計畫的應對：${d.action}` }));
       }
     }
-    if (out.length) this.saveState();
+    // ☕ 下午茶外送：時段內、平日（作息只算平日時）、今天還沒來過 → 排隊，畫面有空時雙胞胎就來
+    const tc = this.twCfg(); const tw = this.state.twins;
+    let twChanged = false;
+    if (tw && tc.enabled !== false && tc.tea !== false && this.state.onboarding && this.state.onboarding.done && !this.isCold()
+      && TW.teaDue(tw, now, { from: tc.teaFrom, until: tc.teaUntil, weekdaysOnly: cfg.weekdaysOnly !== false, today })) {
+      tw.teaDay = today; twChanged = true;
+      const m = String(tc.teaUntil).match(/^(\d{1,2}):(\d{2})$/);
+      this.twinsQueue('tea', { until: new Date(`${today}T${m[1].padStart(2, '0')}:${m[2]}:00`).getTime() });
+    }
+    if (tw) { const n = tw.queue.length; tw.queue = tw.queue.filter((v) => !v.until || v.until > now.getTime()); if (tw.queue.length !== n) { twChanged = true; this.twinsDirty = true; } }
+    if (out.length || twChanged) this.saveState();
     return out;
   }
 }

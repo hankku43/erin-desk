@@ -157,4 +157,6 @@
   scheduleBlink();
   // 測試用
   window.idleDebug = { S, tick, perform, startDoze, stopDoze, showEmote, showWhisper, blink };
+  // 給別的模組用（🐰 下午茶外送之後讓艾琳喝奶茶）：演一個動作、把今天的某個作息動作標成做過了
+  window.Idle = { perform, markDone: (k) => { if (S.mem) { S.mem.done[k] = true; S.mem.lastAt = nowMs(); S.mem.nextGap = 40000; } } };
 })();

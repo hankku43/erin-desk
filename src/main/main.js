@@ -444,6 +444,7 @@ function menuTemplate() {
       { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
       { label: '📊 狀態欄（等級、當前任務）', type: 'checkbox', checked: engine.config.window.hud !== false, click: (m) => { const r = engine.setHud(m.checked); push('view:update', { view: r.view }); } },
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
+      { label: '🐰 棉棉和朵朵來櫃台串門子（下午茶外送、道賀、許願單）', type: 'checkbox', checked: engine.twCfg().enabled !== false, click: (m) => { const r = engine.setTwins(m.checked); push('view:update', { view: r.view }); } },
       { label: `📒 讓${npcName}記小本子（記住你說過的事）`, type: 'checkbox', checked: engine.nbCfg().enabled !== false, click: (m) => { const r = engine.setNotebook(m.checked); push('npc:lines', r.lines); push('view:update', { view: r.view }); } },
       { label: '🖥 固定在顯示器', submenu: displayMenu() },
       { label: '縮到工作列', click: () => win.minimize() },
@@ -624,7 +625,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('shop:gift', wrap((id) => engine.buyGift(String(id))));
   ipcMain.handle('shop:buy', wrap((id) => engine.buyDecor(String(id))));
   ipcMain.handle('shop:equip', wrap((slot, id) => engine.equip(String(slot), id ? String(id) : null)));
-  ipcMain.handle('shop:draw', wrap((n) => engine.drawCards(Number(n))));
+  ipcMain.handle('shop:draw', wrap((n, ticket) => engine.drawCards(Number(n), { ticket: !!ticket })));
+  ipcMain.handle('shop:wish', wrap((id) => engine.wishToggle(String(id))));
+  ipcMain.handle('twins:take', wrap(() => engine.twinsTake()));
   ipcMain.handle('shop:exchange', wrap((id) => engine.exchangeCard(String(id))));
   ipcMain.handle('collection:open', wrap(() => engine.collectionOpen()));
   ipcMain.handle('ui:setHud', wrap((on) => engine.setHud(!!on)));
@@ -675,7 +678,10 @@ app.whenReady().then(async () => {
   scheduleHealth();
 
   // 提醒對齊整分鐘（12:00 就在 12:00 說，不會晚 59 秒）；啟動後先跑一次，補上寬限時間內的提醒
-  const runTick = async () => { const lines = await engine.tick(); if (lines.length) push('npc:lines', lines); };
+  const runTick = async () => {
+    const lines = await engine.tick(); if (lines.length) push('npc:lines', lines);
+    if (engine.twinsDirty) { engine.twinsDirty = false; push('view:update', { view: engine.view() }); } // 🐰 下午茶外送排好了：讓畫面知道
+  };
   setTimeout(runTick, 4000);
   setTimeout(() => { runTick(); tickTimer = setInterval(runTick, 60000); }, 60000 - (Date.now() % 60000) + 500);
   scheduleIdle();
