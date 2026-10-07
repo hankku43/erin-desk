@@ -13,9 +13,9 @@
       <div class="dlg-head">
         <span class="nameplate" id="npcName">艾琳</span>
         <span class="ai-dot" id="aiDot" title=""></span>
-        <button class="icon-btn" id="dlgLog" title="剛剛的對話（最近幾則；在對話框往上滾也可以打開）">🕘</button>
-        <button class="icon-btn" id="dlgMini" title="縮小化（變回貓咪）">▁</button>
-        <button class="icon-btn" id="dlgClose" title="關閉">✕</button>
+        <button class="icon-btn" id="dlgLog" data-tip="剛剛的對話（在對話框往上滾也可以打開）" aria-label="剛剛的對話">🕘</button>
+        <button class="icon-btn" id="dlgMini" data-tip="縮小化：變回貓咪" aria-label="縮小化">▁</button>
+        <button class="icon-btn" id="dlgClose" data-tip="關閉" aria-label="關閉">✕</button>
       </div>
       <div class="dlg-text" id="dlgText"></div>
       <div class="dlg-more hidden" id="dlgMore">點一下繼續 ▼</div>
@@ -25,12 +25,20 @@
         <button class="btn" id="chatSend">送出</button>
       </div>
       <div class="choices" id="choices">
+        <!-- 能交付時才出現：上面直接寫報酬 -->
+        <button class="btn gold submit-row hidden" data-act="submit" id="btnSubmit" disabled>🏆 交付任務</button>
         <button class="btn" data-act="board">📜 任務板</button>
-        <button class="btn gold" data-act="submit" id="btnSubmit">🏆 交付任務</button>
         <button class="btn" data-act="daily">📅 今日行程</button>
-        <button class="btn" data-act="report">📝 下班回報</button>
         <button class="btn" data-act="chat">💬 聊聊</button>
-        <button class="btn magic" data-act="divine">✨ 占卜</button>
+        <button class="btn" data-act="report">📝 下班回報</button>
+        <div class="more" role="group" aria-label="更多玩法">
+          <button data-act="divine" data-tip="占卜魔法：問一件事，用星環起卦"><span>✨</span>占卜</button>
+          <button data-act="fortune" data-tip="今日運勢：一天抽一次，有小獎勵"><span>🔮</span>運勢</button>
+          <button data-act="notebook" data-tip="偷看艾琳的小本子：她記得你說過的事"><span>📒</span>小本子</button>
+          <button data-act="journal" data-tip="冒險日誌與工作週報"><span>📖</span>日誌</button>
+          <button data-act="shop" data-tip="雲朵雜貨舖：買禮物、裝飾、抽星座卡"><span>🛒</span>雜貨舖</button>
+          <button data-act="ach" data-tip="成就與連續上工"><span>🏅</span>成就</button>
+        </div>
       </div>
     </section>
   </div>
@@ -38,15 +46,17 @@
   <div id="hud" data-hit>
     <div class="hud-top" id="hudTop">
       <span class="lv" id="lv">Lv.1</span>
-      <span class="title" id="ptitle">見習冒險者</span>
-      <span class="streak hidden" id="hudStreak" title="連續上工天數（點一下看成就）">🔥0</span>
-      <span class="fortune-tag" id="fortuneTag" title="點一下抽今日運勢">🔮</span>
-      <span class="gold" id="gold" title="點一下：雲朵雜貨舖"><i class="coin" aria-hidden="true"></i>0</span>
-      <button class="hud-btn hud-focus" id="hudFocus" title="專注 25 分鐘">🍅</button>
-      <button class="hud-mini" id="hudMini" title="縮小化（變回貓咪）">▁</button>
-      <button class="hud-mini hud-hide" id="hudHide" title="收起狀態欄，只留艾琳（右鍵 →「📊 顯示狀態欄」再打開）">✕</button>
+      <span class="streak hidden" id="hudStreak" data-tip="連續上工">🔥0</span>
+      <span class="fortune-tag" id="fortuneTag" data-tip="今日運勢">🔮</span>
+      <span class="gold" id="gold" data-tip="金幣"><i class="coin" aria-hidden="true"></i>0</span>
+      <button class="hud-btn hud-focus" id="hudFocus" data-tip="專注 25 分鐘">🍅</button>
     </div>
-    <div class="xpbar"><div class="xpfill" id="xpfill"></div><span id="xptext">0 / 120</span></div>
+    <!-- 縮小／收起：滑過狀態欄才出現在右上角，不佔圖示列 -->
+    <div class="hud-corner">
+      <button class="hud-mini" id="hudMini" data-tip="縮小化：變回貓咪" aria-label="縮小化">▁</button>
+      <button class="hud-mini hud-hide" id="hudHide" data-tip="收起狀態欄，只留艾琳（右鍵 →「📊 顯示狀態欄」再打開）" aria-label="收起狀態欄">✕</button>
+    </div>
+    <div class="xpbar"><div class="xpfill" id="xpfill"></div><span class="xp-label"><b id="ptitle">見習冒險者</b><i id="xptext">0 / 120 XP</i></span></div>
     <div class="tracker" id="tracker"></div>
   </div>
   <!-- 滑過焦點行時的細項小卡（不擋滑鼠） -->
@@ -63,7 +73,10 @@
 
   <div id="fx"></div>
   <div id="toast" class="hidden"></div>
+  <!-- 滑過去立刻出現的說明小卡（data-tip） -->
+  <div id="tip" class="hidden" role="tooltip"></div>
 
+  <script src="panel-lines.js"></script>
   <script src="renderer.js"></script>
   <script src="emotes.js"></script>
   <script src="idle-brain.js"></script>

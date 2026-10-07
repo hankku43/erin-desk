@@ -28,15 +28,18 @@ async function journalWrite(force) {
   if (state.panel === 'journal') renderPanel();
 }
 
+// 最重要的四個數字放大；其他的排成一行小字（以前八格都是 10–11px，看起來很累）
 const JN_TILES = (s) => [
   ['📜', '交付委託', `${s.quests}<small>/${s.questsTotal}</small>`, s.quests ? `準時 ${s.onTime}${s.late ? `・晚 ${s.late}` : ''}` : ''],
   ['☑', '完成目標', `${s.objectives}<small>/${s.objectivesTotal}</small>`, ''],
-  ['⏰', '行程', `${s.rows}<small>/${s.rowsTotal}</small>`, s.rowsTotal ? '格' : '沒有時間表'],
-  ['📝', '下班回報', `${s.reports}<small> 天</small>`, ''],
   ['✨', '經驗值', `+${s.xp}`, s.levelEnd > s.levelStart ? `Lv.${s.levelStart} → ${s.levelEnd}` : `Lv.${s.levelEnd}`],
   [COIN, '金幣', `+${s.gold}`, s.spent ? `花了 ${s.spent}` : ''],
-  ['🍅', '專注', `${s.focus}<small> 顆</small>`, s.focus ? `${s.focusMin} 分鐘` : ''],
-  ['🔮', '運勢', s.fortunes.length ? esc(s.fortunes[s.fortunes.length - 1]) : '—', s.fortunes.length > 1 ? `抽了 ${s.fortunes.length} 次` : s.divinations ? `占卜 ${s.divinations} 次` : ''],
+];
+const JN_MORE = (s) => [
+  `⏰ 行程 <b>${s.rows}/${s.rowsTotal}</b> 格`,
+  `📝 回報 <b>${s.reports}</b> 天`,
+  `🍅 專注 <b>${s.focus}</b> 顆${s.focus ? `（${s.focusMin} 分）` : ''}`,
+  `🔮 運勢 <b>${s.fortunes.length ? esc(s.fortunes[s.fortunes.length - 1]) : '—'}</b>${s.divinations ? `・占卜 ${s.divinations} 次` : ''}`,
 ];
 const JN_Q = { done: ['✔', '完成'], progress: ['◐', '進行中'], pending: ['○', '還沒開始'] };
 function renderJournal(el) {
@@ -45,8 +48,10 @@ function renderJournal(el) {
   const w = d && d.week;
   const name = esc(npcName());
   const tabs = `<div class="tabs"><button class="tab ${jn.tab === 'log' ? 'on' : ''}" data-jn-tab="log">冒險日誌</button><button class="tab ${jn.tab === 'report' ? 'on' : ''}" data-jn-tab="report">工作週報</button></div>`;
+  const info = jn.tab === 'report' ? '依專案分類（計畫檔任務標題的 #專案，或寫在專案標題底下；沒有的歸在「其他」）。最後一天回報的「卡點」會掛在對應的任務底下'
+    : `每週最後一天下班回報後，${name}會整理好交給你`;
   if (!w) {
-    el.innerHTML = head('📖 冒險日誌', '', tabs) + `<div class="panel-body"><p class="hint">${d ? '還沒有日誌。先在任務板完成一個目標，這週的冒險就會記在這裡。' : '翻開中……'}</p></div>`;
+    el.innerHTML = head('📖 冒險日誌', '', tabs, info) + `<div class="panel-body"><p class="hint">${d ? '還沒有日誌。先在任務板完成一個目標，這週的冒險就會記在這裡。' : '翻開中……'}</p></div>`;
     return;
   }
   const nav = `<div class="jn-nav"><button class="icon-btn" data-jn-go="${esc(d.prev || '')}" ${d.prev ? '' : 'disabled'} title="上一週">◀</button>
@@ -55,17 +60,19 @@ function renderJournal(el) {
   let body, foot;
   if (jn.tab === 'report') {
     const text = jn.drafts[w.key] !== undefined ? jn.drafts[w.key] : w.report;
-    body = nav + `<p class="hint jn-hint">依專案分類（計畫檔任務標題的 <code>#專案</code>，或寫在專案標題底下；沒有的歸在「其他」）。可以直接改，改完按「複製」。</p>
+    const edited = jn.drafts[w.key] !== undefined && jn.drafts[w.key] !== w.report;
+    body = nav + `<p class="hint jn-hint">依專案分好了，可以直接改，改完按「📋 複製」。</p>
       <textarea class="jn-report" id="jnReport" spellcheck="false">${esc(text)}</textarea>`;
-    foot = `<span class="spacer">${jn.drafts[w.key] !== undefined && jn.drafts[w.key] !== w.report ? '✎ 改過了' : '最後一天的「卡點」會掛在對應的任務底下'}</span>
-      ${jn.drafts[w.key] !== undefined && jn.drafts[w.key] !== w.report ? '<button class="btn ghost" data-jn-reset>↺ 還原</button>' : ''}
-      <button class="btn ghost" data-jn-export>💾 匯出</button><button class="btn gold" data-jn-copy>📋 複製</button>`;
+    foot = `<span class="spacer">${edited ? '✎ 改過了' : ''}</span>
+      ${edited ? '<button class="btn ghost" data-jn-reset>↺ 還原</button>' : ''}
+      <button class="btn" data-jn-export>💾 匯出</button><button class="btn gold" data-jn-copy>📋 複製</button>`;
   } else {
     const s = w.stats;
     const b = w.badges || [];
     const top = b[0] ? `<div class="jn-title"><span class="jn-medal">${b[0].icon}</span><div><small>本週稱號</small><b>${esc(b[0].name)}</b><em>${esc(b[0].why)}</em></div>
       ${b.length > 1 ? `<div class="jn-badges">${b.slice(1).map((x) => `<span class="jn-badge" title="${esc(x.why)}">${x.icon} ${esc(x.name)}</span>`).join('')}</div>` : ''}</div>` : '';
-    const tiles = `<div class="jn-stats">${JN_TILES(s).map(([i, l, v, sub]) => `<div class="jn-tile"><span class="ji">${i}</span><span class="jl">${l}</span><b>${v}</b><small>${sub}</small></div>`).join('')}</div>`;
+    const tiles = `<div class="jn-stats">${JN_TILES(s).map(([i, l, v, sub]) => `<div class="jn-tile"><span class="ji">${i}</span><span class="jl">${l}</span><b>${v}</b><small>${sub}</small></div>`).join('')}</div>
+      <div class="jn-more">${JN_MORE(s).map((x) => `<span>${x}</span>`).join('')}</div>`;
     const quests = w.quests.length ? `<h3 class="jn-h">委託</h3><ul class="jn-quests">${[...w.quests].sort((a, b2) => ['done', 'progress', 'pending'].indexOf(a.status) - ['done', 'progress', 'pending'].indexOf(b2.status)).map((q) => {
       const n = q.objectives.filter((o) => o.done).length;
       return `<li class="${q.status}"><span class="jq">${JN_Q[q.status][0]}</span><span class="jt">${rich(q.title)}</span>${q.project ? `<span class="chip proj">${esc(q.project)}</span>` : ''}<small>${q.status === 'done' ? (q.submitted ? (q.submitted.onTime ? '準時交付' : '已交付') : '目標全完成') : `${n}/${q.objectives.length}`}</small></li>`;
@@ -77,13 +84,23 @@ function renderJournal(el) {
     else if (w.comment) comment = `<div class="jn-comment"><p>${esc(w.comment)}</p><span class="jn-sign">— ${name}</span>${w.stale ? `<button class="btn small ghost jn-rewrite" data-jn-write title="評語寫好之後數字又變了">✍ 數字有更新，請${name}重寫</button>` : ''}</div>`;
     else comment = `<div class="jn-comment empty"><button class="btn small" data-jn-write>✍ 請${name}寫評語</button></div>`;
     body = nav + top + comment + tiles + quests + days; // 稱號 → 艾琳的評語 → 數字 → 委託 → 每天
-    foot = `<span class="spacer">每週最後一天下班回報後，${name}會整理好交給你</span><button class="btn ghost" data-jn-export>💾 匯出 Markdown</button>`;
+    foot = ''; // 匯出移到標題列（💾），日誌這頁不需要頁尾
   }
   // 重畫時保住打到一半的週報（游標位置也留著）
   const ta = el.querySelector('#jnReport');
   const keep = ta && document.activeElement === ta ? { a: ta.selectionStart, b: ta.selectionEnd, top: ta.scrollTop } : null;
-  el.innerHTML = head('📖 冒險日誌', '', tabs) + `<div class="panel-body jn-body jn-${jn.tab}">${body}</div><div class="panel-foot">${foot}</div>`;
-  if (keep) { const t2 = el.querySelector('#jnReport'); if (t2) { t2.focus(); t2.setSelectionRange(keep.a, keep.b); t2.scrollTop = keep.top; } }
+  const exportBtn = jn.tab === 'log' ? '<button class="icon-btn jn-export" data-jn-export data-tip="匯出成 Markdown 檔（存在「你的資料夾\\data\\週報」）" aria-label="匯出">💾</button>' : '';
+  el.innerHTML = head('📖 冒險日誌', '', tabs + exportBtn, info) + `<div class="panel-body jn-body jn-${jn.tab}">${body}</div>${foot ? `<div class="panel-foot">${foot}</div>` : ''}`;
+  jnGrow(el.querySelector('#jnReport'));
+  if (keep) { const t2 = el.querySelector('#jnReport'); if (t2) { t2.focus({ preventScroll: true }); t2.setSelectionRange(keep.a, keep.b); } }
+}
+// 週報的文字框跟著內容長高：只用外面的面板捲動（以前框裡框外各捲一次，說明還會被切掉）
+function jnGrow(ta) {
+  if (!ta) return;
+  const body = ta.closest('.panel-body'), top = body ? body.scrollTop : 0;
+  ta.style.height = 'auto';
+  ta.style.height = `${ta.scrollHeight + 4}px`;
+  if (body) body.scrollTop = top;
 }
 async function journalClick(e) {
   const t = e.target;
@@ -97,7 +114,7 @@ async function journalClick(e) {
   if (t.closest('[data-jn-copy]') && w) {
     const ta = $('#jnReport');
     const r = await api.journalCopy(ta ? ta.value : w.report);
-    toast(r && r.ok ? '📋 週報已複製，可以直接貼上' : `⚠ ${(r && r.error) || '複製失敗'}`);
+    if (!r || !r.ok) toast(`⚠ ${(r && r.error) || '複製失敗'}`); // 成功的話按鈕自己會變成「✓ 已複製」
     return true;
   }
   if (t.closest('[data-jn-export]') && w) {
@@ -113,6 +130,7 @@ document.addEventListener('input', (e) => {
     const k = state.jn.data.week.key;
     const was = state.jn.drafts[k] !== undefined && state.jn.drafts[k] !== state.jn.data.week.report;
     state.jn.drafts[k] = e.target.value;
+    jnGrow(e.target);
     const now = e.target.value !== state.jn.data.week.report;
     if (was !== now) renderPanel(); // 「✎ 改過了」「↺ 還原」出現／消失
   }

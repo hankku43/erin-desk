@@ -29,6 +29,7 @@ module.exports = ({ win, engine, app }) => {
       assert(await js(`state.panel === 'shop' && !!document.querySelector('.sp-keeper .sp-say')`), '點金幣開店');
       assert((await js(`document.querySelectorAll('.sp-row').length`)) >= 6 && (await js(`[...document.querySelectorAll('.sp-act')].every((b) => b.getBoundingClientRect().height >= 30)`)), '一列一個商品、按鈕夠大');
       assert((await js(`document.querySelector('#panel .panel-body').scrollHeight / document.querySelector('#panel .panel-body').clientHeight`)) < 3, '不用捲太多');
+      assert(await js(`document.querySelector('#dialog').classList.contains('hidden')`), '雙胞胎說話時，艾琳的泡泡收起來');
       assert((await js(`document.querySelectorAll('[data-sp-gift]').length`)) === 9, '九種禮物');
       await shot('s01_gifts');
       // 2. 送奶茶：艾琳的反應、成就「一點心意」跳出來
@@ -71,13 +72,15 @@ module.exports = ({ win, engine, app }) => {
       assert(engine.state.player.gold === 3, '沒有扣錢');
       // 6. 成就與圖鑑
       engine.state.streak = { cur: 5, best: 5, last: require('../src/main/game').todayISO(engine.now()), days: 9 };
-      wc.send('view:update', { view: engine.view() }); await js(`api.collectionOpen().then((c) => { state.sp.col = c.collection; }); 0`); await wait(300); // 測試直接改了存檔：重抓
-      await click('[data-sp-tab="ach"]'); await wait(400);
-      assert(await js(`state.panel === 'shop' && document.querySelectorAll('.co-a').length > 20`), '成就牆在同一個面板');
+      wc.send('view:update', { view: engine.view() }); await wait(300);
+      assert((await js(`document.querySelectorAll('[data-sp-tab]').length`)) === 3, '雜貨舖只剩禮物、裝飾、星座卡');
+      await click('#hudStreak'); await wait(700); // 點狀態欄的 🔥：成就（自己一個面板）
+      assert(await js(`state.panel === 'ach' && document.querySelectorAll('.co-a').length > 20`), '成就牆是自己的面板');
       assert(/連續上工 5 天/.test(await js(`document.querySelector('.co-streak').textContent`)), '連續上工');
       assert(await js(`!document.querySelector('#hudStreak').classList.contains('hidden') && document.querySelector('#hudStreak').textContent === '🔥5'`), '狀態欄的 🔥5');
       await shot('s06_achievements');
       engine.state.collection.dust = 500;
+      wc.send('ui:open', 'shop'); await wait(700);
       await click('[data-sp-tab="cards"]'); await wait(300);
       const r2 = await js(`api.shopOpen().then((r) => { state.sp.data = r.shop; renderPanel(); return r.shop.cards.owned; })`);
       await js(`document.querySelector('[data-co-ex]:not([disabled])').click(); 0`); await wait(700);

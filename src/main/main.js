@@ -420,7 +420,7 @@ function menuTemplate() {
       { label: '📖 冒險日誌・週報', click: open('journal') },
       { type: 'separator' },
       { label: '🛒 雲朵雜貨舖', click: open('shop') },
-      { label: '🏅 成就與星座圖鑑', click: open('collection') },
+      { label: '🏅 成就', click: open('collection') },
     ] },
     { type: 'separator' },
     ...(engine.config.window.hud === false && !mini ? [{ label: '📊 顯示狀態欄', click: () => { const r = engine.setHud(true); push('view:update', { view: r.view }); } }] : []), // 狀態欄收起來時：第一層就找得到

@@ -41,19 +41,48 @@ function gainHtml(h) {
   return h.xp ? `+${h.xp} XP${g}` : g;
 }
 // 提示小條：貼在畫面上看得到的東西旁邊，不要飄在透明視窗的最上面
-//   面板／對話框開著 → 貼在最上面那張卡片的上緣；都關著 → 艾琳頭上；at: 'hud' → 狀態欄原本的位置（收起狀態欄時用）
+//   面板開著 → 疊在面板下緣（面板佔滿上方，上面沒有空位）；只有對話框 → 對話框上緣；都關著 → 艾琳頭上；
+//   at: 'hud' → 狀態欄原本的位置（收起狀態欄時用）
 //   html: true → msg 是已經處理好的 HTML（例如帶金幣圖示）；預設當純文字
 function toast(msg, ms = 2600, { at, html } = {}) {
   const t = $('#toast'); if (html) t.innerHTML = msg; else t.textContent = msg;
+  if (/^⚠/.test(String(msg))) state.warnAt = Date.now(); // 按鈕的「完成」打勾要看這段時間有沒有出錯
   t.classList.remove('hidden', 'low', 'at-hud'); t.style.top = '';
+  const vis = (el) => el && !el.classList.contains('hidden') && el.getBoundingClientRect().height > 0;
   if (at === 'hud') t.classList.add('at-hud');
-  else {
-    const cards = ['#panel', '#dialog'].map((s) => $(s)).filter((el) => el && !el.classList.contains('hidden') && el.getBoundingClientRect().height > 0);
-    if (cards.length) t.style.top = `${Math.max(6, Math.min(...cards.map((el) => el.getBoundingClientRect().top)) - t.offsetHeight - 8)}px`;
-    else t.classList.add('low');
+  else if (vis($('#panel'))) { // 有頁尾就放在頁尾按鈕上面，不要蓋住按鈕
+    const foot = $('#panel .panel-foot');
+    const bottom = foot ? foot.getBoundingClientRect().top - 8 : $('#panel').getBoundingClientRect().bottom - 14;
+    t.style.top = `${Math.max(6, bottom - t.offsetHeight)}px`;
   }
+  else if (vis($('#dialog'))) t.style.top = `${Math.max(6, $('#dialog').getBoundingClientRect().top - t.offsetHeight - 8)}px`;
+  else t.classList.add('low');
   clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add('hidden'), ms);
 }
+
+// ---------- 滑過就出現的說明小卡（data-tip）：比系統的 title 快（title 要停一秒多），也不會被視窗邊緣切掉 ----------
+const tipEl = $('#tip');
+let tipTimer = null, tipFor = null;
+function showTip(el) {
+  const text = el.dataset.tip;
+  if (!text || state.mini) return;
+  tipEl.textContent = text; tipEl.classList.remove('hidden');
+  const r = el.getBoundingClientRect(), w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+  const left = Math.min(Math.max(6, r.left + r.width / 2 - w / 2), window.innerWidth - w - 6);
+  let top = r.top - h - 8; if (top < 6) top = r.bottom + 8; // 上面放不下就放下面
+  tipEl.style.left = `${left}px`; tipEl.style.top = `${top}px`;
+}
+function hideTip() { clearTimeout(tipTimer); tipFor = null; tipEl.classList.add('hidden'); }
+document.addEventListener('mouseover', (e) => {
+  const el = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+  if (el === tipFor) return;
+  hideTip();
+  if (!el) return;
+  tipFor = el;
+  tipTimer = setTimeout(() => { if (tipFor === el && document.contains(el)) showTip(el); }, 150);
+});
+document.addEventListener('mousedown', hideTip, true);
+window.addEventListener('blur', hideTip);
 
 // ---------- 滑鼠穿透：只有卡片/角色區域接收滑鼠 ----------
 let lastIgnore = null, dragging = false;
@@ -263,7 +292,9 @@ function logRows() {
 function toggleLog() { if (state.panel === 'log') closePanel(); else openPanel('log'); }
 
 // ---------- 對話框 ----------
-function openDialog() { if (FORM_PANELS.has(state.panel)) return; $('#dialog').classList.remove('hidden'); } // 表單開著時先不冒出來，關掉表單再顯示
+function openDialog() { if (FORM_PANELS.has(state.panel)) return; $('#dialog').classList.remove('hidden'); hideWhisper(); } // 表單開著時先不冒出來，關掉表單再顯示
+// 待機時頭旁的小字跟對話泡泡在同一個位置：對話框一出來就把小字收掉
+function hideWhisper() { const w = document.getElementById('idleWhisper'); if (w) w.classList.add('hidden'); }
 function closeDialog() { showProposal(null); state.shownLogId = null; $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.queue = []; clearInterval(typeTimer); state.typing = false; $('#npcWrap').classList.remove('talking'); setEmotion('normal'); }
 $('#dlgClose').addEventListener('click', () => { closeDialog(); closePanel(); });
 $('#dlgMini').addEventListener('click', goMini);
@@ -288,7 +319,7 @@ $('#hudHide').addEventListener('click', (e) => {
 });
 
 function showThinking() {
-  openDialog();
+  openDialog(); state.contextShown = false;
   clearInterval(typeTimer); state.typing = false; $('#npcWrap').classList.remove('talking'); // 還在打字的那句先停（不然會蓋掉「思考中」）
   $('#dlgText').innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
   setShown(null);
@@ -313,6 +344,7 @@ function advance() {
   const line = state.queue.shift();
   if (!line) return;
   openDialog();
+  state.contextShown = false;
   state.current = line; state.lastLine = line;
   if (!line.logId) line.logId = logPush('npc', line.text);
   setShown(line.logId);
@@ -353,7 +385,7 @@ $('#dlgMore').addEventListener('click', () => { advance(); state.clickedAt = Dat
 // ---------- 通用執行（等待 NPC 回覆） ----------
 // talk：跟艾琳「講話」（打招呼、戳、聊天）同一時間只能一件；其他動作（勾目標、交付…）隨時都能做，
 // 它們會馬上完成，艾琳的回話晚一點才推過來（npc:lines），等的時候介面照常可以用
-async function run(fn, { thinking = true, talk = false } = {}) {
+async function run(fn, { thinking = true, talk = false, reward = true, fxDelay = 0 } = {}) {
   if (talk && state.talking) return null;
   if (talk) state.talking = true;
   if (thinking) showThinking();
@@ -367,9 +399,11 @@ async function run(fn, { thinking = true, talk = false } = {}) {
     return r;
   }
   if (r.writeError) toast(`⚠ 回寫計畫檔失敗：${r.writeError}`, 5000);
-  if (r.reward) celebrate(r.reward);
-  if (r.achievements && r.achievements.length) showAchievements(r.achievements); // 🏅
-  if (r.streak && !r.streak.milestone) toast(`🔥 連續上工第 ${+r.streak.cur} 天　${COIN}+${+r.streak.gold}`, 2600, { html: true });
+  // 演出排隊：先跳獎勵數字（升級多等一下），再出成就，最後連續上工的提示；不要全部同時蓋在畫面上
+  let at = fxDelay;
+  if (r.reward && reward) { celebrate(r.reward); if (r.reward.xp) at = Math.max(at, r.reward.levelUp ? 2600 : 900); }
+  if (r.achievements && r.achievements.length) { const list = r.achievements; setTimeout(() => showAchievements(list), at); at += 1500 + 300 * Math.min(3, list.length - 1); } // 🏅
+  if (r.streak && !r.streak.milestone) { const st = r.streak; setTimeout(() => toast(`🔥 連續上工第 ${+st.cur} 天　${COIN}+${+st.gold}`, 2600, { html: true }), at); }
   if (r.journal && state.panel !== 'journal' && state.panel !== 'report') setTimeout(() => openJournal(r.journal, { quiet: true }), 400); // 聊天裡回報最後一天
   if (r.noted && r.noted.length) { toast(`📒 ${(state.view && state.view.npc && state.view.npc.name) || '艾琳'}記下來了：${r.noted.join('、')}`, 3200); notebookRefresh(); }
   if (r.lines && r.lines.length) enqueue(r.lines);
@@ -386,6 +420,8 @@ function celebrate(reward) {
   const el = document.createElement('div');
   el.className = 'float-reward';
   el.innerHTML = `<span>✨ +${reward.xp} XP</span><span class="g">${COIN}+${reward.gold}</span>`;
+  const hud = $('#hud');
+  el.style.bottom = `${document.body.classList.contains('no-hud') || !hud ? 24 : hud.offsetHeight + 20}px`;
   fx.appendChild(el); setTimeout(() => el.remove(), 2100);
   if (reward.levelUp) {
     const lv = document.createElement('div');
@@ -426,12 +462,16 @@ function applyView(v) {
   document.body.classList.toggle('no-hud', noHud);
   const p = v.player;
   $('#lv').textContent = `Lv.${p.level}`;
-  $('#ptitle').textContent = p.title;
+  $('#lv').dataset.tip = `${p.title}・下一級還差 ${Math.max(0, p.xpForNext - p.xpInLevel)} XP`;
+  $('#ptitle').textContent = p.title; // 稱號放在經驗條上（以前擠在圖示列，常被截成「新…」）
   const sk = $('#hudStreak'); sk.textContent = `🔥${v.streak || 0}`; sk.classList.toggle('hidden', !(v.streak >= 2)); // 🔥 連續上工 2 天以上才顯示
+  sk.dataset.tip = `連續上工 ${v.streak || 0} 天・點一下看成就`;
   if (typeof applyDecor === 'function') applyDecor(v); // 🛒 主題配色、櫃台吊飾／擺設（shop.js 比較晚載入：還沒載入時由它自己補畫）
   $('#gold').innerHTML = `${COIN}${+p.gold || 0}`;
+  $('#gold').dataset.tip = `${+p.gold || 0} 金幣・點一下開雲朵雜貨舖`;
   $('#xpfill').style.width = `${Math.min(100, (p.xpInLevel / p.xpForNext) * 100)}%`;
   $('#xptext').textContent = `${p.xpInLevel} / ${p.xpForNext} XP`;
+  const nbBtn = document.querySelector('#choices [data-act="notebook"]'); if (nbBtn) nbBtn.dataset.tip = `偷看${v.npc.name}的小本子：她記得你說過的事`;
   $('#npcName').textContent = v.npc.name;
   const cold = !!(v.affection && v.affection.cold); // 冷戰中：名牌上一片雪花（好感度本身不顯示）
   $('#npcName').classList.toggle('cold', cold);
@@ -441,12 +481,16 @@ function applyView(v) {
   const online = !!(v.npc.status && v.npc.status.online);
   dot.classList.toggle('on', online);
   dot.classList.toggle('off', !v.npc.enabled);
-  dot.title = (v.npc.enabled ? (online ? `AI 已連線：${v.npc.model}` : `AI 離線：${(v.npc.status && v.npc.status.message) || ''}`) : 'AI 對話已關閉') + '（點一下切換開關）';
+  dot.removeAttribute('title');
+  dot.dataset.tip = (v.npc.enabled ? (online ? `AI 已連線：${v.npc.model}` : `AI 離線：${(v.npc.status && v.npc.status.message) || ''}`) : 'AI 對話已關閉') + '（點一下切換開關）';
   renderTracker();
   renderFocus();
   renderFortuneTag();
   const a = v.active;
-  $('#btnSubmit').disabled = !(a && a.status === 'ready');
+  const canSubmit = !!(a && a.status === 'ready');
+  const sb = $('#btnSubmit');
+  sb.disabled = !canSubmit; sb.classList.toggle('hidden', !canSubmit); // 能交付時才出現，上面直接寫報酬
+  if (canSubmit) { const rw = questReward(a); sb.innerHTML = `🏆 交付「${esc(shortTitle(a.title, 12))}」<span class="sr-gain">✨${rw.xp} XP　${COIN}${rw.gold}</span>`; }
   const m = $('#marker');
   if (state.mini && state.miniAlert) { /* 保留 ! */ }
   else if (a && a.status === 'ready') setMarker('ready');
@@ -464,6 +508,12 @@ function isoToLabel(isoDate) {
 function todayISO() { const d = state.view ? new Date(state.view.now) : new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 function nowHHMM() { const d = state.view ? new Date(state.view.now) : new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
 function shortTitle(s, n = 14) { return s.length > n ? s.slice(0, n) + '…' : s; }
+// 交付報酬：基本值看任務類型，準時多 20%（跟主程式 game.js 的預設一樣）
+function questReward(q) {
+  const base = { main: [100, 50], major: [80, 40], side: [40, 20] }[q.tier] || [80, 40];
+  const onTime = q.daysLeft === null || q.daysLeft === undefined || q.daysLeft >= 0;
+  return { xp: Math.round(base[0] * (onTime ? 1.2 : 1)), gold: Math.round(base[1] * (onTime ? 1.2 : 1)), onTime };
+}
 
 // ---------- 狀態面板：一行焦點 ----------
 // 在時段內顯示時段（⏳ 沙漏），不在時段內顯示當前任務（⭐ 星星）；左邊的圖示可以切換。細項在滑過去的小卡裡
@@ -614,11 +664,11 @@ function renderFortuneTag() {
   const tag = $('#fortuneTag');
   tag.className = `fortune-tag ${f ? `drawn t${f.tier}` : 'new'}`;
   tag.textContent = f ? f.rank : '🔮';
-  tag.title = f ? `今日運勢：${f.rank}（點一下再看一次）` : '點一下抽今日運勢';
+  tag.dataset.tip = f ? `今日運勢：${f.rank}・點一下再看一次` : '今日運勢・點一下抽（一天一次）';
 }
 async function drawFortune() {
   if (state.mini) return;
-  const r = await run(() => api.drawFortune(), { thinking: false });
+  const r = await run(() => api.drawFortune(), { thinking: false, reward: false, fxDelay: 1800 });
   if (!r || !r.ok) return;
   showFortuneCard(r.fortune, r.again ? null : r.reward);
   if (!r.again && r.fortune.tier >= 5) confetti(36);
@@ -631,7 +681,7 @@ function showFortuneCard(f, reward) {
     <div class="fc-front"><div class="fc-date">${+f.date.slice(5, 7)}/${+f.date.slice(8, 10)} 的運勢</div><div class="fc-rank">${esc(f.rank)}</div>
       <div class="fc-advice">${esc(f.advice)}</div><div class="fc-item">幸運物：<b>${esc(f.item)}</b></div>
       <div class="fc-reward">${reward ? `✨ +${reward.xp} XP　${COIN}+${reward.gold}` : '今天已經抽過囉'}</div></div></div>`;
-  c.style.bottom = `${$('#hud').offsetHeight + 22}px`;
+  c.style.bottom = document.body.classList.contains('no-hud') ? '24px' : '10px'; // 蓋在狀態欄上，不擋對話框和面板的按鈕
   void c.offsetWidth;
   c.classList.add('show');
   setTimeout(() => c.classList.add('flip'), reward ? 650 : 60);
@@ -641,9 +691,10 @@ function hideFortuneCard() { const c = $('#fortuneCard'); c.classList.add('bye')
 $('#fortuneCard').addEventListener('click', hideFortuneCard);
 $('#hudTop').addEventListener('click', (e) => {
   if (e.target.closest('button')) return;
+  hideTip();
   if (e.target.closest('#gold')) { openShop(); return; } // 點金幣：雲朵雜貨舖
-  if (e.target.closest('#hudStreak')) { openCollection('ach'); return; }
-  drawFortune();
+  if (e.target.closest('#hudStreak')) { openAch(); return; }
+  if (e.target.closest('#fortuneTag')) drawFortune();
 });
 
 // ---------- ✨ 占卜魔法（星環占＝梅花易數）----------
@@ -690,13 +741,13 @@ function renderDivine(el, v) {
     const nums = d.method === 'numbers' ? `<div class="field-row"><div class="field">第一個數字（上卦）<input id="dvA" type="number" min="1" max="9999" value="${esc(d.a)}" placeholder="例如 17"></div><div class="field">第二個數字（下卦）<input id="dvB" type="number" min="1" max="9999" value="${esc(d.b)}" placeholder="例如 6"></div></div>` : '';
     const recent = (info.recent || []).slice(0, 3);
     const rec = recent.length ? `<div class="dv-recent"><div class="dv-rtitle">🌙 最近的占卜（點一下再看一次，不花錢）</div>${recent.map((r) => `<button class="dv-ritem" data-dv-recent="${r.id}"><span class="dv-tag l${r.level}">${esc(r.tag)}</span><b>${esc(r.ben)}</b><span class="q">${esc(r.question)}</span></button>`).join('')}</div>` : '';
-    el.innerHTML = head('✨ 占卜魔法', '星環占・梅花易數', goldChip) + `<div class="panel-body form dv-ask">
+    el.innerHTML = head('✨ 占卜魔法', '星環占・梅花易數', goldChip, `同一件事 ${info.repeatHours} 小時內只占一次（一事不二占），重問會直接給上次的結果、不扣錢`) + `<div class="panel-body form dv-ask">
       ${d.notice ? `<div class="dv-notice">${rich(d.notice)}</div>` : ''}
       <div class="field">🌙 想問什麼？<input id="dvQ" maxlength="60" value="${esc(d.question)}" placeholder="例如：這週的發表會會順利嗎？"></div>
       <div class="field">🔮 起卦方式<div class="dv-methods">${tiles}</div></div>
       ${nums}${rec}
     </div>
-    <div class="panel-foot"><span class="spacer">一次 ${info.cost} 金幣・同一件事 ${info.repeatHours} 小時內只占一次（一事不二占）</span><button class="btn ghost" data-close>取消</button><button class="btn gold" id="dvStart">✨ 開始施法</button></div>`;
+    <div class="panel-foot"><span class="spacer">一次 ${info.cost} 金幣</span><button class="btn ghost" data-close>取消</button><button class="btn gold" id="dvStart">✨ 開始施法</button></div>`;
     return;
   }
   if (d.step === 'circle') {
@@ -724,7 +775,7 @@ function renderDivine(el, v) {
     <button class="dv-detail-btn" id="dvDetail">📖 ${d.showDetail ? '收起解析' : '看解析（體用、五行、動爻）'}</button>
     ${d.showDetail ? dvDetail(r) : ''}
   </div>
-  <div class="panel-foot"><span class="spacer">${d.mode ? '這次沒有花金幣' : `花了 ${info.cost} 金幣`}・${esc(r.movingName)}動</span><button class="btn ghost" id="dvAgain" ${d.reading ? '' : 'disabled'}>🌙 再問別的事</button><button class="btn gold" data-close>完成</button></div>`;
+  <div class="panel-foot"><span class="spacer">${d.mode ? '這次沒有花金幣' : `花了 ${info.cost} 金幣`}・${esc(r.movingName)}動</span><button class="btn" id="dvAgain" ${d.reading ? '' : 'disabled'}>🌙 再問別的事</button><button class="btn gold" data-close>完成</button></div>`;
   d.fresh = false;
 }
 // 魔法陣：外環 24 格順時針、內環 16 格逆時針；點一下就減速停在某一格（指針在正上方）
@@ -839,7 +890,8 @@ function renderFocus() {
   const b = $('#hudFocus');
   b.classList.toggle('on', on);
   b.textContent = on ? `🍅${mmss(f.endAt - nowMs())}` : '🍅';
-  b.title = on ? '專注中（點一下可以結束）' : `專注 ${(f && f.minutes) || 25} 分鐘：${state.view ? state.view.npc.name : ''}變回貓咪陪你，時間到叫你休息`;
+  b.dataset.tip = on ? '專注中・點一下可以結束' : `專注 ${(f && f.minutes) || 25} 分鐘：${state.view ? state.view.npc.name : ''}變回貓咪陪你，時間到叫你休息`;
+  $('#hud').classList.toggle('focusing', on); // 專注中：🔮 先收起來，圖示列才不會擠到換行
   $('#focusBadge').classList.toggle('hidden', !on);
   $('#zzz').classList.toggle('hidden', !on);
   if (on) $('#focusBadge').textContent = `🍅 ${mmss(f.endAt - nowMs())}`;
@@ -895,6 +947,11 @@ $('#choices').addEventListener('click', async (e) => {
   if (act === 'report') openPanel('report');
   if (act === 'chat') { $('#chatRow').classList.toggle('hidden'); $('#chatInput').focus(); }
   if (act === 'divine') openPanel('divine');
+  if (act === 'fortune') drawFortune();
+  if (act === 'notebook') openNotebook();
+  if (act === 'journal') openJournal();
+  if (act === 'shop') openShop();
+  if (act === 'ach') openAch();
 });
 // 聊天裡說「幫我占卜…」「算一卦」就直接打開占卜面板（問「梅花易數是什麼」這種還是聊天）
 const DV_RE = /(占卜|算一卦|卜一卦|卜個卦|起一?卦|算個卦)/;
@@ -930,17 +987,41 @@ $('#chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e
 // 表單面板比較高：開著的時候先把對話框收起來，關掉表單再放回來
 function openPanel(kind, arg) {
   if (kind === 'divine') openDivine(arg);
+  const same = state.panel === kind;
+  // 從首頁對話框點進來的：關掉面板時把對話框（選單）放回來
+  if (!state.panel) state.reopenDialog = !$('#dialog').classList.contains('hidden');
   state.panel = kind; state.panelArg = arg; state.confirmDel = null; state.addingObj = null;
+  document.body.classList.add('panel-open');
   if (FORM_PANELS.has(kind)) $('#dialog').classList.add('hidden'); else openDialog();
   $('#dlgLog').classList.toggle('on', kind === 'log');
   $('#dialog').classList.add('compact'); renderPanel();
+  if (!same) sayContext(kind); // 艾琳說一句跟這個面板有關的話（雜貨舖、健康檢查這種面板裡自己有人說話的，她就不出聲）
 }
 function closePanel() {
   cancelAnimationFrame(state.dvRaf);
   const wasForm = FORM_PANELS.has(state.panel);
   state.panel = null; state.panelBack = null; state.confirmDel = null; state.addingObj = null;
+  document.body.classList.remove('panel-open');
   $('#panel').classList.add('hidden'); $('#dialog').classList.remove('compact'); $('#dlgLog').classList.remove('on');
-  if (wasForm) openDialog();
+  if (wasForm || state.reopenDialog) openDialog();
+  // 泡泡裡是面板的那句（不是她真的說過的話）：回到首頁時換回她上一句真的說的話
+  if (state.contextShown && !state.typing && !state.queue.length && !$('#dialog').classList.contains('hidden')) {
+    if (state.lastLine) showLine(state.lastLine); else $('#dlgText').textContent = '';
+  }
+  state.reopenDialog = false; state.contextShown = false;
+}
+// 打開面板時艾琳的泡泡：她正在說話就不打斷；有跟這個面板有關的話就換成那句（不記進「剛剛的對話」），
+// 沒有的（雜貨舖、健康檢查、日誌…面板裡自己有人說話，或等一下她本來就會開口）先把泡泡收起來，不留上一句不相干的話
+function sayContext(kind) {
+  if (state.typing || state.queue.length || state.talking || state.proposal || FORM_PANELS.has(kind)) return;
+  const ln = typeof PanelLines !== 'undefined' ? PanelLines.line(kind, state.view, { questId: state.panelArg }) : null;
+  if (!ln) { $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.shownLogId = null; logRefresh(); return; }
+  $('#dialog').classList.remove('hidden'); hideWhisper();
+  $('#dlgText').innerHTML = rich(ln.text);
+  $('#dlgMore').classList.add('hidden');
+  setShown(null);
+  setEmotion(ln.emotion || 'normal');
+  state.contextShown = true;
 }
 
 function renderPanel() {
@@ -962,7 +1043,7 @@ function renderPanel() {
   else if (body && keepScroll) body.scrollTop = keepScroll;
 }
 // 面板標題列（所有面板共用）
-const head = (title, sub, extra = '') => `<div class="panel-head"><h2>${title}</h2>${sub ? `<span class="sub">${sub}</span>` : ''}${extra}<button class="icon-btn" data-close>✕</button></div>`;
+const head = (title, sub, extra = '', info = '') => `<div class="panel-head"><h2>${title}</h2>${sub ? `<span class="sub">${sub}</span>` : ''}${extra}${info ? `<button class="icon-btn info" data-tip="${esc(info)}" aria-label="說明" tabindex="-1">ⓘ</button>` : ''}<button class="icon-btn close" data-close aria-label="關閉">✕</button></div>`;
 function renderPanelInner(el, v) {
   if (state.panel === 'log') {
     const rows = logRows();
@@ -989,7 +1070,7 @@ function renderPanelInner(el, v) {
           : `<span class="q-edit"><button class="btn small ghost" data-obj-add="${q.id}">＋ 目標</button><button class="icon-btn" data-edit-quest="${q.id}" title="編輯名稱／類型／截止日">✎</button><button class="icon-btn" data-del-quest="${q.id}" title="刪除任務">🗑</button></span>`;
         body += `<div class="quest ${q.tier} ${q.status === 'done' ? 'done' : ''} ${q.active ? 'is-active' : ''}">
           <div class="q-head" data-toggle="${q.id}">${tierBadge(q)}<span class="q-title">${q.active ? '▶ ' : ''}${rich(q.title)}</span>${q.project ? `<span class="chip proj" title="專案（週報用這個分類）">${esc(q.project)}</span>` : ''}${dueChip(q)}</div>
-          <div class="q-prog"><div style="width:${q.total ? (q.doneCount / q.total) * 100 : 0}%"></div></div>
+          <div class="q-progrow"><div class="q-prog"><div style="width:${q.total ? (q.doneCount / q.total) * 100 : 0}%"></div></div><span class="q-count">${q.total ? `${q.doneCount}/${q.total}` : '沒有目標'}</span></div>
           ${open ? `<div class="q-body">${q.reason ? `<p class="q-reason">💬 ${rich(q.reason)}</p>` : ''}
             ${q.objectives.map((o, i) => `<label class="obj ${o.done ? 'checked' : ''}"><input type="checkbox" data-obj="${q.id}" data-idx="${i}" ${o.done ? 'checked' : ''} ${q.status === 'done' ? 'disabled' : ''}><span>${rich(o.text)}</span>${canEdit ? `<button class="icon-btn del" data-del-obj="${q.id}" data-idx="${i}" title="刪除這個目標">✕</button>` : ''}</label>`).join('')}
             ${!q.objectives.length && canEdit ? '<p class="hint">還沒有目標，按「＋ 目標」加一個吧。</p>' : ''}
@@ -1046,7 +1127,7 @@ function renderPanelInner(el, v) {
     const tier = q ? q.tier : 'major';
     const due = q && q.deadline && q.deadlineLabel !== '本週內' ? q.deadline : '';
     const pick = (val, icon, name, tok) => `<label class="tp ${val} ${tier === val ? 'on' : ''}" title="檔案裡會寫成 ${tok}"><input type="radio" name="qfTier" value="${val}" ${tier === val ? 'checked' : ''}>${icon} ${name}<small>${tok}</small></label>`;
-    el.innerHTML = head(q ? '✎ 編輯任務' : '📜 新任務', q ? rich(q.title) : '登記一筆新委託') + `<div class="panel-body form">
+    el.innerHTML = head(q ? '✎ 編輯任務' : '📜 新任務', q ? rich(q.title) : '登記一筆新委託', '', q ? '目標要改的話，回任務卡用「＋ 目標」或 ✕' : '會直接寫進計畫檔，之後也能在檔案裡改') + `<div class="panel-body form">
       <div class="field">📝 任務名稱<input id="qfTitle" value="${esc(q ? q.title : '')}" placeholder="例如：完成週報" maxlength="80" autofocus></div>
       <div class="field-row">
         <div class="field">🏷 類型<div class="tier-pick">${pick('main', '👑', '主線', '⭐')}${pick('major', '⚔️', '重要支線', '🔧')}${pick('side', '🌿', '支線', '🌿')}</div></div>
@@ -1056,7 +1137,7 @@ function renderPanelInner(el, v) {
       <div class="field">🗂 專案<input id="qfProj" list="qfProjList" value="${esc(q && q.project ? q.project : '')}" placeholder="週報用這個分類（選填，沒填歸在「其他」）" maxlength="30"><datalist id="qfProjList">${[...new Set([...(v.projects || []), ...v.quests.map((x) => x.project).filter(Boolean)])].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
       ${q ? '' : '<div class="field">☑ 目標（一行一個）<textarea id="qfObjs" rows="3" placeholder="整理會議紀錄&#10;寄給相關的人（選填，之後也能在任務卡加）"></textarea></div>'}
     </div>
-    <div class="panel-foot"><span class="spacer">${q ? '目標要改的話，回任務卡用「＋ 目標」或 ✕' : '會直接寫進計畫檔，之後也能在檔案裡改'}</span><button class="btn ghost" data-back>取消</button><button class="btn gold" id="qfSave">${q ? '💾 儲存' : '📜 登記委託'}</button></div>`;
+    <div class="panel-foot"><span class="spacer"></span><button class="btn ghost" data-back>取消</button><button class="btn gold" id="qfSave">${q ? '💾 儲存' : '📜 登記委託'}</button></div>`;
     setTimeout(() => { const i = $('#qfTitle'); if (i) { i.focus(); i.select(); } }, 30);
   }
 
@@ -1075,7 +1156,7 @@ function renderPanelInner(el, v) {
   }
 
   if (state.panel === 'remForm') {
-    el.innerHTML = head('⏰ 設提醒', `${esc(v.npc.name)}到時候會來叫你`) + `<div class="panel-body form">
+    el.innerHTML = head('⏰ 設提醒', `${esc(v.npc.name)}到時候會來叫你`, '', '會寫成「⏰ 時間 條件 → 應對」放進那一天的行程') + `<div class="panel-body form">
       <div class="field-row">
         <div class="field">📅 日期<input type="date" id="mfDate" value="${todayISO()}"></div>
         <div class="field">🕒 時間<input type="time" id="mfTime" value="${nowHHMM().slice(0, 3)}00"></div>
@@ -1083,7 +1164,7 @@ function renderPanelInner(el, v) {
       <div class="field">🔔 提醒什麼<input id="mfText" placeholder="例如：報價還沒回覆" maxlength="120"></div>
       <div class="field">🧭 到時要怎麼做<input id="mfAction" placeholder="決策點用：例如「打電話追一次」（選填）" maxlength="120"></div>
     </div>
-    <div class="panel-foot"><span class="spacer">會寫成「⏰ 時間 條件 → 應對」放進那一天</span><button class="btn ghost" data-back>取消</button><button class="btn gold" id="mfSave">⏰ 設定提醒</button></div>`;
+    <div class="panel-foot"><span class="spacer"></span><button class="btn ghost" data-back>取消</button><button class="btn gold" id="mfSave">⏰ 設定提醒</button></div>`;
     setTimeout(() => { const i = $('#mfText'); if (i) i.focus(); }, 30);
   }
 
@@ -1093,27 +1174,26 @@ function renderPanelInner(el, v) {
   if (state.panel === 'notebook') renderNotebook(el, v);
   if (state.panel === 'journal') renderJournal(el, v);
   if (state.panel === 'shop') renderShop(el, v);
+  if (state.panel === 'ach') renderAch(el, v);
 
   if (state.panel === 'report') {
     const t = v.today;
     const doneRows = t.rows.filter((r) => r.done).map((r) => (t.branch && t.chosenBranch === 'b' ? r.b : r.a));
     const pt = v.progressToday || {};
     const pre = pt.done || doneRows.join('；');
-    el.innerHTML = head('📝 下班回報', esc(t.label)) + `<div class="panel-body">
+    el.innerHTML = head('📝 下班回報', esc(t.label), '', v.writeBack ? '會寫進計畫檔最後的「進度紀錄」，週五回報完會整理成冒險日誌和週報' : '只存在遊戲裡（回寫計畫檔已關閉）') + `<div class="panel-body">
       <div class="field">✅ 實際完成<textarea id="rDone" rows="3">${esc(pre)}</textarea></div>
       <div class="field-row">
         <div class="field">🧱 卡點<textarea id="rBlock" rows="2">${esc(pt.blocker || '')}</textarea></div>
         <div class="field">🌅 明日調整<textarea id="rNext" rows="2">${esc(pt.next || '')}</textarea></div>
       </div></div>
-      <div class="panel-foot"><span class="spacer">${v.writeBack ? '會寫進計畫檔最後的「進度紀錄」' : '只存在遊戲裡（回寫已關閉）'}・首次回報 +30 XP</span><button class="btn gold" id="rSend">📨 交出日報</button></div>`;
+      <div class="panel-foot"><span class="spacer">今天第一次回報 +30 XP</span><button class="btn ghost" data-close>取消</button><button class="btn gold" id="rSend">📨 交出日報</button></div>`;
   }
 
   if (state.panel === 'submit') {
     const q = v.quests.find((x) => x.id === state.panelArg);
     if (!q) { closePanel(); return; }
-    const base = { main: [100, 50], major: [80, 40], side: [40, 20] }[q.tier];
-    const onTime = q.daysLeft === null || q.daysLeft >= 0;
-    const xp = Math.round(base[0] * (onTime ? 1.2 : 1)), gold = Math.round(base[1] * (onTime ? 1.2 : 1));
+    const { xp, gold, onTime } = questReward(q);
     el.innerHTML = head('🏆 交付任務', rich(q.title)) + `<div class="panel-body">
       ${q.objectives.map((o) => `<div class="obj checked"><input type="checkbox" checked disabled><span>${rich(o.text)}</span></div>`).join('')}
       <div class="reward-card"><span class="rc-title">🎁 任務報酬</span><span class="rc-num">✨ ${xp}<small>XP</small></span><span class="rc-num">${COIN}${gold}</span><span class="rc-bonus ${onTime ? '' : 'late'}">${onTime ? '⏱ 準時加成 +20%' : '⚠ 已逾期，沒有加成'}</span></div>
@@ -1165,7 +1245,48 @@ async function saveRemForm() {
   state.panelBack = null; openPanel('daily');
 }
 
-$('#panel').addEventListener('click', async (e) => {
+// ---------- 按鈕回饋：按下去的那顆自己顯示「處理中…」並暫停（不會連按送兩次），做完打個勾 ----------
+const BUSY_BTNS = [
+  ['[data-jn-copy]', '✓ 已複製'], ['[data-jn-export]', '✓ 已匯出'], ['[data-sp-gift]', '✓ 送出了'], ['[data-sp-buy]', '✓ 買好了'],
+  ['[data-sp-equip]', '✓ 換上了'], ['[data-sp-off]', '✓ 拿下了'], ['[data-sp-draw]', ''], ['[data-co-ex]', '✓ 換到了'], ['[data-fix]', '✓ 好了'],
+  ['#rSend', ''], ['#sSend', ''], ['#qfSave', ''], ['#rfSave', ''], ['#mfSave', ''], ['[data-obj-save]', ''], ['[data-activate]', ''],
+  ['[data-del-quest-yes]', ''], ['[data-del-row-yes]', ''], ['[data-del-rem-yes]', ''], ['[data-nb-all-yes]', ''], ['[data-nb-on]', ''],
+  ['[data-new="ics-in"]', ''], ['[data-new="ics-out"]', ''], ['[data-jn-write]', ''],
+];
+function busyMatch(t) {
+  for (const [sel, done] of BUSY_BTNS) { const b = t.closest && t.closest(sel); if (b && b.tagName === 'BUTTON') return { b, sel, done }; }
+  return null;
+}
+// 畫面重畫之後，用同一個屬性值找回「同一顆」按鈕
+function busyKey(b, sel) {
+  const m = sel.match(/^\[(data-[\w-]+)/);
+  return m && b.hasAttribute(m[1]) ? `[${m[1]}="${CSS.escape(b.getAttribute(m[1]))}"]` : sel;
+}
+async function withBusy({ b, sel, done }, fn) {
+  if (b.disabled || b.classList.contains('is-busy')) return;
+  const key = busyKey(b, sel), html = b.innerHTML, t0 = Date.now();
+  const p = fn(); // 先讓處理函式讀完按鈕上的資料，再換成「處理中」
+  const icon = b.classList.contains('icon-btn'); // 標題列的小圖示鈕：只轉圈圈、不塞字
+  b.style.minWidth = `${b.offsetWidth}px`; b.classList.add('is-busy'); b.disabled = true;
+  b.innerHTML = icon ? '<span class="spin" aria-hidden="true"></span>' : '<span class="spin" aria-hidden="true"></span>處理中…';
+  try { await p; } finally {
+    if (document.contains(b)) { b.innerHTML = html; b.disabled = false; b.classList.remove('is-busy'); b.style.minWidth = ''; }
+    const ok = !(state.warnAt && state.warnAt >= t0);
+    const now = document.contains(b) ? b : document.querySelector(`#panel ${key}`);
+    if (ok && done && now) flashDone(now, now.classList.contains('icon-btn') ? '✓' : done);
+  }
+}
+function flashDone(b, text) {
+  const html = b.innerHTML;
+  b.classList.add('is-done'); b.style.minWidth = `${b.offsetWidth}px`; b.textContent = text;
+  clearTimeout(b.doneTimer);
+  b.doneTimer = setTimeout(() => { if (document.contains(b)) { b.innerHTML = html; b.classList.remove('is-done'); b.style.minWidth = ''; } }, 1400);
+}
+$('#panel').addEventListener('click', (e) => {
+  const m = busyMatch(e.target);
+  if (m) withBusy(m, () => panelClick(e)); else panelClick(e);
+});
+async function panelClick(e) {
   const t = e.target;
   if (state.panel === 'divine' && await divineClick(e)) return;
   if (state.panel === 'onboard' && await onboardClick(e)) return;
@@ -1173,6 +1294,7 @@ $('#panel').addEventListener('click', async (e) => {
   if (state.panel === 'notebook' && await notebookClick(e)) return;
   if (state.panel === 'journal' && await journalClick(e)) return;
   if (state.panel === 'shop' && await shopClick(e)) return;
+  if (state.panel === 'ach' && await achClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }
   if (t.closest('[data-back]')) { backFromForm(); return; }
@@ -1227,7 +1349,7 @@ $('#panel').addEventListener('click', async (e) => {
     const r = await run(() => api.submit(qid, $('#sReport').value.trim()));
     if (r && r.ok) { state.panel = 'board'; renderPanel(); }
   }
-});
+}
 async function saveObjective(qid) {
   const inp = document.querySelector(`[data-obj-input="${qid}"]`);
   const text = inp ? inp.value.trim() : '';

@@ -42,8 +42,8 @@ module.exports = ({ win, engine, app }) => {
       assert((await js(`document.querySelectorAll('.sp-coin .coin').length`)) >= 9 && (await js(`!!document.querySelector('#panel .panel-head .coin')`)), '雜貨舖價格');
       await noEmojiCoin('雜貨舖');
       await shot('c02_shop');
-      // 3. 成就分頁：獎勵金幣、布置櫃台的圖示換成 🎐
-      await click('[data-sp-tab="ach"]'); await wait(500);
+      // 3. 成就（自己一個面板）：獎勵金幣、布置櫃台的圖示換成 🎐
+      await js('openAch(); 0'); await wait(700);
       assert((await js(`document.querySelectorAll('.co-gold .coin').length`)) >= 20, '成就獎勵');
       assert(await js(`[...document.querySelectorAll('.co-a')].some((a) => a.textContent.includes('布置櫃台') && a.querySelector('.co-medal').textContent === '\\u{1F390}')`), '布置櫃台 🎐');
       await noEmojiCoin('成就');

@@ -1807,3 +1807,48 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(/^<svg[^>]*viewBox/.test(fs.readFileSync(path.join(root, 'src/renderer/coin.svg'), 'utf8')));
   console.log('Windows 10 字型測試通過 ✔');
 })();
+
+// ---------- 🧭 介面整理（10/7）：字級表、面板台詞口吻、首頁選單、狀態欄提示 ----------
+(() => {
+  const root = path.join(__dirname, '..');
+  const css = fs.readFileSync(path.join(root, 'src/renderer/style.css'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'src/renderer/index.html'), 'utf8');
+  const rjs = fs.readFileSync(path.join(root, 'src/renderer/renderer.js'), 'utf8');
+  // 字級表：五級＋最小 12px（圖示、大數字另外寫，但不能比 12px 小）
+  for (const k of ['xs: 12px', 's: 13px', 'm: 14px', 'l: 16px', 'xl: 20px']) assert.ok(css.includes(`--fs-${k}`), '字級表 ' + k);
+  const tiny = [...css.matchAll(/([^{}]+)\{[^{}]*font-size:\s*([0-9.]+)px/g)].filter((m) => parseFloat(m[2]) < 12 && !/\.zzz span|\.mc-ring span(?!\.hit)/.test(m[1]));
+  assert.deepStrictEqual(tiny.map((m) => `${m[1].trim()} ${m[2]}px`), [], '小於 12px 的字');
+  for (const k of ['--r-s', '--r-m', '--r-l', '--gold-ink', '--surface', '--card', '--track']) assert.ok(new RegExp(`${k}:`).test(css), '共用變數 ' + k);
+  // 每個主題都有自己的金色按鈕字色（不會在冰藍、櫻粉主題上出現咖啡色字）
+  for (const th of ['sakura', 'forest', 'latte', 'night', 'frost']) assert.ok(new RegExp(`body\\[data-theme="${th}"\\][^}]*--gold-ink`).test(css), `主題 ${th} 的 --gold-ink`);
+  // 面板開著時：面板佔滿上方、對話框變成泡泡
+  assert.ok(/body\.panel-open #panel \{ flex: 1 1 auto; \}/.test(css) && /#dialog\.compact \{ position: absolute;/.test(css));
+  // 首頁選單：常用四個＋玩法一排六個，每個都有處理
+  const acts = [...html.matchAll(/data-act="(\w+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(acts, ['submit', 'board', 'daily', 'chat', 'report', 'divine', 'fortune', 'notebook', 'journal', 'shop', 'ach']);
+  for (const a of acts) assert.ok(rjs.includes(`act === '${a}'`), '選單 ' + a + ' 有處理');
+  // 狀態欄、對話框標題列：用 data-tip（滑過立刻出現），不用要等一秒的 title
+  const hud = html.slice(html.indexOf('<div id="hud"'), html.indexOf('<!-- 滑過焦點行'));
+  assert.ok(!/title="/.test(hud) && (hud.match(/data-tip="/g) || []).length >= 6, '狀態欄用 data-tip');
+  // 面板台詞：口吻（艾琳／冒險者，不用我、您、玩家）；自己有人說話的面板不插嘴
+  const PL = require('../src/renderer/panel-lines');
+  const q = (o) => ({ id: 'q1', title: '整理第三季會議紀錄並寄給所有相關的人', status: 'available', objectives: [{}, {}, {}], doneCount: 1, daysLeft: 2, ...o });
+  const views = [
+    { quests: [], editable: true }, { quests: [], editable: false },
+    { quests: [q({ status: 'done' })] }, { quests: [q()], active: null },
+    { quests: [q()], active: q({ status: 'ready', doneCount: 3 }) }, { quests: [q()], active: q({ daysLeft: -1 }) },
+    { quests: [q()], active: q({ daysLeft: 0 }) }, { quests: [q()], active: q() }, { quests: [q()], active: q({ objectives: [], doneCount: 0 }) },
+  ];
+  const said = [];
+  for (const v of views) said.push(PL.line('board', { ...v, streak: 0 }));
+  said.push(PL.line('report', { quests: [] }), PL.line('submit', { quests: [q()] }, { questId: 'q1' }), PL.line('submit', { quests: [] }, {}), PL.line('ach', { streak: 5 }), PL.line('ach', { streak: 0 }));
+  for (const l of said) {
+    assert.ok(l && l.text && l.emotion, '每種情況都有一句');
+    assert.ok(!/玩家|您/.test(l.text) && !/(^|[^我])我(?!們)/.test(l.text), '口吻：' + l.text);
+    assert.ok(['normal', 'happy', 'cheer', 'worried', 'thinking', 'surprised', 'shy'].includes(l.emotion), '表情：' + l.emotion);
+  }
+  assert.ok(/還差 2 個目標/.test(said[7].text) && said[7].text.includes('「整理第三季會議紀錄並寄給所有…」'), '任務名太長會截短：' + said[7].text);
+  assert.ok(/交付/.test(said[4].text) && said[4].emotion === 'cheer');
+  for (const k of ['shop', 'health', 'journal', 'notebook', 'log', 'daily', 'onboard']) assert.strictEqual(PL.line(k, { quests: [] }), null, k + ' 不插嘴');
+  console.log('介面整理測試通過 ✔');
+})();

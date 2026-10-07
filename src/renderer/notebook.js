@@ -41,11 +41,12 @@ function renderNotebook(el) {
     body = off + groups + empty + sketch;
   }
   const count = d ? (d.count ? `${d.count} 則・偷看中…` : '偷看中…') : '';
-  const foot = !d || !d.count ? `<span class="spacer">只記你親口說的、關於自己的事</span>`
+  // 頁尾只放按鈕；「只記你說的、記錯可以劃掉」這種固定說明收進標題列的 ⓘ
+  const foot = !d || !d.count ? ''
     : nb.confirmAll
       ? `<span class="spacer">真的全部劃掉？${name}會全部忘記喔。</span><button class="btn ghost" data-nb-all-no>不要</button><button class="btn danger" data-nb-all-yes>全部劃掉</button>`
-      : `<span class="spacer">記錯的、不想被記的，按 ✕ 劃掉</span><button class="btn ghost" data-nb-all>全部劃掉…</button>`;
-  el.innerHTML = head(`📒 ${name}的小本子`, count) + `<div class="panel-body nb-body"><div class="nb-paper">${body}</div></div><div class="panel-foot">${foot}</div>`;
+      : '<span class="spacer"></span><button class="btn ghost" data-nb-all>全部劃掉…</button>';
+  el.innerHTML = head(`📒 ${name}的小本子`, count, '', `只記你親口說的、關於自己的事。記錯的、不想被記的，滑過那一則按 ✕ 劃掉，${name}就會忘記`) + `<div class="panel-body nb-body"><div class="nb-paper">${body}</div></div>${foot ? `<div class="panel-foot">${foot}</div>` : ''}`;
 }
 async function notebookClick(e) {
   const t = e.target;

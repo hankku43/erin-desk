@@ -62,7 +62,7 @@ function renderOnboard(el, v) {
       + item('click', `點${esc(name)}一下`, '平常點她就會打招呼、提醒你現在的任務')
       + item('drag', `按住${esc(name)}，拖到喜歡的位置`, '放開後會記住，下次打開還在那裡')
       + item('menu', `在${esc(name)}身上按右鍵`, '所有功能都在這個選單裡（看完按 Esc 或點旁邊關掉）')
-      + `<p class="hint">左下角是你的狀態：等級、金幣、現在該做的事。按 ▁ 可以讓${esc(name)}縮成一隻小貓，不擋畫面。</p>`;
+      + `<p class="hint">左下角是你的狀態：等級、金幣、現在該做的事，圖示滑過去就有說明。滑過狀態欄時右上角會出現 ▁，按了可以讓${esc(name)}縮成一隻小貓，不擋畫面。</p>`;
     foot = `${back}<span class="spacer"></span><button class="btn gold" data-ob-next>${all ? '都會了 →' : '下一步 →'}</button>`;
   }
   if (ob.step === 'ai') {
@@ -300,7 +300,7 @@ function renderHealth(el) {
         return `<div class="hl-item ${i.status}"><span class="hl-st">${HL_ICON[i.status] || '⚪'}</span><div class="hl-main"><b>${i.icon} ${esc(i.title)}</b><small>${esc(i.detail)}</small>${fixes ? `<div class="ob-btns">${fixes}</div>` : ''}</div></div>`;
       }).join('');
   }
-  el.innerHTML = head('🩺 健康檢查', h.loading ? '檢查中…' : '') + `<div class="panel-body hl-body">${body}</div><div class="panel-foot"><span class="spacer">還是怪怪的？把「你的資料」資料夾裡的 data/llm.log 傳給幫你裝的人</span><button class="btn" data-hl-again>🔄 再檢查一次</button></div>`;
+  el.innerHTML = head('🩺 健康檢查', h.loading ? '檢查中…' : '', '', '還是怪怪的？把「你的資料」資料夾裡的 data/llm.log 傳給幫你裝的人') + `<div class="panel-body hl-body">${body}</div><div class="panel-foot"><span class="spacer"></span><button class="btn" data-hl-again ${h.loading ? 'disabled' : ''}>${h.loading ? '檢查中…' : '🔄 再檢查一次'}</button></div>`;
 }
 async function healthClick(e) {
   const t = e.target;
