@@ -54,13 +54,23 @@ module.exports = ({ win, engine }) => {
       await pick('qwen3:14b'); await wait(200);
       assert(/比較吃力/.test(await text('.ob-card.on .ob-warn')), '選會慢的：提醒');
       await shot('m02_4060_up_slow');
-      // 2. 4060＋32GB：推薦旗艦（顯示卡＋記憶體），上一階是實驗版
+      // 2. 4060＋32GB：推薦旗艦（顯示卡＋記憶體），上一階頂級（記憶體不夠寬裕，會慢）
       await open({ ramGB: 31.8, gpu: { name: 'NVIDIA GeForce RTX 4060', vendor: 'nvidia', vramGB: 8 } });
       c = await cards();
-      assert(/qwen3:30b-instruct\|推薦/.test(c[0]) && /qwen3\.6:35b-a3b\|⬆ 上一階・更聰明,實驗/.test(c[1]) && /qwen3:8b\|⬇ 下一階/.test(c[2]), '4060+32：' + c.join(' / '));
+      assert(/qwen3:30b-instruct\|推薦/.test(c[0]) && /qwen3\.6:35b-a3b\|⬆ 上一階・更聰明$/.test(c[1]) && /qwen3:8b\|⬇ 下一階/.test(c[2]), '4060+32：' + c.join(' / '));
       await pick('qwen3.6:35b-a3b'); await wait(200);
-      assert(/還沒用這個模型測試過/.test(await text('.ob-card.on')), '實驗版：提醒還沒測試');
-      await shot('m03_4060_32g_exp');
+      assert(/比較吃力/.test(await text('.ob-card.on .ob-warn')) && !/還沒用這個模型測試過/.test(await text('.ob-card.on')), '頂級在 32GB：只提醒會慢');
+      await shot('m03_4060_32g_up');
+      // 2b. 64GB：推薦頂級 qwen3.6、下一階旗艦；沒有獨立顯示卡也一樣
+      await open({ ramGB: 63.8, gpu: { name: 'NVIDIA GeForce RTX 4060', vendor: 'nvidia', vramGB: 8 } });
+      c = await cards();
+      assert(/qwen3\.6:35b-a3b\|推薦/.test(c[0]) && /qwen3:30b-instruct\|⬇ 下一階/.test(c[1]) && c.length === 3, '4060+64：' + c.join(' / '));
+      assert(/64GB 記憶體/.test(await text('.ob-why')) && /頂級版一部分放顯示卡/.test(await text('.ob-why')));
+      await shot('m03b_4060_64g');
+      await open({ ramGB: 63.8, gpu: null });
+      c = await cards();
+      assert(/qwen3\.6:35b-a3b\|推薦/.test(c[0]) && /qwen3:30b-instruct\|⬇ 下一階/.test(c[1]), '64GB 沒顯示卡：' + c.join(' / '));
+      await shot('m03c_cpu_64g');
       // 3. 沒有顯示卡、8GB：推薦輕量、上一階標準（會慢）、沒有下一階
       await open({ ramGB: 7.8, gpu: null, gpus: [{ name: 'Intel(R) UHD Graphics', vendor: 'intel', vramGB: 1 }] });
       c = await cards();

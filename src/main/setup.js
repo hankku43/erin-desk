@@ -7,7 +7,8 @@ const path = require('path');
 const HW = require('./hardware');
 
 // 模型階梯（由小到大）：gpu＝整個放進顯示卡大約要幾 GB（含對話用的記憶）；cpu＝沒有顯示卡時，記憶體要多少才「很快／順／會慢」
-// moe：每次只動一小部分（30b 只動 3B），放不下顯示卡、分一些給記憶體也還算順；experimental：不會自動推薦
+// moe：每次只動一小部分（30b 只動 3B），放不下顯示卡、分一些給記憶體也還算順（放到記憶體的那一份之外，記憶體還要剩 15GB 給系統和其他程式）
+// experimental：不會自動推薦（目前沒有）
 // 記憶體門檻抓寬一點：16GB 的電腦常常只回報 15.x GB、32GB 回報 31.x
 const LADDER = [
   { name: 'qwen3:1.7b', size: '1.4GB', gb: 1.4, title: '輕量', desc: '最快、最省記憶體，聊天比較簡單', gpu: 2.5, cpu: { great: 7, slow: 3.5 } },
@@ -15,7 +16,7 @@ const LADDER = [
   { name: 'qwen3:8b', size: '5.2GB', gb: 5.2, title: '進階', desc: '比較懂前後文、說話更自然', gpu: 6.5, cpu: { slow: 15 } },
   { name: 'qwen3:14b', size: '9.3GB', gb: 9.3, title: '高階', desc: '記得更多細節、更會接話', gpu: 11, cpu: {} },
   { name: 'qwen3:30b-instruct', size: '19GB', gb: 19, title: '旗艦', desc: '大模型但每次只動一小部分，記憶體夠大就跑得動', gpu: 21, moe: true, cpu: { ok: 30 } },
-  { name: 'qwen3.6:35b-a3b', size: '24GB', gb: 24, title: '實驗', desc: '最新一代，還沒在這裡測試過，說話方式可能不太一樣', gpu: 27, moe: true, cpu: { ok: 45 }, experimental: true },
+  { name: 'qwen3.6:35b-a3b', size: '24GB', gb: 24, title: '頂級', desc: '最新一代、最聰明，適合 64GB 記憶體或 32GB 顯示卡', gpu: 27, moe: true, cpu: { ok: 45, slow: 30 } },
 ];
 const LADDER_BY = Object.fromEntries(LADDER.map((m) => [m.name, m]));
 // 舊的寫法（health.js 等等用）：{ 名稱: { size, label, title, desc } }
@@ -55,7 +56,10 @@ function fit(m, hw = {}) {
   if (vram >= m.gpu) return { speed: 'great', where: 'gpu' };
   if (g.unified) return { speed: vram >= m.gpu * 0.85 ? 'slow' : 'no', where: 'gpu' }; // Apple：放不下就很難跑
   let mix = 'no';
-  if (m.moe) { if (vram >= 6) mix = ram + vram >= m.gb + 10 ? 'ok' : ram >= 15 && ram + vram >= m.gb + 6 ? 'slow' : 'no'; } else if (ram >= 7) {
+  if (m.moe) {
+    const left = ram - (m.gpu - vram); // 放不下的那一份搬到記憶體之後，還剩多少
+    if (vram >= 6) mix = left >= 15 ? 'ok' : left >= 6 && ram >= 15 ? 'slow' : 'no';
+  } else if (ram >= 7) {
     const r = vram / m.gpu;
     mix = r >= 0.85 ? 'ok' : r >= 0.55 && ram >= 15 ? 'slow' : 'no';
   }
@@ -70,13 +74,13 @@ function hwText(hw) {
   return `${g ? `${g.name}（${gbText(g.vramGB)}）・` : ''}${gbText(hw.ramGB)} 記憶體`;
 }
 
-// 推薦：不算實驗版、速度至少「順」的裡面最聰明的那個
+// 推薦：速度至少「順」的裡面最聰明的那個（實驗版不算）
 // 上一階：比推薦大、至少「順」的下一個（沒有的話，「會等比較久」的也可以，畫面會提醒）
 // 下一階：比推薦小、速度不比推薦慢的最大那個
 // 傳數字＝只看記憶體（沒有顯示卡）
-function recommend(hw = { ramGB: ramGB(), gpu: null }) {
+function recommend(hw = { ramGB: ramGB(), gpu: null }, ladder = LADDER) {
   if (typeof hw === 'number') hw = { ramGB: hw, gpu: null };
-  const fits = LADDER.map((m) => ({ m, ...fit(m, hw) }));
+  const fits = ladder.map((m) => ({ m, ...fit(m, hw) }));
   let ri = -1;
   fits.forEach((f, i) => { if (!f.m.experimental && rankOf(f.speed) >= rankOf('ok')) ri = i; });
   const rec = ri >= 0 ? fits[ri] : null;
