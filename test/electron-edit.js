@@ -16,7 +16,7 @@ module.exports = ({ win, engine, app }) => {
   const scrollEnd = async () => { await js(`document.querySelector('.panel-body').scrollTop = 99999`); await wait(450); };
   const planFile = () => engine.planFile();
   const assert = (cond, msg) => { if (!cond) throw new Error('ASSERT ' + msg); };
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

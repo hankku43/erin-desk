@@ -1,7 +1,7 @@
 module.exports=({win,app})=>{const wc=win.webContents;const wait=ms=>new Promise(r=>setTimeout(r,ms));const js=c=>wc.executeJavaScript(c);
 const click=()=>js(`(()=>{const w=document.querySelector('#npcWrap');w.dispatchEvent(new MouseEvent('mousedown',{button:0,bubbles:true}));window.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));})()`);
 const text=()=>js(`document.querySelector('#dlgText').textContent`);
-wc.on('console-message',(_e,l,m)=>{if(l>=2)console.log('[renderer]',m);});
+wc.on('console-message',(e)=>{if(e.level==='warning'||e.level==='error')console.log('[renderer]',e.message);});
 wc.once('did-finish-load',async()=>{try{
  await wait(2800); const t1=await text(); console.log('before mini:', t1.slice(0,40));
  await js(`document.querySelector('#dlgMini').click()`); await wait(1600);

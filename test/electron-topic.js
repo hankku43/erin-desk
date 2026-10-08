@@ -17,7 +17,7 @@ module.exports = ({ win, engine, app }) => {
   // 數一下點她的時候有沒有去問 AI（打招呼／戳）
   const calls = { greet: 0, poke: 0 };
   for (const k of Object.keys(calls)) { const orig = engine[k].bind(engine); engine[k] = (...a) => { calls[k]++; return orig(...a); }; }
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

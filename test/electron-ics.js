@@ -11,7 +11,7 @@ module.exports = ({ win, engine, app }) => {
   const shot = async (name) => { fs.writeFileSync(path.join(OUT, name + '.png'), (await win.capturePage()).toPNG()); console.log('shot', name); };
   const click = (sel) => js(`(()=>{const el=document.querySelector(${JSON.stringify(sel)}); if(!el) throw new Error('no '+${JSON.stringify(sel)}); el.click();})()`);
   const push = (ch, payload) => wc.send(ch, payload);
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

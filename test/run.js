@@ -2023,8 +2023,11 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.strictEqual(ver, require('../node_modules/electron/package.json').version, '跟裝好的 electron 同一版');
   const u = P.urls(ver, 'win32', 'x64');
   // 網址、快取資料夾跟 @electron/get 算出來的一樣（不一樣的話快取對不到、會重新下載）
-  const { getArtifactRemoteURL } = require('@electron/get/dist/cjs/artifact-utils');
-  const { Cache } = require('@electron/get/dist/cjs/Cache');
+  // @electron/get 5 起（Electron 42+）是 ESM、只開放主入口 → 用檔案路徑直接載入內部模組（舊版在 dist/cjs）
+  const getDist = path.join(root, 'node_modules', '@electron', 'get', 'dist');
+  const loadGet = (name) => import(require('url').pathToFileURL(path.join(getDist, fs.existsSync(path.join(getDist, 'cjs')) ? 'cjs' : '', `${name}.js`)).href);
+  const { getArtifactRemoteURL } = await loadGet('artifact-utils');
+  const { Cache } = await loadGet('Cache');
   const d = { version: `v${ver}`, platform: 'win32', arch: 'x64', artifactName: 'electron', isGeneric: false };
   const saved = process.env.ELECTRON_MIRROR;
   delete process.env.ELECTRON_MIRROR;
@@ -2088,6 +2091,11 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
     assert.ok(/node tools\\pick-mirror\.js\r\nif errorlevel 10 call :usemirror\r\n/.test(b), f + ' 挑來源');
     assert.ok(/:usemirror\r\nset ELECTRON_MIRROR=https:\/\/npmmirror\.com\/mirrors\/electron\/\r\nset ELECTRON_BUILDER_BINARIES_MIRROR=https:\/\/npmmirror\.com\/mirrors\/electron-builder-binaries\/\r\n/.test(b), f + ' 鏡像站');
     assert.ok(/call npm ci --foreground-scripts\r\n/.test(b) && /call :switchsource\r\ncall npm install --foreground-scripts\r\n/.test(b), f + ' 看得到進度、失敗換來源');
+    if (f === '安裝.bat') { // Electron 42 起 npm ci 不會順便下載本體 → 裝完套件要明確下載，失敗換來源再試
+      const i = b.indexOf(':installed\r\n'), d = b.indexOf('node node_modules\\electron\\install.js\r\n'), tst = b.indexOf('call npm test');
+      assert.ok(i >= 0 && d > i && tst > d, f + ' 裝完套件後明確下載 Electron');
+      assert.ok(/call :switchsource\r\nnode node_modules\\electron\\install\.js\r\nif errorlevel 1 goto installfail\r\n/.test(b), f + ' 下載失敗換來源再試');
+    }
     const labels = new Set([...b.matchAll(/^:(\w+)/gm)].map((m) => m[1]));
     for (const m of b.matchAll(/(?:goto|call) :?(\w+)/g)) if (!/^(npm|npx)$/.test(m[1])) assert.ok(labels.has(m[1]), `${f} 找不到標籤 ${m[1]}`);
   }

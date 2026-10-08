@@ -9,7 +9,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
   const shot = async (name) => { fs.writeFileSync(path.join(OUT, name + '.png'), (await win.capturePage()).toPNG()); console.log('shot', name); };
   const assert = (c, m) => { if (!c) throw new Error('ASSERT ' + m); };
   const tick = (qid, i) => js(`(()=>{const el=document.querySelector('input[data-obj="${qid}"][data-idx="${i}"]'); el.checked=true; el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await wait(1500);

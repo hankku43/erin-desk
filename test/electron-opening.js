@@ -23,10 +23,10 @@ module.exports = ({ win, engine, app, menuTemplate, opening }) => {
   const closed = async (w, ms = 6000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (w.isDestroyed()) return; await wait(100); } throw new Error('開場視窗沒有關'); };
   const ready = (w) => new Promise((r) => w.webContents.once('did-finish-load', r));
   const fresh = async (opts) => { ow = opening.start(opts); await ready(ow); await js(`document.documentElement.style.background=${JSON.stringify(BG)}`); await wait(300); };
-  const hook = (w) => w.webContents.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[opening]', msg); });
+  const hook = (w) => w.webContents.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[opening]', e.message); });
 
   hook(ow);
-  win.webContents.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[main]', msg); });
+  win.webContents.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[main]', e.message); });
   ow.webContents.once('did-finish-load', async () => {
     try {
       assert(!win.isVisible(), '演開場時主視窗先藏著');

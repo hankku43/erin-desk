@@ -20,7 +20,7 @@ module.exports = ({ win, engine, app, menuTemplate, updater }) => {
   const flush = async () => { for (let i = 0; i < 40; i++) { if (!(await js('state.talking || state.queue.length > 0 || state.typing'))) break; if (await js('state.typing || state.queue.length > 0')) await js('advance()'); await wait(150); } };
   const notes = U.notesText('<h2>0.1.3 更新內容</h2><ul><li>艾琳可以幫你安裝 Ollama</li><li>金幣圖示在 Windows 10 也看得到</li><li>安裝檔會自動更新</li></ul>');
   const ready = { mode: 'auto', current: '0.1.2', status: 'ready', version: '0.1.3', notes, percent: 100, url: U.RELEASES_PAGE };
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

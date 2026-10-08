@@ -24,7 +24,7 @@ module.exports = ({ win, engine }) => {
   const loaded = (sel) => js(`[...document.querySelectorAll(${JSON.stringify(sel)})].length > 0 && [...document.querySelectorAll(${JSON.stringify(sel)})].every((x) => x.complete && x.naturalWidth > 0)`);
   // 抽卡用的亂數：前九張普通，最後一張 ★★★★（rollRarity、pickCard 輪流用）
   const rolls = [0.1, 0.2, 0.5, 0.6, 0.2, 0.9, 0.7, 0.3, 0.3, 0.1, 0.92, 0.5, 0.4, 0.7, 0.6, 0.2, 0.8, 0.9, 0.999, 0.4];
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

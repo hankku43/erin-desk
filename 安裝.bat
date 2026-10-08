@@ -25,6 +25,16 @@ call :switchsource
 call npm install --foreground-scripts
 if errorlevel 1 goto installfail
 :installed
+rem Electron 42 起 npm ci 不會順便下載 Electron 本體，這裡明確下載（用上面挑好的來源和 proxy；下載過就直接跳過）
+echo 下載 Electron（約 110 MB，下載過就會跳過）...
+node node_modules\electron\install.js
+if not errorlevel 1 goto downloaded
+echo.
+echo 下載 Electron 失敗，換另一個下載來源再試一次...
+call :switchsource
+node node_modules\electron\install.js
+if errorlevel 1 goto installfail
+:downloaded
 call npm test
 echo.
 echo 安裝完成！之後雙擊「啟動.bat」即可。

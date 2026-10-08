@@ -15,7 +15,7 @@ module.exports = ({ win, engine, app }) => {
   const text = (sel) => js(`(document.querySelector(${JSON.stringify(sel)})||{}).textContent||''`);
   const gold = () => engine.state.player.gold;
   const assert = (c, m) => { if (!c) throw new Error('ASSERT ' + m); };
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

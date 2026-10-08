@@ -23,7 +23,7 @@ module.exports = ({ win, engine, app }) => {
     const bad = await js(`[...document.querySelectorAll('.coin')].filter((c) => c.offsetParent).filter((c) => { const r = c.getBoundingClientRect(); return r.width < 8 || r.height < 8 || !/coin\\.svg/.test(getComputedStyle(c).backgroundImage); }).length`);
     assert(bad === 0, where + '：有 ' + bad + ' 個金幣圖示沒畫出來');
   };
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

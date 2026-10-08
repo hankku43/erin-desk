@@ -19,7 +19,7 @@ module.exports = ({ win, engine, app }) => {
     await js(`openDialog(); document.querySelector('#chatRow').classList.remove('hidden'); document.querySelector('#chatInput').value=${JSON.stringify(text)}; document.querySelector('#chatSend').click();`);
     await wait(300); await flush(); await wait(200);
   };
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

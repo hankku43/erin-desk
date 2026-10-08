@@ -20,7 +20,7 @@ module.exports = ({ win, engine, app }) => {
   const rect = (sel) => js(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return null; const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, h: r.height, w: r.width }; })()`);
   const home = async () => { await flush(); await js('closePanel(); openDialog(); 0'); await wait(250); };
   let seed = 11; engine.rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

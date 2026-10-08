@@ -15,7 +15,7 @@ module.exports = ({ win, engine, app }) => {
   const shot = async (name) => { fs.writeFileSync(path.join(OUT, name + '.png'), (await win.capturePage()).toPNG()); console.log('shot', name); };
   const assert = (c, m) => { if (!c) throw new Error('ASSERT ' + m); };
   const flush = async () => { for (let i = 0; i < 40; i++) { if (!(await js('state.talking || state.queue.length > 0 || state.typing'))) break; if (await js('state.typing || state.queue.length > 0')) await js('advance()'); await wait(150); } };
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);
@@ -74,7 +74,8 @@ module.exports = ({ win, engine, app }) => {
       await js(`(() => { const t = document.querySelector('#jnReport'); t.value = t.value + '\\n- 補充：下週二跟供應商開會'; t.dispatchEvent(new Event('input', { bubbles: true })); })(); 0`); await wait(200);
       assert(await js(`!!document.querySelector('[data-jn-reset]')`), '改過 → 可以還原');
       await js(`document.querySelector('[data-jn-copy]').click(); 0`); await wait(400);
-      assert(/補充：下週二跟供應商開會/.test(clipboard.readText()) && /^\[秋季新品\]/.test(clipboard.readText()), '複製到剪貼簿');
+      const clip = await clipboard.readText(); // Electron 44 起剪貼簿是非同步的
+      assert(/補充：下週二跟供應商開會/.test(clip) && /^\[秋季新品\]/.test(clip), '複製到剪貼簿');
       await shot('j04_copied');
       // 畫面更新（重畫）時，改過的內容還在
       wc.send('view:update', { view: engine.view() }); await wait(300);

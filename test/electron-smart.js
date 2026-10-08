@@ -7,7 +7,7 @@ module.exports = ({ win, engine, app }) => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const js = (code) => wc.executeJavaScript(code);
   const shot = async (name) => { fs.writeFileSync(path.join(OUT, name + '.png'), (await win.capturePage()).toPNG()); console.log('shot', name); };
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background='linear-gradient(135deg,#5b7fa6,#9bb7cf)'`);

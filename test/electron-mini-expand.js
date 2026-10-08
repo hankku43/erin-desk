@@ -8,7 +8,7 @@ module.exports = ({ win, app }) => {
   const js = (c) => wc.executeJavaScript(c);
   const click = () => js(`(()=>{const w=document.querySelector('#npcWrap');w.dispatchEvent(new MouseEvent('mousedown',{button:0,bubbles:true}));window.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));})()`);
   const img = () => js(`(document.querySelector('#npcImg').getAttribute('src')||'').split('/').pop()+' | body='+document.body.className+' | mini='+String(!!document.body.classList.contains('mini'))`);
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background='#6f8fb3'`);

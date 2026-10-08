@@ -16,7 +16,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
   const flush = async () => { for (let i = 0; i < 40; i++) { if (!(await js('state.talking || state.queue.length > 0 || state.typing'))) break; if (await js('state.typing || state.queue.length > 0')) await js('advance()'); await wait(150); } };
   const cfg = () => JSON.parse(fs.readFileSync(engine.configFile(), 'utf8'));
   const hudShown = () => js(`getComputedStyle(document.querySelector('#hud')).display !== 'none'`);
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

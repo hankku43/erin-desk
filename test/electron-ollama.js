@@ -43,7 +43,7 @@ module.exports = ({ win, engine, app }) => {
   };
   const pulled = [];
   SETUP.pull = async ({ model, onProgress }) => { pulled.push(model); onProgress({ status: 'downloading', total: 2.5e9, completed: 0.75e9, percent: 30 }); await new Promise(() => {}); };
-  wc.on('console-message', (_e, level, msg) => { if (level >= 2) console.log('[renderer]', msg); });
+  wc.on('console-message', (e) => { if (e.level === 'warning' || e.level === 'error') console.log('[renderer]', e.message); });
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);

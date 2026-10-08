@@ -10,7 +10,7 @@ module.exports = ({ win, engine, app }) => {
     const img = await win.capturePage();
     fs.writeFileSync(path.join(OUT, name + '.png'), img.toPNG());
   };
-  wc.on('console-message', (_e, level, msg) => console.log('[renderer]', msg));
+  wc.on('console-message', (e) => console.log('[renderer]', e.message));
   wc.once('did-finish-load', async () => {
     try {
       await js(`document.body.style.background='linear-gradient(135deg,#5b7fa6,#9bb7cf)'`);

@@ -1,7 +1,7 @@
 // Electron 主程式：透明置頂的桌面 NPC 視窗
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell, powerMonitor, clipboard, net } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell, powerMonitor, clipboard, net, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -35,6 +35,14 @@ if (TEST_MODE) {
 // 另外指定資料夾時，連 Electron 自己的資料也分開，才能跟平常的艾琳同時開著
 if (process.env.QUEST_NPC_HOME) app.setPath('userData', path.join(path.resolve(process.env.QUEST_NPC_HOME), '.electron'));
 if (!app.requestSingleInstanceLock()) app.quit();
+
+// 🔒 資安：視窗只顯示程式自己的畫面——不開新視窗、不跳到別的網頁、不嵌入網頁。
+//   程式用 loadFile 載入自己的頁面不受影響（will-navigate 只管畫面自己發起的跳轉）
+app.on('web-contents-created', (_e, wc) => {
+  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+  wc.on('will-navigate', (e) => e.preventDefault());
+  wc.on('will-attach-webview', (e) => e.preventDefault());
+});
 
 // 沒接住的錯誤寫進 data/crash.log，朋友回報問題時可以把這個檔案傳過來
 function logCrash(kind, e) {
@@ -229,7 +237,7 @@ function createWindow({ hidden = false } = {}) {
     skipTaskbar: false, backgroundColor: '#00000000',
     title: `${engine.config.npc.name}的任務櫃台${TEST_MODE ? '（測試）' : ''}`,
     icon: path.join(APP_DIR, 'build', 'icon.png'), // 工作列上的小貓圖示
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }, // 被其他視窗蓋住時動畫也不降速
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }, // 被其他視窗蓋住時動畫也不降速
   });
   win.on('page-title-updated', (e) => e.preventDefault()); // 工作列顯示「艾琳的任務櫃台」，不要被網頁的 <title> 蓋掉
   win.setIgnoreMouseEvents(true, { forward: true });
@@ -267,7 +275,7 @@ function startOpening({ replay = false } = {}) {
     skipTaskbar: false, backgroundColor: '#00000000', alwaysOnTop: true,
     title: `${engine.config.npc.name}的任務櫃台`,
     icon: path.join(APP_DIR, 'build', 'icon.png'),
-    webPreferences: { preload: path.join(__dirname, 'opening-preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+    webPreferences: { preload: path.join(__dirname, 'opening-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   openingWin.setAlwaysOnTop(true, 'screen-saver');
   openingWin.on('page-title-updated', (e) => e.preventDefault());
@@ -699,6 +707,8 @@ function scheduleIdle() {
 }
 
 app.whenReady().then(async () => {
+  // 🔒 資安：畫面用不到相機、麥克風、位置、通知…，網頁提出的權限要求一律拒絕
+  session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   if (process.env.QUEST_NPC_HOME) USER_DIR = path.resolve(process.env.QUEST_NPC_HOME);
   else if (app.isPackaged) USER_DIR = path.join(app.getPath('documents'), '艾琳的任務櫃台');
   try { prepareUserDir(); } catch (e) { console.error('建立使用者資料夾失敗', e); }
@@ -765,7 +775,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('journal:open', wrap((key, quiet) => engine.journalOpen(key ? String(key) : null, !!quiet)));
   ipcMain.handle('journal:comment', wrap((key, force) => engine.journalComment(key ? String(key) : null, !!force)));
   ipcMain.handle('journal:export', wrap((key) => { const r = engine.journalExport(key ? String(key) : null); shell.showItemInFolder(r.path); return r; }));
-  ipcMain.handle('journal:copy', wrap((text) => { clipboard.writeText(String(text || '')); return {}; }));
+  ipcMain.handle('journal:copy', wrap(async (text) => { await clipboard.writeText(String(text || '')); return {}; })); // Electron 44 起剪貼簿是非同步的
   ipcMain.handle('notebook:peek', wrap((quiet) => engine.peekNotebook(!!quiet)));
   ipcMain.handle('notebook:forget', wrap((id) => engine.forgetNote(String(id))));
   ipcMain.handle('notebook:clear', wrap(() => engine.clearNotebook()));
