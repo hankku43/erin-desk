@@ -55,7 +55,7 @@ async function fetchJSON(url, { timeout = 3000, fetchImpl = fetch } = {}) {
 }
 
 // 目前的狀態：Ollama 有沒有開、裝了哪些模型、記憶體、推薦哪個
-async function probe({ baseUrl = 'http://127.0.0.1:11434', fetchImpl = fetch, totalmem } = {}) {
+async function probe({ baseUrl = 'http://127.0.0.1:11434', fetchImpl = fetch, totalmem, platform = process.platform } = {}) {
   const gb = ramGB(totalmem);
   const rec = recommend(gb);
   let ollama = 'missing', models = [], version = null;
@@ -72,6 +72,7 @@ async function probe({ baseUrl = 'http://127.0.0.1:11434', fetchImpl = fetch, to
     choices: Object.entries(MODELS).map(([name, m]) => ({ name, ...m, installed: hasModel(models, name) })),
     embed: { ...EMBED, installed: hasModel(models, EMBED.name) },
     downloadUrl: OLLAMA_DOWNLOAD,
+    canInstall: platform === 'win32', // Windows：艾琳可以幫忙下載安裝（ollamaInstall.js）
   };
 }
 

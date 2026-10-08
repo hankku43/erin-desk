@@ -39,10 +39,28 @@ function pullHtml(model, size) {
   const p = (state.pulls || {})[model];
   if (!p) return `<button class="btn small gold" data-ob-pull="${esc(model)}">⬇ 下載（約 ${esc(size)}）</button>`;
   if (p.status === 'success') return '<span class="chip ok">✔ 下載完成</span>';
-  if (p.status === 'error') return `<span class="chip bad">下載失敗：${esc(p.error || '')}</span>${/版本太舊/.test(p.error || '') ? '<button class="btn small gold" data-ob-update>下載新版 Ollama</button>' : ''}<button class="btn small" data-ob-pull="${esc(model)}">再試一次</button>`;
+  if (p.status === 'error') return `<span class="chip bad">下載失敗：${esc(p.error || '')}</span>${/版本太舊/.test(p.error || '') ? '<button class="btn small gold" data-ob-install>更新 Ollama</button>' : ''}<button class="btn small" data-ob-pull="${esc(model)}">再試一次</button>`;
   const mb = p.total ? `（${Math.round((p.completed || 0) / 1048576)}／${Math.round(p.total / 1048576)} MB）` : '';
   return `<div class="ob-pull">${bar(p.percent)}<span class="ob-pct">${p.percent || 0}%${mb}</span><button class="btn small ghost" data-ob-cancel="${esc(model)}">取消</button></div>`;
 }
+
+// 🤖 幫忙安裝 Ollama 的進度（新手教學、健康檢查共用）。state.ollamaInstall＝最後一筆 setup:ollama
+const OI_TEXT = { download: '下載 Ollama 安裝程式', verify: '確認是 Ollama 官方的檔案', install: '安裝中（不會跳出視窗，大約一分鐘）', start: '等 Ollama 啟動' };
+const oiBusy = () => { const p = state.ollamaInstall; return !!(p && !p.done); };
+function ollamaInstallHtml() {
+  const p = state.ollamaInstall;
+  if (!p) return '';
+  if (p.phase === 'done') return `<span class="chip ok">✔ Ollama 裝好了${p.version ? `（${esc(p.version)}）` : ''}</span>`;
+  if (p.phase === 'error') return `<span class="chip bad">${p.code === 'canceled' || p.error === '已取消' ? '已取消安裝' : `安裝沒有完成：${esc(p.error || '')}`}</span><button class="btn small gold" data-ob-install>再試一次</button><button class="btn small" data-ob-openollama>自己去官網下載</button>`;
+  const text = OI_TEXT[p.phase] || '準備中';
+  const cancel = p.phase === 'download' || p.phase === 'start' ? '<button class="btn small ghost" data-oi-cancel>取消</button>' : '';
+  if (p.phase === 'download') {
+    const mb = p.total ? `（${Math.round((p.received || 0) / 1048576)}／${Math.round(p.total / 1048576)} MB）` : p.received ? `（${Math.round(p.received / 1048576)} MB）` : '';
+    return `<div class="oi-step">${esc(text)}<span class="ob-pct">${p.total ? `${p.percent || 0}%` : ''}${mb}</span></div><div class="ob-pull">${bar(p.percent)}${cancel}</div>`;
+  }
+  return `<div class="oi-step">${esc(text)}……</div><div class="ob-pull"><div class="ob-bar busy"><div></div></div>${cancel}</div>`;
+}
+const oiSize = (p) => (p && p.installSize ? `（約 ${(p.installSize / 1024 ** 3).toFixed(1)} GB）` : '');
 
 function renderOnboard(el, v) {
   const ob = obState();
@@ -73,10 +91,12 @@ function renderOnboard(el, v) {
     } else {
       // 預設：已經裝好的那個；還沒裝就用推薦的（看記憶體）
       if (ob.choice === undefined) ob.choice = v.llm && v.llm.enabled && p.choices.some((c) => c.name === v.llm.model && c.installed) ? v.llm.model : (p.recommend || null);
-      const st = p.ollama === 'running' && p.outdated ? `<div class="ob-status warn">🟡 找到 Ollama 了，但版本 ${esc(p.version)} 太舊（需要 ${esc(p.minVersion)} 以上）<div class="ob-sub">舊版的話，${esc(name)}會回得很慢、常常回不好，新的模型也可能下載不了。下載新版直接安裝就好，已經下載的模型會留著。</div><div class="ob-btns"><button class="btn small gold" data-ob-update>下載新版</button><button class="btn small" data-ob-probe>再檢查一次</button></div></div>`
+      const st = p.ollama === 'running' && p.outdated ? `<div class="ob-status warn">🟡 找到 Ollama 了，但版本 ${esc(p.version)} 太舊（需要 ${esc(p.minVersion)} 以上）<div class="ob-sub">舊版的話，${esc(name)}會回得很慢、常常回不好，新的模型也可能下載不了。${p.canInstall ? `按「幫我更新」，${esc(name)}會幫你裝好新版` : '下載新版直接安裝就好'}，已經下載的模型會留著。</div><div class="ob-btns">${oiBusy() || (state.ollamaInstall && state.ollamaInstall.phase === 'error') ? ollamaInstallHtml() : p.canInstall ? '<button class="btn small gold" data-ob-install>幫我更新</button><button class="btn small" data-ob-update>自己去官網下載</button><button class="btn small ghost" data-ob-probe>再檢查一次</button>' : '<button class="btn small gold" data-ob-update>下載新版</button><button class="btn small" data-ob-probe>再檢查一次</button>'}</div></div>`
         : p.ollama === 'running' ? `<div class="ob-status ok">🟢 找到 Ollama 了</div>`
         : p.ollama === 'stopped' ? `<div class="ob-status warn">🟡 Ollama 裝好了，但現在沒有開　<button class="btn small gold" data-ob-openollama>幫我打開</button><button class="btn small ghost" data-ob-probe>再檢查一次</button></div>`
-          : `<div class="ob-status off">⚪ 還沒有安裝 Ollama<div class="ob-sub">到官網下載 Windows 版，照著畫面安裝就好（不需要系統管理員權限）。裝好後回來按「再檢查一次」。</div><div class="ob-btns"><button class="btn small gold" data-ob-openollama>打開下載頁</button><button class="btn small" data-ob-probe>再檢查一次</button></div></div>`;
+          : p.canInstall
+            ? `<div class="ob-status off">⚪ 還沒有安裝 Ollama<div class="ob-sub">${esc(name)}可以幫你下載 Ollama 官方的安裝程式${oiSize(p)}，自動裝好：不會跳出視窗，也不需要系統管理員權限。裝好後會接著下載你選的模型。</div><div class="ob-btns">${state.ollamaInstall && state.ollamaInstall.phase !== 'done' ? ollamaInstallHtml() : `<button class="btn small gold" data-ob-install>⬇ 幫我安裝${oiSize(p)}</button><button class="btn small" data-ob-openollama>自己去官網下載</button><button class="btn small ghost" data-ob-probe>再檢查一次</button>`}</div></div>`
+            : `<div class="ob-status off">⚪ 還沒有安裝 Ollama<div class="ob-sub">到官網下載安裝程式，照著畫面安裝就好。裝好後回來按「再檢查一次」。</div><div class="ob-btns"><button class="btn small gold" data-ob-openollama>打開下載頁</button><button class="btn small" data-ob-probe>再檢查一次</button></div></div>`;
       const card = (c) => {
         const rec = c.name === p.recommend ? '<span class="chip rec">推薦</span>' : '';
         const on = ob.choice === c.name;
@@ -90,7 +110,7 @@ function renderOnboard(el, v) {
         + `<label class="ob-card ${ob.choice === null ? 'on' : ''}"><input type="radio" name="obModel" value="" ${ob.choice === null ? 'checked' : ''}><div><b>先不用 AI</b><small>${esc(name)}用內建台詞說話，之後隨時可以在右鍵選單打開</small></div></label>`
         + (ob.choice && p.ollama === 'running' ? `<label class="ob-opt"><input type="checkbox" id="obEmbed" ${ob.embed || p.embed.installed ? 'checked' : ''} ${p.embed.installed ? 'disabled' : ''}> 也準備「聰明${esc(name)}」（約 ${esc(p.embed.size)}）：換個說法問，她也聽得懂${p.embed.installed ? '（已經下載好了）' : ''}</label>${ob.embed && !p.embed.installed ? `<div class="ob-embed">${pullHtml(p.embed.name, p.embed.size)}</div>` : ''}` : '');
     }
-    const downloading = Object.values(state.pulls || {}).some((x) => x && !x.done);
+    const downloading = Object.values(state.pulls || {}).some((x) => x && !x.done) || oiBusy();
     foot = `${back}<span class="spacer">${downloading ? '下載會在背景繼續，可以先做下一步' : ''}</span><button class="btn gold" data-ob-next ${p ? '' : 'disabled'}>下一步 →</button>`;
   }
   if (ob.step === 'plan') {
@@ -162,6 +182,13 @@ async function obProbe() {
   const r = await api.setupProbe();
   ob.probing = false;
   ob.probe = r && r.ok ? r.probe : { ollama: 'missing', models: [], choices: [], embed: {}, why: '' };
+  if (ob.probe.installing && !state.ollamaInstall) state.ollamaInstall = ob.probe.installing; // 關掉面板再打開：接回進度
+  if (ob.autoPull && ob.probe.ollama === 'running') { // Ollama 剛裝好：接著下載選的模型
+    ob.autoPull = false;
+    if (ob.choice === undefined) ob.choice = ob.probe.recommend || null;
+    const c = ob.choice && ob.probe.choices.find((x) => x.name === ob.choice);
+    if (c && !c.installed && !(state.pulls || {})[c.name]) api.setupPull(c.name);
+  }
   if (state.panel === 'onboard') renderPanel();
 }
 function obGo(delta) {
@@ -180,6 +207,8 @@ async function onboardClick(e) {
   if (t.closest('[data-ob-back]')) { obGo(-1); return true; }
   if (t.closest('[data-ob-skipall]')) { await obFinish(); return true; }
   if (t.closest('[data-ob-probe]')) { ob.probe = null; renderPanel(); return true; }
+  if (t.closest('[data-ob-install]')) { await oiStart(); return true; }
+  if (t.closest('[data-oi-cancel]')) { await api.setupCancelInstall(); return true; }
   if (t.closest('[data-ob-update]')) { api.healthFix('updateOllama').then((r) => { if (r && r.reason) toast(r.reason, 6000); }); return true; }
   if (t.closest('[data-ob-openollama]')) {
     const r = await api.setupOpenOllama();
@@ -296,7 +325,8 @@ function renderHealth(el) {
       + items.map((i) => {
         const pullAct = i.fixes.find((f) => f.action.startsWith('pull:'));
         const pull = pullAct && (state.pulls || {})[pullAct.action.slice(5)];
-        const fixes = pull && !pull.done ? pullHtml(pullAct.action.slice(5), '') : i.fixes.map((f) => `<button class="btn small ${i.status === 'error' || i.status === 'warn' ? 'gold' : 'ghost'}" data-fix="${esc(f.action)}">${esc(f.label)}</button>`).join('');
+        const oi = i.fixes.some((f) => f.action === 'installOllama') && state.ollamaInstall && state.ollamaInstall.phase !== 'done';
+        const fixes = oi ? ollamaInstallHtml() : pull && !pull.done ? pullHtml(pullAct.action.slice(5), '') : i.fixes.map((f) => `<button class="btn small ${i.status === 'error' || i.status === 'warn' ? 'gold' : 'ghost'}" data-fix="${esc(f.action)}">${esc(f.label)}</button>`).join('');
         return `<div class="hl-item ${i.status}"><span class="hl-st">${HL_ICON[i.status] || '⚪'}</span><div class="hl-main"><b>${i.icon} ${esc(i.title)}</b><small>${esc(i.detail)}</small>${fixes ? `<div class="ob-btns">${fixes}</div>` : ''}</div></div>`;
       }).join('');
   }
@@ -307,11 +337,15 @@ async function healthClick(e) {
   if (t.closest('[data-close]')) { closePanel(); return true; }
   if (t.closest('[data-hl-again]')) { healthRun(); return true; }
   const cp = t.closest('[data-ob-cancel]'); if (cp) { await api.setupCancelPull(cp.dataset.obCancel); return true; }
+  if (t.closest('[data-oi-cancel]')) { await api.setupCancelInstall(); return true; }
+  if (t.closest('[data-ob-install]')) { await oiStart(); return true; }
+  if (t.closest('[data-ob-openollama]')) { await api.healthFix('openOllama'); return true; }
   const fx = t.closest('[data-fix]');
   if (!fx) return false;
   const a = fx.dataset.fix;
   if (a === 'ui:newPlan') { state.ob = null; const ob = obState(); ob.step = 'plan'; openPanel('onboard'); return true; }
   if (a === 'ui:newQuest') { openForm('questForm', null); return true; }
+  if (a === 'installOllama') { await oiStart(); return true; }
   const r = await api.healthFix(a);
   if (r && r.view) applyView(r.view);
   if (r && !r.ok) toast(`⚠ ${r.error}`, 4000);
@@ -319,6 +353,36 @@ async function healthClick(e) {
   if (!a.startsWith('pull:')) setTimeout(healthRun, 900);
   return true;
 }
+
+// ---- 🤖 安裝 Ollama：開始、進度、裝好後接著下載模型 ----
+async function oiStart() {
+  state.ollamaInstall = { phase: 'download', percent: 0 };
+  if (state.ob) state.ob.autoPull = true;
+  renderPanel();
+  const r = await api.setupInstallOllama();
+  if (r && r.opened === 'download') { state.ollamaInstall = null; toast('已打開 Ollama 下載頁，裝好後回來按「再檢查一次」', 5000); renderPanel(); }
+  else if (r && !r.ok) { state.ollamaInstall = { phase: 'error', done: true, error: r.error }; renderPanel(); }
+}
+async function oiAfterInstall() {
+  if (state.panel === 'onboard' && state.ob && state.ob.step === 'ai') { state.ob.probe = null; renderPanel(); return; } // obProbe 會接著下載選的模型
+  const r = await api.setupProbe();
+  const v = state.view;
+  if (r && r.ok && r.probe.ollama === 'running' && v && v.llm && v.llm.enabled && v.llm.model && !r.probe.models.some((m) => m === v.llm.model || m.startsWith(`${v.llm.model}-`)) && !(state.pulls || {})[v.llm.model]) api.setupPull(v.llm.model);
+  if (state.panel === 'health') setTimeout(healthRun, 300);
+}
+api.on('setup:ollama', (p) => {
+  state.ollamaInstall = p;
+  if (p.done) {
+    const shown = (state.panel === 'onboard' && state.ob && state.ob.step === 'ai') || state.panel === 'health'; // 面板上已經看得到結果，就不再跳提示
+    if (p.phase === 'done') { toast(`✔ Ollama 裝好了${p.version ? `（${p.version}）` : ''}，接著下載模型`, 4000); oiAfterInstall(); }
+    else if (!shown && p.code !== 'canceled' && p.error !== '已取消') toast(`⚠ Ollama 安裝沒有完成：${p.error}`, 6000);
+  }
+  // 下載進度最多 4 次／秒；被略過的那筆 250ms 後補畫（不然停在舊的百分比）
+  const paint = () => { state.oiPaint = Date.now(); clearTimeout(state.oiPaintTimer); state.oiPaintTimer = null; if ((state.panel === 'onboard' && state.ob && state.ob.step === 'ai') || state.panel === 'health') renderPanel(); };
+  const since = Date.now() - (state.oiPaint || 0);
+  if (p.done || since >= 250) paint();
+  else if (!state.oiPaintTimer) state.oiPaintTimer = setTimeout(paint, 250 - since);
+});
 
 // ---- 下載進度（新手引導與健康檢查共用） ----
 api.on('setup:progress', (p) => {
@@ -330,10 +394,9 @@ api.on('setup:progress', (p) => {
     if (state.ob && state.ob.probe) { const c = state.ob.probe.choices.find((x) => x.name === p.model); if (c && p.status === 'success') c.installed = true; if (state.ob.probe.embed && state.ob.probe.embed.name === p.model && p.status === 'success') state.ob.probe.embed.installed = true; }
     if (state.panel === 'health') setTimeout(healthRun, 600);
   }
-  const now = Date.now();
-  // 進度不用每一筆都重畫（每秒好幾十筆），最多 4 次／秒；完成時一定重畫
-  if (!p.done && state.pullPaint && now - state.pullPaint < 250) return;
-  state.pullPaint = now;
-  if (state.panel === 'onboard' && state.ob && ['ai', 'done'].includes(state.ob.step)) renderPanel();
-  if (state.panel === 'health') renderPanel();
+  // 進度不用每一筆都重畫（每秒好幾十筆），最多 4 次／秒；完成時一定重畫；被略過的那筆 250ms 後補畫
+  const paint = () => { state.pullPaint = Date.now(); clearTimeout(state.pullPaintTimer); state.pullPaintTimer = null; if ((state.panel === 'onboard' && state.ob && ['ai', 'done'].includes(state.ob.step)) || state.panel === 'health') renderPanel(); };
+  const since = Date.now() - (state.pullPaint || 0);
+  if (p.done || since >= 250) paint();
+  else if (!state.pullPaintTimer) state.pullPaintTimer = setTimeout(paint, 250 - since);
 });

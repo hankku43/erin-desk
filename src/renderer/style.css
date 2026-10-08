@@ -643,6 +643,10 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .ob-pull { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .ob-bar { flex: 1; height: 10px; border-radius: var(--r-s); background: var(--track); overflow: hidden; border: 1px solid var(--line); }
 .ob-bar > div { height: 100%; background: linear-gradient(90deg, var(--sky), var(--blue)); transition: width .3s; }
+.ob-bar.busy > div { width: 35%; animation: oiBusy 1.2s ease-in-out infinite alternate; } /* 不知道進度時：來回跑 */
+@keyframes oiBusy { from { margin-left: 0; } to { margin-left: 65%; } }
+.oi-step { display: flex; justify-content: space-between; gap: 8px; width: 100%; margin-top: 4px; font-size: var(--fs-s); font-weight: 700; color: var(--ink); }
+.ob-btns .ob-pull { flex: 1 1 100%; }
 .ob-pct { font-size: var(--fs-xs); font-weight: 700; color: var(--ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ob-modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 4px 0 8px; }
 .ob-mode { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 4px; border: 2px solid var(--line); border-radius: var(--r-m); background: var(--surface); color: var(--ink); }

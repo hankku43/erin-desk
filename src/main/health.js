@@ -33,14 +33,19 @@ function buildHealth(x) {
   const llm = x.llm || {};
   const pr = x.probe;
   if (!llm.enabled) add('ai', '🤖', 'AI 對話', 'info', `關著，${name}用內建台詞說話（功能都能用）。`, [{ action: 'enableAI', label: '打開 AI 對話' }]);
-  else if (!pr || pr.ollama === 'missing') add('ai', '🤖', 'AI 對話', 'error', `找不到 Ollama（${name}的「大腦」）。沒有它也能玩，只是${name}只會說內建台詞。`, [{ action: 'openOllama', label: '下載 Ollama' }, { action: 'disableAI', label: '先不用 AI' }]);
+  else if (!pr || pr.ollama === 'missing') {
+    // Windows：艾琳可以直接幫忙下載、安裝（ollamaInstall.js）；其他系統開官網
+    const size = pr && pr.installSize ? `（約 ${(pr.installSize / 1024 ** 3).toFixed(1)} GB）` : '';
+    const fixes = pr && pr.canInstall ? [{ action: 'installOllama', label: `幫我安裝 Ollama${size}` }, { action: 'openOllama', label: '自己去官網下載' }] : [{ action: 'openOllama', label: '下載 Ollama' }];
+    add('ai', '🤖', 'AI 對話', 'error', `找不到 Ollama（${name}的「大腦」）。沒有它也能玩，只是${name}只會說內建台詞。`, [...fixes, { action: 'disableAI', label: '先不用 AI' }]);
+  }
   else if (pr.ollama === 'stopped') add('ai', '🤖', 'AI 對話', 'warn', 'Ollama 裝好了，但現在沒有開。', [{ action: 'openOllama', label: '幫我打開 Ollama' }]);
   else if (!hasModel(pr.models, llm.model)) {
     const size = (MODELS[llm.model] || {}).size;
     add('ai', '🤖', 'AI 對話', 'error', `Ollama 開著，但還沒下載模型 ${llm.model}${size ? `（約 ${size}）` : ''}。`, [{ action: `pull:${llm.model}`, label: '下載模型' }, { action: 'disableAI', label: '先不用 AI' }]);
   } else add('ai', '🤖', 'AI 對話', 'ok', `使用 ${llm.model}${pr.version ? `（Ollama ${pr.version}）` : ''}`);
   // 3b. Ollama 太舊：0.9 以前沒辦法關掉模型的「思考」
-  if (pr && pr.ollama === 'running' && pr.outdated) add('ollamaVer', '🧩', 'Ollama 版本', 'warn', `你的 Ollama 是 ${pr.version}，太舊了（需要 ${pr.minVersion} 以上）：${name}會回得很慢、常常回不好，新的模型也可能下載不了。下載新版直接安裝就好，已經下載的模型會留著。`, [{ action: 'updateOllama', label: '下載新版 Ollama' }]);
+  if (pr && pr.ollama === 'running' && pr.outdated) add('ollamaVer', '🧩', 'Ollama 版本', 'warn', `你的 Ollama 是 ${pr.version}，太舊了（需要 ${pr.minVersion} 以上）：${name}會回得很慢、常常回不好，新的模型也可能下載不了。下載新版直接安裝就好，已經下載的模型會留著。`, pr.canInstall ? [{ action: 'installOllama', label: '幫我更新 Ollama' }, { action: 'updateOllama', label: '自己去官網下載' }] : [{ action: 'updateOllama', label: '下載新版 Ollama' }]);
 
   // 4. 記憶體和模型大小
   if (x.ramGB) {

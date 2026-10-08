@@ -2043,3 +2043,102 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   }
   console.log('安裝下載來源測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🤖 幫朋友安裝 Ollama：下載官方安裝程式 → 驗簽章 → 安靜安裝 → 等它啟動（全部用假的，不真的下載） ----------
+(async () => {
+  const OI = require('../src/main/ollamaInstall');
+  const os = require('os');
+  const { EventEmitter } = require('events');
+  const { buildHealth } = require('../src/main/health');
+  // 簽章：一定要 Valid 而且是 Ollama 簽的
+  assert.ok(OI.parseSignature('Valid|CN=Ollama Inc., O=Ollama Inc., L=Palo Alto, S=California, C=US').ok);
+  assert.ok(!OI.parseSignature('NotSigned|').ok && !OI.parseSignature('Valid|CN=Someone Else').ok && !OI.parseSignature('HashMismatch|CN=Ollama Inc.').ok);
+  assert.ok(OI.parseSignature('警告訊息\r\nValid|CN=Ollama Inc.').ok, '只看最後一行');
+  assert.strictEqual(OI.psQuote("C:\\Users\\O'Neil\\x.exe"), "'C:\\Users\\O''Neil\\x.exe'", '路徑裡的單引號');
+  assert.ok(OI.signatureCommand('C:\\a b\\OllamaSetup.exe').includes("-LiteralPath 'C:\\a b\\OllamaSetup.exe'"));
+  assert.ok(OI.supported('win32') && !OI.supported('linux') && !OI.supported('darwin'));
+  assert.deepStrictEqual(OI.SILENT_ARGS.slice(0, 2), ['/VERYSILENT', '/SUPPRESSMSGBOXES']);
+  assert.strictEqual(OI.gb(1.1 * 1024 ** 3), '1.1 GB');
+  // 假的官網：size bytes 分 chunks 次送；len＝宣稱的大小；failAt＝第幾塊斷線；onChunk 每送一塊呼叫
+  const SIZE = 3 * 1024 * 1024;
+  const fakeFetch = ({ status = 200, size = SIZE, len = size, chunks = 6, failAt = -1, onChunk = () => {} } = {}) => async (url) => {
+    assert.strictEqual(url, OI.SETUP_URL);
+    let i = 0;
+    const per = Math.ceil(size / chunks);
+    const body = new ReadableStream({ pull(c) {
+      if (i === failAt) { c.error(new Error('ECONNRESET')); return; }
+      if (i * per >= size) { c.close(); return; }
+      const n = Math.min(per, size - i * per); i++; onChunk(i); c.enqueue(new Uint8Array(n));
+    } });
+    return new Response(status === 200 ? body : null, { status, headers: len ? { 'content-length': String(len) } : {} });
+  };
+  const okSig = async () => ({ ok: true, status: 'Valid', subject: 'CN=Ollama Inc.' });
+  const exitWith = (code, rec = []) => (f, args) => { rec.push([f, args]); const ch = new EventEmitter(); setImmediate(() => ch.emit('exit', code)); return ch; };
+  const noSpawn = () => { throw new Error('不該執行安裝程式'); };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-oi-'));
+  const left = () => fs.readdirSync(dir);
+  // 1. 一路順利
+  const phases = [], spawned = [];
+  let calls = 0;
+  const r = await OI.install({
+    platform: 'win32', dir, fetchImpl: fakeFetch(),
+    verifyImpl: async (f) => { assert.strictEqual(fs.statSync(f).size, SIZE, '驗章前檔案已經完整'); return okSig(); },
+    spawnImpl: exitWith(0, spawned), versionImpl: async () => (++calls >= 3 ? '0.12.0' : null),
+    waitOpts: { every: 5, kickAfter: 1e9 }, onProgress: (p) => phases.push(p),
+  });
+  assert.strictEqual(r.version, '0.12.0');
+  assert.deepStrictEqual([...new Set(phases.map((p) => p.phase))], ['download', 'verify', 'install', 'start']);
+  const dl = phases.filter((p) => p.phase === 'download').map((p) => p.percent);
+  assert.ok(dl[dl.length - 1] === 100 && dl.every((x, i) => i === 0 || x >= dl[i - 1]), '下載進度一路往上到 100：' + dl);
+  assert.ok(phases.every((p) => typeof p.text === 'string' && p.text), '每一步都有說明');
+  assert.ok(spawned.length === 1 && path.basename(spawned[0][0]) === 'OllamaSetup.exe' && spawned[0][1].includes('/VERYSILENT'));
+  assert.deepStrictEqual(left(), [], '裝完把安裝程式刪掉');
+  // 2. 簽章不對：不安裝、檔案刪掉
+  const e1 = await OI.install({ platform: 'win32', dir, fetchImpl: fakeFetch(), verifyImpl: async () => ({ ok: false, status: 'NotSigned', subject: '' }), spawnImpl: noSpawn }).catch((e) => e);
+  assert.ok(e1.code === 'signature' && /不是 Ollama 官方簽章（NotSigned）/.test(e1.message), e1.message);
+  assert.deepStrictEqual(left(), []);
+  // 3. 下載的各種失敗：404、斷線、少了一截、太小；都不留半個檔案、不驗章、不安裝
+  const dlFail = async (opts) => OI.install({ platform: 'win32', dir, fetchImpl: fakeFetch(opts), verifyImpl: async () => { throw new Error('不該驗章'); }, spawnImpl: noSpawn }).catch((e) => e);
+  const e404 = await dlFail({ status: 404 });
+  assert.ok(e404.code === 'download' && /404/.test(e404.message));
+  const eReset = await dlFail({ failAt: 2 });
+  assert.ok(eReset.code === 'download' && /下載中斷/.test(eReset.message), eReset.message);
+  const eShort = await dlFail({ len: SIZE + 100 });
+  assert.ok(eShort.code === 'download' && /不完整/.test(eShort.message));
+  const eTiny = await dlFail({ size: 2000, chunks: 1 });
+  assert.ok(eTiny.code === 'download' && /太小/.test(eTiny.message));
+  assert.deepStrictEqual(left(), [], '失敗不留 .part');
+  const eNet = await OI.install({ platform: 'win32', dir, fetchImpl: async () => { const e = new TypeError('fetch failed'); e.cause = { code: 'ENOTFOUND' }; throw e; }, spawnImpl: noSpawn }).catch((e) => e);
+  assert.ok(eNet.code === 'download' && /連不到 Ollama 官網（ENOTFOUND）/.test(eNet.message));
+  // 4. 下載到一半按取消
+  const ctl = new AbortController();
+  const eAbort = await OI.install({ platform: 'win32', dir, signal: ctl.signal, fetchImpl: fakeFetch({ chunks: 10, onChunk: (i) => { if (i === 3) ctl.abort(); } }), spawnImpl: noSpawn }).catch((e) => e);
+  assert.ok(eAbort.code === 'canceled' && eAbort.message === '已取消', eAbort.message);
+  assert.deepStrictEqual(left(), []);
+  // 5. 安裝程式失敗（防毒擋住、空間不夠…）
+  const eInst = await OI.install({ platform: 'win32', dir, fetchImpl: fakeFetch(), verifyImpl: okSig, spawnImpl: exitWith(2) }).catch((e) => e);
+  assert.ok(eInst.code === 'install' && /代碼 2/.test(eInst.message));
+  // 6. 裝好了但一直沒啟動：中途自己打開一次 ollama app.exe，最後說明怎麼做
+  const launched = [];
+  const eStart = await OI.install({
+    platform: 'win32', dir, fetchImpl: fakeFetch(), verifyImpl: okSig, spawnImpl: exitWith(0), versionImpl: async () => null,
+    findApp: () => 'C:\\Ollama\\ollama app.exe', launch: (exe) => launched.push(exe), waitOpts: { every: 5, kickAfter: 20, timeout: 80 },
+  }).catch((e) => e);
+  assert.ok(eStart.code === 'start' && /開始選單/.test(eStart.message));
+  assert.deepStrictEqual(launched, ['C:\\Ollama\\ollama app.exe'], '只自己打開一次');
+  // 7. 不是 Windows
+  assert.strictEqual((await OI.install({ platform: 'darwin', dir }).catch((e) => e)).code, 'unsupported');
+  fs.rmSync(dir, { recursive: true, force: true });
+  // 8. 下載前問大小（HEAD，跟著轉址）
+  const sz = await OI.installerSize({ fetchImpl: async (u, o) => { assert.ok(o.method === 'HEAD' && o.redirect === 'follow'); return new Response(null, { status: 200, headers: { 'content-length': String(1181116006) } }); } });
+  assert.strictEqual(OI.gb(sz), '1.1 GB');
+  // 9. 健康檢查：Windows 有「幫我安裝／幫我更新」，其他系統照舊開官網
+  const hb = { name: '艾琳', plan: { file: 'p.md', exists: true, quests: 3 }, llm: { enabled: true, model: 'qwen3:4b' }, ramGB: 16, smart: { on: false }, charOK: true, saveOK: true, userDir: '/u' };
+  const ai = (probe) => buildHealth({ ...hb, probe }).find((i) => i.id === 'ai');
+  const miss = ai({ ollama: 'missing', models: [], embed: {}, canInstall: true, installSize: 1181116006 });
+  assert.ok(miss.fixes[0].action === 'installOllama' && miss.fixes[0].label === '幫我安裝 Ollama（約 1.1 GB）' && miss.fixes.some((f) => f.action === 'openOllama'), JSON.stringify(miss.fixes));
+  assert.strictEqual(ai({ ollama: 'missing', models: [], embed: {} }).fixes[0].action, 'openOllama');
+  const old = buildHealth({ ...hb, probe: { ollama: 'running', models: ['qwen3:4b'], embed: { installed: true }, outdated: true, version: '0.6.2', minVersion: '0.9.0', canInstall: true } }).find((i) => i.id === 'ollamaVer');
+  assert.ok(old.fixes[0].action === 'installOllama' && /更新/.test(old.fixes[0].label));
+  console.log('幫忙安裝 Ollama 測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

@@ -1,7 +1,7 @@
 // Electron 主程式：透明置頂的桌面 NPC 視窗
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell, powerMonitor, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell, powerMonitor, clipboard, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 const { Engine } = require('./engine');
 const { EMOTIONS, fillEmotionImages } = require('./npc');
 const SETUP = require('./setup');
+const OI = require('./ollamaInstall');
 const { buildHealth, parseLog } = require('./health');
 
 const APP_DIR = path.join(__dirname, '..', '..'); // 程式本身（打包後在 app.asar 裡，唯讀）
@@ -305,6 +306,37 @@ function startPull(model) {
     .finally(() => pulls.delete(model));
   return { started: true };
 }
+// ---- 🤖 幫忙安裝／更新 Ollama（Windows）：進度推 setup:ollama ----
+//   下載用 Electron 的 net.fetch（走系統的 proxy 設定，公司網路也比較能通）
+const netFetch = (u, o) => net.fetch(u, o);
+let ollamaJob = null; // { ctl, last }
+function startOllamaInstall() {
+  if (ollamaJob) return { started: false, already: true, progress: ollamaJob.last };
+  if (!OI.supported()) { shell.openExternal(SETUP.OLLAMA_DOWNLOAD); return { started: false, opened: 'download' }; }
+  const ctl = new AbortController();
+  const job = { ctl, last: null };
+  ollamaJob = job;
+  const send = (p) => { job.last = p; push('setup:ollama', p); };
+  OI.install({
+    baseUrl: engine.config.llm.baseUrl, signal: ctl.signal, onProgress: send, fetchImpl: netFetch,
+    findApp: () => SETUP.findOllamaApp(),
+  })
+    .then(async (r) => {
+      send({ phase: 'done', done: true, version: r.version });
+      const st = await engine.npc.checkStatus();
+      if (st && st.online) engine.npc.warmUp();
+      push('view:update', { view: engine.view() }); // 「裝好了」的提示由畫面那邊說（才不會跳兩次）
+    })
+    .catch((e) => send({ phase: 'error', done: true, code: e.code || 'error', error: ctl.signal.aborted ? '已取消' : e.message }))
+    .finally(() => { if (ollamaJob === job) ollamaJob = null; });
+  return { started: true };
+}
+async function probeForSetup() {
+  const pr = await SETUP.probe({ baseUrl: engine.config.llm.baseUrl });
+  if (pr.canInstall && pr.ollama === 'missing') pr.installSize = await OI.installerSize({ fetchImpl: netFetch });
+  pr.installing = ollamaJob ? ollamaJob.last || { phase: 'download', percent: 0 } : null;
+  return pr;
+}
 function openOllama() {
   const exe = SETUP.findOllamaApp();
   if (exe) { try { spawn(exe, [], { detached: true, stdio: 'ignore' }).unref(); return { opened: 'app' }; } catch (_) { /* 改開下載頁 */ } }
@@ -314,7 +346,7 @@ function openOllama() {
 
 // ---- 🩺 健康檢查 ----
 async function healthCheck() {
-  const probe = await SETUP.probe({ baseUrl: engine.config.llm.baseUrl });
+  const probe = await probeForSetup();
   const planFile = engine.planFile();
   let saveOK = true;
   try { const f = path.join(engine.dataDir, '.write-test'); fs.writeFileSync(f, 'ok'); fs.unlinkSync(f); } catch (_) { saveOK = false; }
@@ -344,6 +376,7 @@ async function healthFix(action) {
   if (a === 'openFolder') { shell.openPath(USER_DIR); return {}; }
   if (a === 'openChar') { fs.mkdirSync(userCharDir(), { recursive: true }); shell.openPath(userCharDir()); return {}; }
   if (a === 'choosePlan') return choosePlan({ greet: false });
+  if (a === 'installOllama') return startOllamaInstall();
   if (a === 'updateOllama') { shell.openExternal(SETUP.OLLAMA_DOWNLOAD); return { reason: '已打開 Ollama 下載頁：安裝新版會直接蓋過舊版，已經下載的模型會留著。裝好後回來按「再檢查一次」' }; }
   if (a === 'openOllama') return { ...openOllama(), reason: SETUP.findOllamaApp() ? '正在打開 Ollama…' : '已打開 Ollama 下載頁，裝好後回來按「再檢查一次」' };
   if (a === 'enableAI') { await setAI(true); return {}; }
@@ -641,7 +674,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('notebook:set', wrap((on) => engine.setNotebook(!!on)));
   ipcMain.handle('ics:export', wrap(() => exportIcs()));
   // 🎓 新手引導
-  ipcMain.handle('setup:probe', wrap(async () => ({ probe: await SETUP.probe({ baseUrl: engine.config.llm.baseUrl }) })));
+  ipcMain.handle('setup:probe', wrap(async () => ({ probe: await probeForSetup() })));
+  ipcMain.handle('setup:installOllama', wrap(() => startOllamaInstall()));
+  ipcMain.handle('setup:cancelInstall', wrap(() => { if (ollamaJob) ollamaJob.ctl.abort(); return {}; }));
   ipcMain.handle('setup:pull', wrap((model) => startPull(String(model))));
   ipcMain.handle('setup:cancelPull', wrap((model) => { const c = pulls.get(String(model)); if (c) c.abort(); return {}; }));
   ipcMain.handle('setup:openOllama', wrap(() => openOllama()));

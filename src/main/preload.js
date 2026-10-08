@@ -61,6 +61,8 @@ contextBridge.exposeInMainWorld('api', {
   setupPull: (model) => ipcRenderer.invoke('setup:pull', model),
   setupCancelPull: (model) => ipcRenderer.invoke('setup:cancelPull', model),
   setupOpenOllama: () => ipcRenderer.invoke('setup:openOllama'),
+  setupInstallOllama: () => ipcRenderer.invoke('setup:installOllama'),
+  setupCancelInstall: () => ipcRenderer.invoke('setup:cancelInstall'),
   setupSetModel: (model) => ipcRenderer.invoke('setup:setModel', model),
   setupCreatePlan: (f) => ipcRenderer.invoke('setup:createPlan', f),
   setupSamplePlan: () => ipcRenderer.invoke('setup:samplePlan'),
@@ -79,7 +81,7 @@ contextBridge.exposeInMainWorld('api', {
   openMenu: () => ipcRenderer.send('win:menu'),
   setMini: (on) => ipcRenderer.send('win:mini', on),
   on: (channel, fn) => {
-    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward', 'setup:progress', 'presence', 'cursor'];
+    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'presence', 'cursor'];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, payload) => fn(payload));
   },
