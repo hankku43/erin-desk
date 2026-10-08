@@ -62,6 +62,11 @@ contextBridge.exposeInMainWorld('api', {
   setupCancelPull: (model) => ipcRenderer.invoke('setup:cancelPull', model),
   setupOpenOllama: () => ipcRenderer.invoke('setup:openOllama'),
   setupInstallOllama: () => ipcRenderer.invoke('setup:installOllama'),
+  updateGet: () => ipcRenderer.invoke('update:get'),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  updateDismiss: (v) => ipcRenderer.invoke('update:dismiss', v),
+  updateOpenPage: () => ipcRenderer.invoke('update:openPage'),
   setupCancelInstall: () => ipcRenderer.invoke('setup:cancelInstall'),
   setupSetModel: (model) => ipcRenderer.invoke('setup:setModel', model),
   setupCreatePlan: (f) => ipcRenderer.invoke('setup:createPlan', f),
@@ -81,7 +86,7 @@ contextBridge.exposeInMainWorld('api', {
   openMenu: () => ipcRenderer.send('win:menu'),
   setMini: (on) => ipcRenderer.send('win:mini', on),
   on: (channel, fn) => {
-    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'presence', 'cursor'];
+    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor'];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, payload) => fn(payload));
   },

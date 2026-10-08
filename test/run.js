@@ -2142,3 +2142,142 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(old.fixes[0].action === 'installOllama' && /更新/.test(old.fixes[0].label));
   console.log('幫忙安裝 Ollama 測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🔄 自動更新：安裝版背景下載、關掉時換上；免安裝版只提醒；開發版不檢查；發版檔案檢查 ----------
+(async () => {
+  const U = require('../src/main/updater');
+  const RF = require('../tools/release-files');
+  const os = require('os');
+  const crypto = require('crypto');
+  const { EventEmitter } = require('events');
+  // 版本比較、安裝版判斷、模式
+  assert.ok(U.isNewer('0.1.10', '0.1.9') && U.isNewer('v0.2.0', '0.1.9') && !U.isNewer('v0.1.2', '0.1.2') && !U.isNewer('0.1.1', '0.1.2') && !U.isNewer('abc', '0.1.0'));
+  assert.ok(U.isInstalled('C:\\P\\Erin.exe', () => ['Erin.exe', 'Uninstall 艾琳的任務櫃台.exe']) && !U.isInstalled('C:\\P\\Erin.exe', () => ['Erin.exe']) && !U.isInstalled('x', () => { throw new Error('x'); }));
+  assert.strictEqual(U.modeOf({ isPackaged: false, platform: 'win32', installed: true, hasUpdater: true }), 'dev');
+  assert.strictEqual(U.modeOf({ isPackaged: true, platform: 'win32', installed: true, hasUpdater: true }), 'auto');
+  assert.strictEqual(U.modeOf({ isPackaged: true, platform: 'win32', installed: false, hasUpdater: false }), 'portable');
+  assert.strictEqual(U.modeOf({ isPackaged: true, platform: 'win32', installed: true, hasUpdater: false }), 'portable', '套件載入失敗就退回提醒');
+  // Release 說明 → 純文字（GitHub 的 HTML、自己寫的 Markdown）
+  assert.deepStrictEqual(U.notesText('<h2>新功能</h2><ul><li>艾琳幫你裝 Ollama</li><li><strong>修好</strong> 金幣 &amp; 圖示</li></ul>'), ['新功能', '・艾琳幫你裝 Ollama', '・修好 金幣 & 圖示']);
+  assert.deepStrictEqual(U.notesText('## 新功能\r\n- **安裝** Ollama\n* `coin`\n\n'), ['新功能', '・安裝 Ollama', '・coin']);
+  assert.strictEqual(U.notesText(Array.from({ length: 20 }, (_, i) => `- ${i}`).join('\n')).length, 8, '最多 8 行');
+  assert.ok(/連不到 GitHub/.test(U.friendly(new Error('getaddrinfo ENOTFOUND github.com'))) && /latest\.yml/.test(U.friendly(new Error('HttpError: 404'))) && /太頻繁/.test(U.friendly(new Error('GitHub 回應 403'))));
+  for (const k of ['ready', 'portable', 'updated']) {
+    const t = U.line(k, { v: '0.1.3' }).text;
+    assert.ok(t.includes('0.1.3') && /冒險者/.test(t) && !/玩家|您/.test(t) && !/(^|[^我])我(?!們)/.test(t), '口吻：' + t);
+  }
+  // 假的計時器與 app
+  const timers = [];
+  const fakeTimers = { setTimeoutImpl: (fn, ms) => { timers.push({ fn, ms, once: true }); }, setIntervalImpl: (fn, ms) => { timers.push({ fn, ms }); } };
+  const app = (v = '0.1.2', packaged = true) => ({ isPackaged: packaged, getVersion: () => v });
+  const flushT = async () => { const ts = timers.splice(0); for (const t of ts) await t.fn(); };
+  // 1. 安裝版：檢查 → 有新版 → 背景下載 → 下載好 → 艾琳說一次 → 現在更新
+  const au = new EventEmitter();
+  let checks = 0; const quits = [];
+  au.checkForUpdates = async () => {
+    checks++;
+    au.emit('checking-for-update');
+    au.emit('update-available', { version: '0.1.3', releaseNotes: '<p>修好金幣</p>' });
+    for (const percent of [10, 55, 100]) au.emit('download-progress', { percent });
+    au.emit('update-downloaded', { version: '0.1.3', releaseNotes: '<ul><li>修好金幣</li><li>幫忙裝 Ollama</li></ul>' });
+  };
+  au.quitAndInstall = (...a) => quits.push(a);
+  const statuses = [], said = [];
+  let t0 = 0;
+  const up = U.createUpdater({ app: app(), platform: 'win32', execPath: 'C:\\P\\Erin.exe', readdir: () => ['Uninstall 艾琳的任務櫃台.exe'], loadUpdater: () => au, onStatus: (s) => statuses.push(s), onSay: (l) => said.push(...l), now: () => (t0 += 400), ...fakeTimers });
+  assert.strictEqual(up.mode, 'auto');
+  assert.ok(au.autoDownload === true && au.autoInstallOnAppQuit === true && au.allowPrerelease === false, '背景下載、關掉時安裝、不抓預覽版');
+  assert.ok(up.start() && timers.length === 2 && timers[0].ms === U.FIRST_DELAY && timers[1].ms === U.EVERY);
+  await flushT();
+  assert.strictEqual(checks, 1, '啟動後檢查；之後每 6 小時那次因為已經下載好就不再檢查');
+  const st = up.status();
+  assert.ok(st.status === 'ready' && st.version === '0.1.3' && st.percent === 100 && st.current === '0.1.2');
+  assert.deepStrictEqual(st.notes, ['・修好金幣', '・幫忙裝 Ollama']);
+  assert.deepStrictEqual(statuses.map((s) => s.status).filter((s, i, a) => s !== a[i - 1]), ['checking', 'downloading', 'ready'], '狀態順序');
+  assert.ok(statuses.filter((s) => s.status === 'downloading').length <= 3, '下載進度有節流');
+  assert.strictEqual(said.length, 1, '下載好只說一次：' + said.map((l) => l.text).join('|'));
+  assert.ok(/0\.1\.3/.test(said[0].text) && said[0].emotion === 'cheer');
+  await up.check();
+  assert.strictEqual(checks, 1, '已經下載好就不再檢查');
+  assert.deepStrictEqual(up.install(), { installing: true });
+  await flushT();
+  assert.deepStrictEqual(quits, [[true, true]], '不跳視窗安裝、裝完重新打開');
+  // 2. 已經按過「下次再說」的版本：不再說；關掉自動檢查：計時到了也不檢查
+  const au2 = new EventEmitter(); let c2 = 0;
+  au2.checkForUpdates = async () => { c2++; au2.emit('update-downloaded', { version: '0.1.3' }); };
+  const said2 = [];
+  let auto = false;
+  const up2 = U.createUpdater({ app: app(), platform: 'win32', execPath: 'x', readdir: () => ['Uninstall a.exe'], loadUpdater: () => au2, onSay: (l) => said2.push(...l), dismissed: () => '0.1.3', isAuto: () => auto, ...fakeTimers });
+  up2.start(); await flushT();
+  assert.strictEqual(c2, 0, '關掉自動檢查');
+  await up2.check();
+  assert.ok(c2 === 1 && said2.length === 0 && up2.status().status === 'ready', '手動檢查還是可以，但按過的版本不說');
+  // 3. 連不上
+  const au3 = new EventEmitter();
+  au3.checkForUpdates = async () => { const e = new Error('net::ERR_INTERNET_DISCONNECTED'); au3.emit('error', e); throw e; };
+  const up3 = U.createUpdater({ app: app(), platform: 'win32', execPath: 'x', readdir: () => ['Uninstall a.exe'], loadUpdater: () => au3, ...fakeTimers });
+  const s3 = await up3.check();
+  assert.ok(s3.status === 'error' && /連不到 GitHub/.test(s3.error));
+  assert.deepStrictEqual(up3.install(), { installing: false }, '沒下載好不能安裝');
+  // 4. 免安裝版：問 GitHub 最新版本 → 提醒＋下載頁
+  const said4 = [];
+  const gh = (tag, status = 200) => async (url, o) => { assert.ok(url === U.API_LATEST && o.headers['User-Agent']); return new Response(JSON.stringify({ tag_name: tag, body: '## 0.1.3\n- 修好金幣', html_url: 'https://github.com/hankku43/erin-desk/releases/tag/' + tag }), { status }); };
+  const up4 = U.createUpdater({ app: app(), platform: 'win32', execPath: 'x', readdir: () => ['Erin.exe'], loadUpdater: () => { throw new Error('不該載入'); }, fetchImpl: gh('v0.1.3'), onSay: (l) => said4.push(...l), ...fakeTimers });
+  assert.strictEqual(up4.mode, 'portable');
+  const s4 = await up4.check();
+  assert.ok(s4.status === 'available' && s4.version === '0.1.3' && /tag\/v0\.1\.3$/.test(s4.url) && s4.notes.includes('・修好金幣'));
+  assert.ok(said4.length === 1 && said4[0].emotion === 'surprised' && /免安裝版/.test(said4[0].text));
+  assert.deepStrictEqual(up4.install(), { installing: false }, '免安裝版不能自己換');
+  assert.strictEqual((await U.createUpdater({ app: app(), platform: 'win32', execPath: 'x', readdir: () => [], fetchImpl: gh('v0.1.2'), ...fakeTimers }).check()).status, 'latest');
+  assert.ok(/太頻繁/.test((await U.createUpdater({ app: app(), platform: 'win32', execPath: 'x', readdir: () => [], fetchImpl: gh('v9.9.9', 403), ...fakeTimers }).check()).error));
+  // 5. 開發版（從原始碼執行）：不載入、不檢查
+  const up5 = U.createUpdater({ app: app('0.1.2', false), platform: 'win32', execPath: 'x', readdir: () => ['Uninstall a.exe'], loadUpdater: () => { throw new Error('不該載入'); }, fetchImpl: () => { throw new Error('不該連網'); }, ...fakeTimers });
+  assert.ok(up5.mode === 'dev' && up5.start() === false && (await up5.check()).status === 'idle');
+  // 6. 發版：要上傳的檔案、latest.yml 對得上
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-rel-'));
+  const exe = Buffer.from('fake installer');
+  const sha = crypto.createHash('sha512').update(exe).digest('base64');
+  fs.writeFileSync(path.join(dir, 'Erin-Setup-0.1.3.exe'), exe);
+  fs.writeFileSync(path.join(dir, 'Erin-Setup-0.1.3.exe.blockmap'), 'x');
+  fs.writeFileSync(path.join(dir, 'latest.yml'), `version: 0.1.3\nfiles:\n  - url: Erin-Setup-0.1.3.exe\n    sha512: ${sha}\n    size: ${exe.length}\npath: Erin-Setup-0.1.3.exe\nsha512: ${sha}\nreleaseDate: '2026-10-08T00:00:00.000Z'\n`);
+  let r = RF.check(dir, '0.1.3');
+  assert.deepStrictEqual(r.problems, [], r.problems.join('|'));
+  assert.ok(r.list.find((f) => f.name === 'Erin-0.1.3-portable.zip').ok === false, 'zip 是選用的');
+  assert.ok(RF.check(dir, '0.1.4').problems.some((p) => /版本是 0\.1\.3/.test(p)), '舊的 latest.yml');
+  fs.writeFileSync(path.join(dir, 'Erin-Setup-0.1.3.exe'), 'changed');
+  assert.ok(RF.check(dir, '0.1.3').problems.some((p) => /檢查碼/.test(p)));
+  fs.unlinkSync(path.join(dir, 'Erin-Setup-0.1.3.exe.blockmap'));
+  assert.ok(RF.check(dir, '0.1.3').problems.some((p) => /blockmap/.test(p)));
+  // 打出來的程式裡要有 app-update.yml 和 electron-updater（不然朋友不會自動更新）
+  const res = path.join(dir, 'win-unpacked', 'resources');
+  fs.mkdirSync(res, { recursive: true });
+  const fakeAsar = (tree) => { const j = Buffer.from(JSON.stringify({ files: tree })); const h = Buffer.alloc(16); h.writeUInt32LE(j.length, 12); fs.writeFileSync(path.join(res, 'app.asar'), Buffer.concat([h, j])); };
+  fakeAsar({ node_modules: { files: { 'lunar-javascript': { files: {} } } } });
+  r = RF.check(dir, '0.1.3').problems;
+  assert.ok(r.some((p) => /app-update\.yml/.test(p)) && r.some((p) => /沒有 electron-updater：先雙擊 安裝\.bat/.test(p)), r.join('|'));
+  fs.writeFileSync(path.join(res, 'app-update.yml'), 'provider: github\n');
+  fakeAsar({ node_modules: { files: { 'electron-updater': { files: {} } } } });
+  assert.ok(!RF.check(dir, '0.1.3').problems.some((p) => /app-update|electron-updater/.test(p)));
+  fs.rmSync(dir, { recursive: true, force: true });
+  // 打包前：套件跟 package-lock.json 一樣嗎（選用的不算，巢狀的也要在）
+  const DO = require('../tools/deps-ok');
+  const droot = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-deps-'));
+  fs.writeFileSync(path.join(droot, 'package-lock.json'), JSON.stringify({ packages: { '': {}, 'node_modules/a': { version: '1.0.0' }, 'node_modules/b': { version: '2.0.0', optional: true }, 'node_modules/a/node_modules/c': { version: '3.0.0' } } }));
+  const pj = (rel, v) => { fs.mkdirSync(path.join(droot, rel), { recursive: true }); fs.writeFileSync(path.join(droot, rel, 'package.json'), JSON.stringify({ version: v })); };
+  pj('node_modules/a', '1.0.0');
+  assert.deepStrictEqual(DO.missing(droot).map((m) => [m.name, m.top, m.have]), [['c', false, null]]);
+  pj('node_modules/a/node_modules/c', '2.9.0');
+  assert.strictEqual(DO.missing(droot)[0].have, '2.9.0', '版本不一樣也算');
+  pj('node_modules/a/node_modules/c', '3.0.0');
+  assert.deepStrictEqual(DO.missing(droot), []);
+  fs.rmSync(droot, { recursive: true, force: true });
+  // 7. 打包設定：publish 到自己的 GitHub、本機打包不上傳、有 electron-updater；打包.bat 會列出要上傳的檔案
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const pub = pkg.build.publish[0];
+  assert.ok(pub.provider === 'github' && pub.owner === U.OWNER && pub.repo === U.REPO);
+  assert.ok(/--publish never/.test(pkg.scripts.dist) && pkg.dependencies['electron-updater'], 'npm run dist 不上傳、electron-updater 是執行時要用的');
+  const bat = fs.readFileSync(path.join(__dirname, '..', '打包.bat'), 'utf8');
+  assert.ok(/node tools\\release-files\.js/.test(bat) && /--publish never -c\.win\.signAndEditExecutable=false/.test(bat) && /node tools\\deps-ok\.js\r\nif not errorlevel 1 goto ready/.test(bat) && !/if exist node_modules\\electron-builder goto ready/.test(bat), '打包前檢查套件');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.example.json'), 'utf8')).update.auto, true);
+  console.log('自動更新測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

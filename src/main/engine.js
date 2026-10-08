@@ -90,6 +90,7 @@ class Engine {
       journal: { enabled: true }, // 📖 冒險日誌＋週報（labels、keep 見 journal.js DEFAULTS）
       achievements: { enabled: true }, // 🏅 成就徽章牆
       streak: { enabled: true }, // 🔥 連續上工（restDays、base、cap、milestones 見 achievements.js STREAK）
+      update: { auto: true }, // 🔄 自動檢查更新（打包版才有；updater.js）
       reminders: {
         weekdaysOnly: true, graceMinutes: 15,
         items: [

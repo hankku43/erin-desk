@@ -10,6 +10,7 @@ const { Engine } = require('./engine');
 const { EMOTIONS, fillEmotionImages } = require('./npc');
 const SETUP = require('./setup');
 const OI = require('./ollamaInstall');
+const UPD = require('./updater');
 const { buildHealth, parseLog } = require('./health');
 
 const APP_DIR = path.join(__dirname, '..', '..'); // 程式本身（打包後在 app.asar 裡，唯讀）
@@ -337,6 +338,45 @@ async function probeForSetup() {
   pr.installing = ollamaJob ? ollamaJob.last || { phase: 'download', percent: 0 } : null;
   return pr;
 }
+// ---- 🔄 自動更新（updater.js）：安裝版背景下載、關掉時換上；免安裝版提醒；開發版不檢查 ----
+let updater = null;
+const updLog = (m) => { try { fs.appendFileSync(path.join(engine.dataDir, 'update.log'), `${new Date().toISOString()} ${m}\n`); } catch (_) { /* 寫不了就算了 */ } };
+const npcNames = () => ({ call: engine.config.npc.callName || '冒險者', self: engine.config.npc.selfName || engine.config.npc.name });
+function setupUpdater() {
+  updater = UPD.createUpdater({
+    app, fetchImpl: netFetch, log: updLog,
+    onStatus: (s) => push('update:status', s),
+    onSay: (lines) => push('npc:lines', lines),
+    isAuto: () => (engine.config.update || {}).auto !== false,
+    names: npcNames,
+    dismissed: () => (engine.state.update || {}).dismissed || null,
+  });
+  updater.start();
+  // 剛換上新版：說一聲（等打招呼說完）
+  const cur = app.getVersion(), last = (engine.state.update || {}).lastVersion;
+  if (app.isPackaged && last && UPD.isNewer(cur, last)) setTimeout(() => push('npc:lines', [UPD.line('updated', { v: cur, ...npcNames() })]), 8000);
+  if (last !== cur) { engine.state.update = { ...(engine.state.update || {}), lastVersion: cur }; engine.saveState(); }
+}
+function updateMenuItem() {
+  const s = updater ? updater.status() : { mode: 'dev', current: app.getVersion(), status: 'idle' };
+  if (s.mode === 'dev') return { label: `🔄 檢查更新（從原始碼執行：用 git pull 更新，目前 ${s.current}）`, enabled: false };
+  if (s.status === 'ready') return { label: `🎁 現在更新到 ${s.version}（會重新啟動）`, click: () => { push('view:update', { view: engine.view(), reason: '🔄 正在更新，馬上回來…' }); updater.install(); } };
+  if (s.status === 'downloading') return { label: `🔄 正在下載新版本 ${s.version}（${s.percent || 0}%）`, enabled: false };
+  if (s.status === 'checking') return { label: '🔄 正在檢查更新…', enabled: false };
+  if (s.status === 'available') return { label: `🎁 有新版本 ${s.version}：打開下載頁`, click: () => shell.openExternal(s.url) };
+  return { label: `🔄 檢查更新（目前 ${s.current}${s.mode === 'portable' ? '，免安裝版' : ''}）`, click: () => checkUpdateNow() };
+}
+async function checkUpdateNow() {
+  if (!updater) return {};
+  push('update:status', { ...updater.status(), status: 'checking' });
+  const s = await updater.check();
+  const reason = s.status === 'latest' ? `✔ 已經是最新版（${s.current}）`
+    : s.status === 'error' ? `⚠ 檢查更新失敗：${s.error}`
+      : s.status === 'downloading' ? `🔄 找到新版本 ${s.version}，正在背景下載` : '';
+  if (reason) push('view:update', { view: engine.view(), reason });
+  return { status: s };
+}
+
 function openOllama() {
   const exe = SETUP.findOllamaApp();
   if (exe) { try { spawn(exe, [], { detached: true, stdio: 'ignore' }).unref(); return { opened: 'app' }; } catch (_) { /* 改開下載頁 */ } }
@@ -491,6 +531,8 @@ function menuTemplate() {
     { label: '❓ 說明', submenu: [
       { label: '🩺 健康檢查（哪裡怪怪的？）', click: open('health') },
       { label: '🎓 新手教學（再看一次）', click: open('onboard') },
+      { type: 'separator' },
+      updateMenuItem(),
     ] },
     { type: 'separator' },
     { label: `離開（${npcName}會想你的）`, click: () => app.quit() },
@@ -705,8 +747,15 @@ app.whenReady().then(async () => {
   ipcMain.on('ai:toggle', () => setAI(!engine.config.llm.enabled));
   ipcMain.on('npc:touch', () => engine.touch()); // 冒險者碰了視窗：主動聊天的計時重來
   ipcMain.on('win:dragEnd', onDragEnd);
+  // 🔄 自動更新
+  ipcMain.handle('update:get', wrap(() => ({ status: updater ? updater.status() : null, dismissed: (engine.state.update || {}).dismissed || null })));
+  ipcMain.handle('update:check', wrap(() => checkUpdateNow()));
+  ipcMain.handle('update:install', wrap(() => (updater ? updater.install() : { installing: false })));
+  ipcMain.handle('update:dismiss', wrap((v) => { engine.state.update = { ...(engine.state.update || {}), dismissed: String(v || '') }; engine.saveState(); return {}; }));
+  ipcMain.handle('update:openPage', wrap(() => { shell.openExternal(updater ? updater.status().url : UPD.RELEASES_PAGE); return {}; }));
 
   createWindow();
+  setupUpdater();
   watchPlan();
   engine.npc.checkStatus().then((st) => { push('view:update', { view: engine.view() }); if (st.online) engine.npc.warmUp(); });
   if (TEST_MODE) win.webContents.once('did-finish-load', () => setTimeout(() => push('view:update', { view: engine.view(), reason: `🧪 測試用的${engine.config.npc.name}：全新的資料夾，平常的存檔不受影響` }), 1200));
@@ -724,7 +773,7 @@ app.whenReady().then(async () => {
   scheduleFocus(4000); // 上次關程式時還在專注：時間到了就補結算（等畫面載好）
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
-  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive });
+  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, updater });
 });
 
 app.on('second-instance', () => { if (win) { win.restore(); win.focus(); } });

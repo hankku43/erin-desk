@@ -1,6 +1,6 @@
 {
   "name": "quest-npc",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "桌面任務 NPC：把週計畫變成遊戲任務",
   "main": "src/main/main.js",
   "engines": {
@@ -9,10 +9,11 @@
   "scripts": {
     "start": "electron .",
     "test": "node test/run.js",
-    "dist": "electron-builder --win",
-    "dist:zip": "electron-builder --win zip"
+    "dist": "electron-builder --win --publish never",
+    "dist:zip": "electron-builder --win zip --publish never"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "lunar-javascript": "^1.7.7",
     "opencc-js": "^1.0.5"
   },
@@ -78,7 +79,14 @@
         ]
       }
     ],
-    "publish": null
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "hankku43",
+        "repo": "erin-desk",
+        "releaseType": "release"
+      }
+    ]
   },
   "repository": {
     "type": "git",

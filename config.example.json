@@ -85,6 +85,9 @@
     "coldMinutes": 15,
     "words": { "harass": [], "rude": [] }
   },
+  "update": {
+    "auto": true
+  },
   "reminders": {
     "weekdaysOnly": true,
     "graceMinutes": 15,

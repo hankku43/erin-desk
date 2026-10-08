@@ -13,7 +13,9 @@ if errorlevel 10 call :usemirror
 rem 公司網路要透過 proxy 時（有設 HTTPS_PROXY），讓 Electron 的下載也走 proxy
 if defined HTTPS_PROXY set ELECTRON_GET_USE_PROXY=1
 if defined HTTPS_PROXY if not defined GLOBAL_AGENT_HTTPS_PROXY set "GLOBAL_AGENT_HTTPS_PROXY=%HTTPS_PROXY%"
-if exist node_modules\electron-builder goto ready
+rem 套件跟 package-lock.json 一樣才直接打包；有新套件（例如自動更新的 electron-updater）就先重新安裝，不然安裝檔會少東西
+node tools\deps-ok.js
+if not errorlevel 1 goto ready
 rem npm ci：照 package-lock.json 鎖定的版本裝，打出來的安裝檔才會跟測試過的一樣
 call npm ci --foreground-scripts
 if not errorlevel 1 goto ready
@@ -29,13 +31,13 @@ call npm run dist
 if not errorlevel 1 goto done
 echo.
 echo 打包遇到問題，改用不換圖示的方式再試一次...
-call npx electron-builder --win -c.win.signAndEditExecutable=false
+call npx electron-builder --win --publish never -c.win.signAndEditExecutable=false
 if errorlevel 1 goto packfail
 :done
 echo.
-echo 完成！dist 資料夾裡有兩個檔案可以給朋友：
-echo   Erin-Setup-版本.exe      安裝程式：雙擊就裝好，會建桌面捷徑
-echo   Erin-版本-portable.zip   免安裝版：解壓縮後雙擊 Erin.exe
+echo 完成！dist 資料夾裡的安裝程式可以給朋友（雙擊就裝好，會建桌面捷徑）。
+rem 列出要上傳到 GitHub Release 的檔案（自動更新要 latest.yml 和 blockmap），並檢查 latest.yml 對得上
+node tools\release-files.js
 start "" "%~dp0dist"
 pause
 exit /b 0

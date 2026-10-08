@@ -16,11 +16,22 @@
 4. 之後任務板最上面有 7 個 **新手任務**，照著做一遍就會用所有功能。
 5. 哪裡怪怪的：右鍵艾琳 →「❓ 說明」→「**🩺 健康檢查**」，有問題的地方會亮黃燈或紅燈，旁邊有「幫我修」的按鈕。
 
-你的設定、週計畫、存檔都放在「**文件\艾琳的任務櫃台**」（右鍵 →「⚙ 設定與資料」→「📁 打開我的資料夾」）。解除安裝不會刪掉它們；要更新的話直接裝新版就好。
+你的設定、週計畫、存檔都放在「**文件\艾琳的任務櫃台**」（右鍵 →「⚙ 設定與資料」→「📁 打開我的資料夾」）。解除安裝不會刪掉它們。
+
+**更新**：安裝版（0.1.2 以後）會自己更新：艾琳每次開啟後、之後每 6 小時看一次有沒有新版本，有的話在背景下載（只下載有變的部分），下載好會跟你說一聲、狀態欄上面出現卡片；按「**現在更新**」會重新啟動換上新版，不按的話下次關掉艾琳時自動換上，資料都會留著。想自己檢查：右鍵 →「❓ 說明」→「🔄 檢查更新」。免安裝版（zip）沒辦法自己換，有新版時艾琳會提醒你、按一下打開下載頁。0.1.1 以前的版本還沒有這個功能，要自己下載新版的安裝程式裝一次（直接裝就會蓋過舊版）。不想自動檢查：`config.json` 的 `"update": { "auto": false }`。
 
 ### 自己打包給朋友（開發者）
 
-雙擊 **`打包.bat`**：會先跑一次測試，再產生 `dist\Erin-Setup-版本.exe` 和 `dist\Erin-版本-portable.zip`，完成後自動打開 `dist` 資料夾。第一次會下載打包工具（electron-builder），需要幾分鐘。把這兩個檔案上傳到 GitHub 的 Releases 或雲端硬碟分享給朋友就好。
+雙擊 **`打包.bat`**：會先跑一次測試，再產生 `dist\Erin-Setup-版本.exe` 和 `dist\Erin-版本-portable.zip`，完成後自動打開 `dist` 資料夾。第一次會下載打包工具（electron-builder），需要幾分鐘。
+
+**發新版（朋友會自動更新）**：
+
+1. 改 `package.json` 的 `version`（例如 `0.1.2` → `0.1.3`），commit、push。
+2. 雙擊 `打包.bat`。最後會列出要上傳的檔案，並檢查 `latest.yml` 跟安裝程式對得上。
+3. 在 GitHub 的 Releases 建一個新的 Release：**標籤一定要是 `v` 加版本**（例如 `v0.1.3`），上傳 `dist` 裡的三個檔案：`Erin-Setup-版本.exe`、`Erin-Setup-版本.exe.blockmap`、`latest.yml`（`Erin-版本-portable.zip` 選用）。說明欄寫這版改了什麼，艾琳會在更新卡片的「更新了什麼」裡給朋友看（列點最清楚）。
+4. 按「Publish release」（草稿或「pre-release」不會被當成新版）。朋友的艾琳開著的話，最晚 6 小時內就會開始下載。
+
+安裝程式沒有數位簽章：朋友第一次安裝要按「其他資訊 → 仍要執行」，之後的自動更新不會再跳。
 
 - 版本號在 `package.json` 的 `version`，改了再打包，檔名會跟著變。
 - 打包版的資料放在「文件\艾琳的任務櫃台」；從原始碼執行（`啟動.bat`）時照舊用程式資料夾，兩邊互不影響。
@@ -495,16 +506,17 @@ npm start
 | `src/main/journal.js` | 📖 冒險日誌＋週報：每週快照、數字、稱號、依專案分類的週報草稿、匯出 Markdown（純函式） |
 | `src/main/memory.js` | 📒 小本子：從聊天記下冒險者的事（規則＋檢查 AI 寫的）、去重、追問時機、重要的日子（純函式） |
 | `src/main/setup.js` | 新手教學用：偵測 Ollama、依記憶體推薦模型、下載模型（進度） |
+| `src/main/updater.js` | 🔄 自動更新：安裝版用 electron-updater（GitHub Releases 的 latest.yml，背景下載、關掉時換上），免安裝版只問最新版本＋提醒，開發版不檢查；紀錄在 `data/update.log` |
 | `src/main/ollamaInstall.js` | 幫忙安裝／更新 Ollama（Windows）：下載官方安裝程式 → 確認 Ollama 官方簽章 → 不跳視窗安裝 → 等它啟動 |
 | `src/main/health.js` | 🩺 健康檢查：各項紅綠燈與修法（純函式） |
 | `src/main/tutorial.js` | 新手任務清單與獎勵 |
 | `src/main/lore.js` | 角色設定檢索（BM25 ＋ 可選向量） |
 | `src/main/displays.js` | 多顯示器位置 |
-| `src/renderer/` | 介面：`index.html`、`style.css`、`renderer.js`（對話、面板、特效）、`onboard.js`（新手教學、新手任務、健康檢查）、`notebook.js`（📒 小本子面板）、`journal.js`（📖 冒險日誌面板）、`shop.js`（🛒 雜貨舖面板：禮物／裝飾／星座卡三個分頁、許願單、櫃台吊飾／擺設、主題配色）、`twins.js`（🐰 棉棉和朵朵：攤位招牌、抽卡演出、跑來櫃台）、`art.js`（吊飾、擺設、禮物、雙胞胎用 `assets/shop/` 的圖，沒有圖時退回 SVG；星座卡的 SVG）、`idle-brain.js`＋`idle.js`＋`emotes.js`（待機小動作：決定做什麼＋演出來＋飄在頭旁邊的 SVG 表情符號）、`coin.svg`（金幣圖示；不用金幣 emoji，因為 Windows 10 沒有這個字） |
+| `src/renderer/` | 介面：`index.html`、`style.css`、`renderer.js`（對話、面板、特效）、`onboard.js`（新手教學、新手任務、健康檢查）、`notebook.js`（📒 小本子面板）、`journal.js`（📖 冒險日誌面板）、`shop.js`（🛒 雜貨舖面板：禮物／裝飾／星座卡三個分頁、許願單、櫃台吊飾／擺設、主題配色）、`twins.js`（🐰 棉棉和朵朵：攤位招牌、抽卡演出、跑來櫃台）、`art.js`（吊飾、擺設、禮物、雙胞胎用 `assets/shop/` 的圖，沒有圖時退回 SVG；星座卡的 SVG）、`idle-brain.js`＋`idle.js`＋`emotes.js`（待機小動作：決定做什麼＋演出來＋飄在頭旁邊的 SVG 表情符號）、`coin.svg`（金幣圖示；不用金幣 emoji，因為 Windows 10 沒有這個字）、`update.js`（🔄 新版本的卡片：現在更新／下次再裝、免安裝版打開下載頁） |
 | `build/` | 打包用的圖示（`icon.ico`、`icon.png`）；`package.json` 的 `build` 是 electron-builder 設定 |
 | `lore/艾琳.md` | 角色設定 |
 | `assets/character/` | 角色圖（去背後）；`assets/shop/` 是雜貨舖的物品和店員圖；`assets/raw/` 是原圖；`assets/ui/` 是提示圖示 |
-| `tools/` | 去背腳本（角色 `remove_bg.py`、雜貨舖合輯 `cut_sheet.py`）、佔位圖產生器、舊格式轉換 `convert_plan.js`、安裝前檢查 Node.js 版本 `check-node.js`、挑下載來源 `pick-mirror.js`（安裝.bat／打包.bat 用） |
+| `tools/` | 去背腳本（角色 `remove_bg.py`、雜貨舖合輯 `cut_sheet.py`）、佔位圖產生器、舊格式轉換 `convert_plan.js`、安裝前檢查 Node.js 版本 `check-node.js`、挑下載來源 `pick-mirror.js`（安裝.bat／打包.bat 用）、列出要上傳到 Release 的檔案 `release-files.js`（打包.bat 最後跑） |
 | `test/run.js` | 單元測試（`npm test`）：解析、回寫、引擎的新增／編輯／刪除、行事曆匯入匯出、聊天改進度、角色檢索；`test/electron-*.js` 是用 xvfb 跑的畫面測試，用法：`QUEST_NPC_TEST=test/electron-tour.js npx electron .`（`electron-edit.js` 會把每個表單走一遍並檢查檔案內容） |
 
 ## 開發

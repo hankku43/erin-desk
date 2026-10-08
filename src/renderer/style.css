@@ -375,7 +375,18 @@ body.mini .idle-whisper { display: none !important; }
 ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
 
 /* ---------- 縮小化：只剩右下角的貓咪 ---------- */
-body.mini #upper, body.mini #hud, body.mini #toast { display: none !important; }
+body.mini #upper, body.mini #hud, body.mini #toast, body.mini #updCard { display: none !important; }
+/* ---------- 🔄 自動更新的卡片（貼在狀態欄上面） ---------- */
+.upd-card { position: absolute; left: 8px; width: 292px; box-sizing: border-box; z-index: 6; background: var(--paper); color: var(--ink); border: 2px solid var(--gold); border-radius: var(--r-l); padding: 9px 11px 10px; box-shadow: var(--shadow); animation: riseIn .35s ease-out; }
+.upd-head { display: flex; align-items: center; gap: 6px; font-size: var(--fs-m); color: var(--navy-2); }
+.upd-head b { flex: 1; }
+.upd-ic { font-size: 18px; }
+.upd-sub { margin-top: 4px; font-size: var(--fs-s); color: var(--ink-soft); line-height: 1.5; }
+.upd-notes { margin-top: 6px; font-size: var(--fs-s); }
+.upd-notes summary { cursor: pointer; color: var(--blue); font-weight: 700; }
+.upd-notes ul { margin: 4px 0 0; padding-left: 18px; max-height: 120px; overflow: auto; line-height: 1.5; }
+.upd-notes li.h { list-style: none; margin-left: -18px; font-weight: 700; color: var(--navy-2); }
+.upd-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 body.mini #npcWrap { right: 0; bottom: 0; width: 100%; height: 100%; }
 body.mini #npcImg { --breathe: 3s; }
 body.mini .marker { top: 2px; left: auto; right: 10px; transform: none; width: 28px; height: 28px; font-size: 17px; border-width: 2px; }
