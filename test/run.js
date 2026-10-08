@@ -2187,9 +2187,9 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const up = U.createUpdater({ app: app(), platform: 'win32', execPath: 'C:\\P\\Erin.exe', readdir: () => ['Uninstall 艾琳的任務櫃台.exe'], loadUpdater: () => au, onStatus: (s) => statuses.push(s), onSay: (l) => said.push(...l), now: () => (t0 += 400), ...fakeTimers });
   assert.strictEqual(up.mode, 'auto');
   assert.ok(au.autoDownload === true && au.autoInstallOnAppQuit === true && au.allowPrerelease === false, '背景下載、關掉時安裝、不抓預覽版');
-  assert.ok(up.start() && timers.length === 2 && timers[0].ms === U.FIRST_DELAY && timers[1].ms === U.EVERY);
+  assert.ok(up.start() && timers.length === 1 && timers[0].once && timers[0].ms === U.FIRST_DELAY, '只在開啟時檢查一次，不定時檢查');
   await flushT();
-  assert.strictEqual(checks, 1, '啟動後檢查；之後每 6 小時那次因為已經下載好就不再檢查');
+  assert.strictEqual(checks, 1, '開啟時檢查一次');
   const st = up.status();
   assert.ok(st.status === 'ready' && st.version === '0.1.3' && st.percent === 100 && st.current === '0.1.2');
   assert.deepStrictEqual(st.notes, ['・修好金幣', '・幫忙裝 Ollama']);

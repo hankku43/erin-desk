@@ -12,8 +12,7 @@ const path = require('path');
 const OWNER = 'hankku43', REPO = 'erin-desk';
 const RELEASES_PAGE = `https://github.com/${OWNER}/${REPO}/releases/latest`;
 const API_LATEST = `https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`;
-const FIRST_DELAY = 45 * 1000; // 開啟 45 秒後第一次檢查（不跟開機時的打招呼、模型載入搶）
-const EVERY = 6 * 60 * 60 * 1000; // 之後每 6 小時（常常整天開著）
+const FIRST_DELAY = 45 * 1000; // 只在每次開啟時檢查：開啟 45 秒後一次（不跟開機時的打招呼、模型載入搶），之後不定時檢查
 
 // '0.1.10' > '0.1.9'；前面的 v 不算；看不懂的版本一律不算新
 const parseVer = (v) => { const m = String(v || '').trim().replace(/^v/i, '').match(/^(\d+)\.(\d+)\.(\d+)/); return m ? m.slice(1).map(Number) : null; };
@@ -61,7 +60,7 @@ function createUpdater({
   loadUpdater = () => require('electron-updater').autoUpdater, fetchImpl = fetch,
   onStatus = () => {}, onSay = () => {}, log = () => {},
   isAuto = () => true, names = () => ({}), dismissed = () => null,
-  setTimeoutImpl = setTimeout, setIntervalImpl = setInterval, now = Date.now,
+  setTimeoutImpl = setTimeout, now = Date.now,
 } = {}) {
   const installed = isInstalled(execPath, readdir);
   let au = null;
@@ -132,10 +131,9 @@ function createUpdater({
     if (mode === 'dev') return false;
     const auto = () => { if (isAuto()) check(); };
     setTimeoutImpl(auto, FIRST_DELAY);
-    setIntervalImpl(auto, EVERY);
     return true;
   }
   return { mode, check, install, start, status: () => ({ ...st, notes: [...st.notes] }) };
 }
 
-module.exports = { OWNER, REPO, RELEASES_PAGE, API_LATEST, FIRST_DELAY, EVERY, parseVer, isNewer, isInstalled, modeOf, notesText, friendly, line, createUpdater };
+module.exports = { OWNER, REPO, RELEASES_PAGE, API_LATEST, FIRST_DELAY, parseVer, isNewer, isInstalled, modeOf, notesText, friendly, line, createUpdater };
