@@ -1961,3 +1961,85 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const k of ['shop', 'health', 'journal', 'notebook', 'log', 'daily', 'onboard']) assert.strictEqual(PL.line(k, { quests: [] }), null, k + ' 不插嘴');
   console.log('介面整理測試通過 ✔');
 })();
+
+// ---------- 📦 安裝的下載來源：先看快取，沒有就測速挑快的；bat 用結束碼 10 切到鏡像站，失敗換另一邊 ----------
+(async () => {
+  const P = require('../tools/pick-mirror');
+  const http = require('http');
+  const os = require('os');
+  const cp = require('child_process');
+  const root = path.join(__dirname, '..');
+  const ver = P.electronVersion(root);
+  assert.strictEqual(ver, require('../node_modules/electron/package.json').version, '跟裝好的 electron 同一版');
+  const u = P.urls(ver, 'win32', 'x64');
+  // 網址、快取資料夾跟 @electron/get 算出來的一樣（不一樣的話快取對不到、會重新下載）
+  const { getArtifactRemoteURL } = require('@electron/get/dist/cjs/artifact-utils');
+  const { Cache } = require('@electron/get/dist/cjs/Cache');
+  const d = { version: `v${ver}`, platform: 'win32', arch: 'x64', artifactName: 'electron', isGeneric: false };
+  const saved = process.env.ELECTRON_MIRROR;
+  delete process.env.ELECTRON_MIRROR;
+  assert.strictEqual(await getArtifactRemoteURL(d), u.github);
+  process.env.ELECTRON_MIRROR = P.MIRROR;
+  assert.strictEqual(await getArtifactRemoteURL(d), u.mirror);
+  if (saved === undefined) delete process.env.ELECTRON_MIRROR; else process.env.ELECTRON_MIRROR = saved;
+  for (const k of ['github', 'mirror']) assert.strictEqual(P.cacheKey(u[k]), Cache.getCacheDirectory(u[k]), k + ' 快取位置');
+  // 挑選：鏡像站要快 1.5 倍才用；只有一邊通就用那邊；都不通照預設
+  const R = (ok, mbps) => ({ ok, mbps, error: ok ? '' : 'X' });
+  assert.strictEqual(P.decide(R(true, 1), R(true, 3)), 'mirror');
+  assert.strictEqual(P.decide(R(true, 2), R(true, 2.5)), 'github');
+  assert.strictEqual(P.decide(R(false), R(true, 0.5)), 'mirror');
+  assert.strictEqual(P.decide(R(true, 0.2), R(false)), 'github');
+  assert.strictEqual(P.decide(R(false), R(false)), 'github');
+  // 流程：指定來源不測速；快取裡有就沿用；都沒有才測速
+  const logs = [];
+  const opt = (env, probeFn) => ({ root, env, platform: 'win32', arch: 'x64', log: (s) => logs.push(s), probeFn });
+  const noProbe = () => { throw new Error('不該測速'); };
+  assert.strictEqual(await P.main(opt({ ERIN_DOWNLOAD: 'Mirror ' }, noProbe)), 'mirror');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-pm-'));
+  fs.mkdirSync(path.join(tmp, P.cacheKey(u.mirror)), { recursive: true });
+  fs.writeFileSync(path.join(tmp, P.cacheKey(u.mirror), u.file), 'x');
+  assert.strictEqual(await P.main(opt({ electron_config_cache: tmp }, noProbe)), 'mirror', '鏡像站下載過 → 沿用');
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.mkdirSync(tmp);
+  const asked = [];
+  const fake = (speed) => (x) => { asked.push(x); return Promise.resolve(speed[x === u.github ? 0 : 1]); };
+  assert.strictEqual(await P.main(opt({ electron_config_cache: tmp }, fake([R(true, 0.3), R(true, 6)]))), 'mirror');
+  assert.deepStrictEqual(asked, [u.github, u.mirror], '兩邊都測');
+  assert.ok(logs.some((l) => /GitHub 官方：0\.30 MB\/s　npmmirror 鏡像站：6\.0 MB\/s/.test(l)), logs.join('|'));
+  assert.strictEqual(await P.main(opt({ electron_config_cache: tmp, HTTPS_PROXY: 'http://p:8080' }, fake([R(false), R(false)]))), 'github');
+  assert.ok(/有設 proxy/.test(logs[logs.length - 2]), '有 proxy 的說明');
+  fs.rmSync(tmp, { recursive: true, force: true });
+  // 真的連線：轉址、206 部分內容、404、一直不回應（逾時）
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/go') { res.writeHead(302, { Location: '/zip' }); res.end(); return; }
+    if (req.url === '/zip') { assert.ok(/^bytes=0-/.test(req.headers.range)); res.writeHead(206); res.end(Buffer.alloc(200 * 1024)); return; }
+    if (req.url === '/hang') return; // 不回應
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const ok = await P.probe(`${base}/go`, { sample: 128 * 1024, timeout: 3000 });
+  assert.ok(ok.ok && ok.bytes >= 128 * 1024 && ok.mbps > 0, '跟著轉址、量到速度');
+  const nf = await P.probe(`${base}/nope`, { timeout: 3000 });
+  assert.ok(!nf.ok && nf.error === 'HTTP 404');
+  const hang = await P.probe(`${base}/hang`, { timeout: 300 });
+  assert.ok(!hang.ok && hang.error === '逾時' && hang.ms < 2000, '逾時就放棄');
+  if (srv.closeAllConnections) srv.closeAllConnections();
+  srv.close();
+  // 結束碼：0＝官方、10＝鏡像站
+  const run = (v) => cp.spawnSync(process.execPath, [path.join(root, 'tools', 'pick-mirror.js')], { env: { ...process.env, ERIN_DOWNLOAD: v }, encoding: 'utf8' }).status;
+  assert.strictEqual(run('mirror'), 10);
+  assert.strictEqual(run('github'), 0);
+  // 兩個 bat：先挑來源、看得到下載進度、失敗換另一邊；goto／call 的標籤都在；Windows 換行
+  for (const f of ['安裝.bat', '打包.bat']) {
+    const b = fs.readFileSync(path.join(root, f), 'utf8');
+    assert.ok(/\r\n/.test(b) && !/[^\r]\n/.test(b), f + ' 要用 CRLF');
+    assert.ok(!/rem set ELECTRON_MIRROR/.test(b), f + ' 不用再手動拿掉 rem');
+    assert.ok(/node tools\\pick-mirror\.js\r\nif errorlevel 10 call :usemirror\r\n/.test(b), f + ' 挑來源');
+    assert.ok(/:usemirror\r\nset ELECTRON_MIRROR=https:\/\/npmmirror\.com\/mirrors\/electron\/\r\nset ELECTRON_BUILDER_BINARIES_MIRROR=https:\/\/npmmirror\.com\/mirrors\/electron-builder-binaries\/\r\n/.test(b), f + ' 鏡像站');
+    assert.ok(/call npm ci --foreground-scripts\r\n/.test(b) && /call :switchsource\r\ncall npm install --foreground-scripts\r\n/.test(b), f + ' 看得到進度、失敗換來源');
+    const labels = new Set([...b.matchAll(/^:(\w+)/gm)].map((m) => m[1]));
+    for (const m of b.matchAll(/(?:goto|call) :?(\w+)/g)) if (!/^(npm|npx)$/.test(m[1])) assert.ok(labels.has(m[1]), `${f} 找不到標籤 ${m[1]}`);
+  }
+  console.log('安裝下載來源測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

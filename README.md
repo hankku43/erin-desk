@@ -36,7 +36,7 @@
    電腦記憶體只有 8GB 的話，改用 `ollama pull qwen3:1.7b`，並把 `config.json` 裡的 `"model"` 改成 `"qwen3:1.7b"`。
 3. 雙擊 **`安裝.bat`**，它會下載 Electron，大約 100MB。用的是 `npm ci`：照 `package-lock.json` 鎖定的版本一模一樣地裝，不會裝到跟開發時不同的版本。
 
-> 公司網路擋 GitHub、Electron 下載失敗時，用 `安裝.bat` 裡註解掉的鏡像站設定再試一次。
+> 下載來源會自動挑，不用改 bat：Electron 下載過就沿用同一個來源；沒有的話 GitHub 官方和 npmmirror 鏡像站各試下載 1 MB，哪個快用哪個（差不多快就用官方），裝失敗會換另一邊再試一次。卡住或失敗請看「常見問題」的「安裝卡住或失敗」。
 
 ## 二、啟動
 
@@ -449,6 +449,12 @@
 - **回話很慢**：第一次呼叫要載入模型，會慢 10–30 秒，之後就會變快。還是太慢的話改用 `qwen3:1.7b`。
 - **Ollama 太舊**：🩺 健康檢查會出現「Ollama 版本」黃燈，新手教學也會提醒。到 <https://ollama.com/download> 下載新版直接安裝就好，已經下載的模型會留著。
 - **偶爾出現簡體字**：`npm install` 時會一起裝繁簡轉換套件 opencc-js，確認安裝時沒有報錯。
+- **安裝卡住或失敗**（`安裝.bat`、`打包.bat`）：
+  - 最久的是下載 Electron（約 110 MB）。視窗會先印出「下載來源：…」和兩邊的測速；下載慢的時候大約 30 秒後會出現進度條，有在動就是還在下載，等它跑完就好。
+  - 想固定來源：開命令提示字元、`cd` 到程式資料夾，先打 `set ERIN_DOWNLOAD=github`（只用官方，例如公司規定不能連中國大陸的網站）或 `set ERIN_DOWNLOAD=mirror`，再打 `安裝.bat`。
+  - 鏡像站是阿里雲的 npmmirror（伺服器在中國大陸）。下載的檔案會用 electron 套件裡附的官方檢查碼核對，打包工具也一樣，內容跟官方不同就會直接失敗，不會裝到被改過的檔案。
+  - 公司網路要經過 proxy：先 `set HTTPS_PROXY=http://proxy位址:埠號` 再執行，bat 會讓 Electron 的下載也走 proxy（npm 本身也會讀這個設定）。這時測速不經過 proxy、會顯示測不到，照預設從 GitHub 下載。
+  - 還是不行：把視窗截圖給幫你改程式的人。
 - **點不到桌面上角色後面的東西**：只有卡片和角色本身會攔截滑鼠，空白處可以直接穿透點到後面的視窗。
 
 ## 從 GitHub 拿回來繼續開發
@@ -495,7 +501,7 @@ npm start
 | `build/` | 打包用的圖示（`icon.ico`、`icon.png`）；`package.json` 的 `build` 是 electron-builder 設定 |
 | `lore/艾琳.md` | 角色設定 |
 | `assets/character/` | 角色圖（去背後）；`assets/shop/` 是雜貨舖的物品和店員圖；`assets/raw/` 是原圖；`assets/ui/` 是提示圖示 |
-| `tools/` | 去背腳本（角色 `remove_bg.py`、雜貨舖合輯 `cut_sheet.py`）、佔位圖產生器、舊格式轉換 `convert_plan.js` |
+| `tools/` | 去背腳本（角色 `remove_bg.py`、雜貨舖合輯 `cut_sheet.py`）、佔位圖產生器、舊格式轉換 `convert_plan.js`、安裝前檢查 Node.js 版本 `check-node.js`、挑下載來源 `pick-mirror.js`（安裝.bat／打包.bat 用） |
 | `test/run.js` | 單元測試（`npm test`）：解析、回寫、引擎的新增／編輯／刪除、行事曆匯入匯出、聊天改進度、角色檢索；`test/electron-*.js` 是用 xvfb 跑的畫面測試，用法：`QUEST_NPC_TEST=test/electron-tour.js npx electron .`（`electron-edit.js` 會把每個表單走一遍並檢查檔案內容） |
 
 ## 開發
