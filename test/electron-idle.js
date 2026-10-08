@@ -9,6 +9,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
   engine.state.onboarding = { ...(engine.state.onboarding || {}), done: true };
   engine.config.reminders = { ...(engine.config.reminders || {}), items: [] };
   engine.config.window.idleChatterMinutes = 0; // 不要主動聊天插話
+  engine.config.twins = { ...(engine.config.twins || {}), tea: false }; // 下午 3～5 點跑的話，雙胞胎的下午茶外送會插進來（杯口的熱氣）
   const home = process.env.QUEST_NPC_HOME;
   const src = path.join(__dirname, '..', 'assets', 'character');
   const dst = path.join(home, 'assets', 'character');

@@ -33,6 +33,8 @@ const TW = require('./twins'); // 🐰 棉棉和朵朵跑來櫃台：下午茶�
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
 const F = require('./fortune'); // 🔮 今日運勢的文案
+const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建的「艾琳」換成現在的名字
+const OS = require('../renderer/opening-script'); // 🎬 開場：名字規則
 
 function deepMerge(a, b) {
   const out = { ...a };
@@ -117,7 +119,7 @@ class Engine {
   loadLore() {
     const c = this.config.lore || {};
     const file = this.resolveFile(c.path || 'lore/艾琳.md');
-    this.lore = new Lore({ file, dataDir: this.dataDir, llm: this.config.llm, embeddings: c.embeddings, embedModel: c.embedModel, log: (m) => console.log(m) });
+    this.lore = new Lore({ file, dataDir: this.dataDir, llm: this.config.llm, embeddings: c.embeddings, embedModel: c.embedModel, log: (m) => console.log(m), npcName: this.config.npc.name });
     this.config.npc = { ...this.config.npc, core: this.lore.core, loreName: this.lore.name };
     // 「聰明艾琳」開著就在背景算向量，不擋啟動；跟 AI 對話開關無關（只要 Ollama 有開）
     if (this.lore.smartOn()) this.lore.prepareEmbeddings();
@@ -605,8 +607,8 @@ class Engine {
     if (line.tpl) { this.state.recentQuips = [line.tpl, ...recent].slice(0, 10); this.saveState(); }
     delete line.tpl;
     const loss = this.affCfg().loss;
-    if (event === 'poke_annoyed') this.affect(-loss.poke_annoyed, '一直戳艾琳');
-    if (event === 'poke_meow') { this.affect(-loss.poke_meow, '一直戳艾琳'); this.offense('poke'); }
+    if (event === 'poke_annoyed') this.affect(-loss.poke_annoyed, `一直戳${this.config.npc.name}`);
+    if (event === 'poke_meow') { this.affect(-loss.poke_meow, `一直戳${this.config.npc.name}`); this.offense('poke'); }
     return this.settle({ lines: [line], view: this.view() });
   }
 
@@ -770,7 +772,7 @@ class Engine {
       const st = A.stageOf(a.points, a.stage, this.affCfg().thresholds);
       if (st > a.stage) {
         extra.push(this.affTpl(`stageup_${st}`));
-        if (st > (a.maxStage || 1)) { G.grant(this.state, { xp: 0, gold: 10 * st }, '艾琳的心意', this.config.rewards, this.now()); a.maxStage = st; }
+        if (st > (a.maxStage || 1)) { G.grant(this.state, { xp: 0, gold: 10 * st }, `${this.config.npc.name}的心意`, this.config.rewards, this.now()); a.maxStage = st; }
       } else if (st < a.stage) extra.push(this.affTpl('stagedown'));
       a.stage = st;
     }
@@ -809,7 +811,7 @@ class Engine {
   tutorialInfo() {
     const t = this.state.tutorial;
     if (!t || !t.active) return null;
-    const items = T.TUTORIAL.map((i) => ({ ...i, label: i.label.replace('艾琳', this.config.npc.name), done: !!(t.done || {})[i.key] }));
+    const items = T.TUTORIAL.map((i) => ({ ...i, label: RN.rename(i.label, this.config.npc.name), done: !!(t.done || {})[i.key] }));
     return { items, count: items.filter((i) => i.done).length, total: items.length, finished: !!t.finished };
   }
   startTutorial() { this.state.tutorial = { active: true, done: {}, finished: false, startedAt: this.now().toISOString() }; this.saveState(); }
@@ -823,7 +825,7 @@ class Engine {
     const item = T.TUTORIAL.find((i) => i.key === key);
     if (!item) return false;
     t.done[key] = this.now().toISOString();
-    const label = item.label.replace('艾琳', this.config.npc.name);
+    const label = RN.rename(item.label, this.config.npc.name);
     G.grant(this.state, T.STEP_REWARD, `新手任務：${label}`, this.config.rewards, this.now());
     const n = Object.keys(t.done).length, total = T.TUTORIAL.length;
     const tpl = (k, f) => { const l = { ...this.npc.template(k, f), event: 'tutorial' }; delete l.tpl; return l; };
@@ -847,21 +849,31 @@ class Engine {
   restartOnboarding() { this.state.onboarding = { done: false }; this.saveState(); return { view: this.view() }; }
   // 🎬 開場演完（或跳過）：接待員的名字寫進 config（自稱跟著變）、冒險者登記的名字和序章選的那句存進存檔
   // r：{ name, player, blank, echo, skipped }；keep＝重看時直接關掉，什麼都不改
+  // ✏️ 接待員的名字寫進 config.json：自稱跟著變（範例設定的 selfName 寫死成艾琳）、口頭禪裡的名字也換；角色設定讀進來時會換成新名字
+  // 回傳 { ok, renamed, name, error }；config.json 壞掉時不寫，免得蓋掉
+  setNpcName(raw) {
+    const v = OS.validateName(raw);
+    if (!v.ok) return { ok: false, renamed: false, name: v.name, error: v.error };
+    const n0 = this.config.npc;
+    if (v.name === n0.name) return { ok: true, renamed: false, name: v.name };
+    if (this.configError) return { ok: false, renamed: false, name: v.name, error: 'config.json 格式有問題，先修好才能改名字（🩺 健康檢查）' };
+    const patch = { name: v.name };
+    if (!n0.selfName || n0.selfName === n0.name) patch.selfName = v.name;
+    if (Array.isArray(n0.catchphrases) && n0.catchphrases.some((c) => String(c).includes(n0.name))) patch.catchphrases = n0.catchphrases.map((c) => String(c).split(n0.name).join(v.name)); // 「交給艾琳吧！」
+    this.saveConfigPatch({ npc: patch });
+    return { ok: true, renamed: true, name: v.name };
+  }
+  // ⚙ 右鍵「幫接待員改名字」：改好之後她用新名字說一句
+  renameNpc(raw) {
+    const r = this.setNpcName(raw);
+    if (!r.ok) return { invalid: r.error, view: this.view() };
+    if (!r.renamed) return { same: true, lines: [], view: this.view() };
+    return this.settle({ renamed: r.name, lines: [this.lineOf('renamed', {}, 'renamed')], view: this.view() });
+  }
   finishOpening(r = {}, { replay = false } = {}) {
-    const OS = require('../renderer/opening-script');
     let renamed = false;
     if (r.keep) return { view: this.view(), renamed };
-    if (r.name != null) {
-      const v = OS.validateName(r.name);
-      const n0 = this.config.npc;
-      if (v.ok && v.name !== n0.name && !this.configError) { // config.json 壞掉時不寫，免得蓋掉
-        const patch = { name: v.name };
-        if (n0.selfName === n0.name) patch.selfName = v.name; // 範例設定把自稱寫死成艾琳：跟著改
-        if (Array.isArray(n0.catchphrases) && n0.catchphrases.some((c) => String(c).includes(n0.name))) patch.catchphrases = n0.catchphrases.map((c) => String(c).split(n0.name).join(v.name)); // 「交給艾琳吧！」
-        this.saveConfigPatch({ npc: patch });
-        renamed = true;
-      }
-    }
+    if (r.name != null) renamed = this.setNpcName(r.name).renamed;
     if (r.blank) this.state.playerName = '';
     else if (r.player != null) this.state.playerName = OS.cleanPlayerName(r.player);
     const prev = this.state.opening || {};
@@ -1004,7 +1016,7 @@ class Engine {
 
   fortuneToday() {
     const f = this.state.fortune;
-    return f && f.date === G.todayISO(this.now()) ? f : null;
+    return f && f.date === G.todayISO(this.now()) ? RN.renameDeep(f, this.config.npc.name) : null; // 運勢卡上的句子（「艾琳的尾巴都豎起來了」）
   }
   drawFortune() {
     const today = G.todayISO(this.now());
@@ -1018,7 +1030,7 @@ class Engine {
     const lines = [{ ...this.npc.template('fortune', fortune), event: 'fortune' }];
     if (reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
     this.tutorialMark('fortune');
-    return this.settle({ again: false, fortune, reward, lines, view: this.view() });
+    return this.settle({ again: false, fortune: RN.renameDeep(fortune, this.config.npc.name), reward, lines, view: this.view() });
   }
 
   async setActive(questId) {
@@ -1160,6 +1172,7 @@ class Engine {
     const aOn = this.affOn();
     const acfg = this.affCfg();
     const { self, call } = this.npc.names();
+    const bText = RN.toBase(text, this.config.npc.name); // 改過名：叫新名字也認得是在說她（罵人、稱讚的規則是用「艾琳」寫的）
     // 洗版（亂打鍵盤、同一句第三次、一分鐘丟一堆）：不問 AI 直接回，10 分鐘內第三次開始扣好感
     if (aOn) {
       const a = this.aff();
@@ -1189,14 +1202,14 @@ class Engine {
     this.tutorialMark('chat');
     const workItems = I.ruleParse(text, cat);
     // 好感：先用關鍵字看這句話（騷擾／失禮／道歉／稱讚／說自己很痛苦），AI 開著時再請它判斷一次
-    const kw = aOn ? A.classify(text, acfg.words) : null;
+    const kw = aOn ? A.classify(bText, acfg.words) : null;
     const offenseKw = kw === 'rude' || kw === 'harass' ? kw : null;
     const a = aOn ? this.aff() : null;
     const recentOffense = aOn && (a.offenses || []).some((o) => at - o.at < 24 * 3600000);
     const canApologize = aOn && (this.isCold() || recentOffense) && a.apologyDay !== today;
     const apologizing = kw === 'apology' && canApologize;
     const relationQ = aOn && A.RELATION.test(text);
-    const extra = [I.ACTION_RULES];
+    const extra = [RN.rename(I.ACTION_RULES, self)]; // 例句「要艾琳幫你…」也用現在的名字
     if (aOn) extra.push(A.attitudeRules(call, self));
     if (apologizing) extra.push(`【道歉】${call}在為剛才的失禮道歉：接受道歉，可以小小抱怨一句，最後原諒他。`);
     if (relationQ) extra.push(`【關係問題】${call}在問你們現在是什麼關係：照【關係】的親近程度，用角色口吻回答一兩句。`);
@@ -1266,7 +1279,7 @@ class Engine {
     delete line.data;
     // 💗 好感：失禮／騷擾扣分（AI 判斷的要再過一次關）；道歉、稱讚加分
     if (aOn) {
-      const att = offenseKw || (kw === 'care' ? 'ok' : A.guardAttitude(llmAtt, text, { hasWork: items.length > 0 || workItems.length > 0 }));
+      const att = offenseKw || (kw === 'care' ? 'ok' : A.guardAttitude(llmAtt, bText, { hasWork: items.length > 0 || workItems.length > 0 }));
       if (att === 'rude' || att === 'harass') {
         line.emotion = 'disdain';
         this.affect(-acfg.loss[att], att === 'harass' ? '騷擾' : '失禮');
@@ -1276,9 +1289,9 @@ class Engine {
         if (apologizing || (att === 'apology' && canApologize)) {
           this.affect(acfg.gain.apology, '道歉', { uncapped: true }); a.apologyDay = today; a.coldUntil = 0;
         } else if ((kw === 'kind' || att === 'kind') && (a.kindToday || 0) < 3 && !this.isCold()) {
-          a.kindToday = (a.kindToday || 0) + 1; this.affect(acfg.gain.kind, '稱讚艾琳');
+          a.kindToday = (a.kindToday || 0) + 1; this.affect(acfg.gain.kind, `稱讚${this.config.npc.name}`);
         }
-        if (replyTopic && !this.isCold() && (a.topicToday || 0) < (acfg.topicReplies ?? 3)) { a.topicToday = (a.topicToday || 0) + 1; this.affect(acfg.gain.topic, '陪艾琳聊天'); }
+        if (replyTopic && !this.isCold() && (a.topicToday || 0) < (acfg.topicReplies ?? 3)) { a.topicToday = (a.topicToday || 0) + 1; this.affect(acfg.gain.topic, `陪${this.config.npc.name}聊天`); }
       }
     }
     this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest, at: this.now().getTime() }); // source=template 的不會再給模型看
@@ -1293,7 +1306,10 @@ class Engine {
   noteFrom(text, aiNotes) {
     if (this.nbCfg().enabled === false) return [];
     const now = this.now();
-    const found = [...M.extractRules(text, now), ...M.guardAI(aiNotes, text, now)];
+    const name = this.config.npc.name; // 改過名：說到她的事不記（規則認的是「艾琳」）
+    const base = RN.toBase(text, name);
+    const ai = Array.isArray(aiNotes) ? aiNotes.map((n) => (n && typeof n.text === 'string' ? { ...n, text: RN.toBase(n.text, name) } : n)) : aiNotes;
+    const found = [...M.extractRules(base, now), ...M.guardAI(ai, base, now)];
     if (!found.length) return [];
     const { added, updated } = M.add(this.nb(), found, now, { max: this.nbCfg().max });
     return [...added, ...updated];
@@ -1363,7 +1379,7 @@ class Engine {
       else if (item.self) {
         const gold = this.nbCfg().birthdayGold;
         if (item.giftYear !== year && gold > 0) {
-          G.grant(this.state, { xp: 0, gold }, '艾琳的生日禮物', this.config.rewards, this.now());
+          G.grant(this.state, { xp: 0, gold }, `${this.config.npc.name}的生日禮物`, this.config.rewards, this.now());
           item.giftYear = year; f.gold = gold; key = 'date_birthday';
           about = `今天是${call}的生日！祝他生日快樂，送他 ${gold} 金幣當禮物（一定要提到）`;
         } else { key = 'date_birthday_again'; about = `今天是${call}的生日，祝他生日快樂`; }
@@ -1402,7 +1418,7 @@ class Engine {
     };
   }
   collectionView() {
-    return { achievements: AC.view(this.state.achievements, this.achCtx()), cards: C.view(this.state.collection), streak: { cur: this.view().streak, best: this.state.streak.best || 0, days: this.state.streak.days || 0 } };
+    return RN.renameDeep({ achievements: AC.view(this.state.achievements, this.achCtx()), cards: C.view(this.state.collection), streak: { cur: this.view().streak, best: this.state.streak.best || 0, days: this.state.streak.days || 0 } }, this.config.npc.name);
   }
 
   // ---- 🛒 雲朵雜貨舖（兔族雙胞胎棉棉、朵朵顧店）----
@@ -1412,7 +1428,7 @@ class Engine {
     const cat = S.catalog(this.state.shop, gold);
     for (const k of ['gifts', 'themes', 'ornaments']) for (const x of cat[k]) x.wished = wish.includes(x.id); // 🔖 請朵朵留著的
     const cards = { ...C.view(this.state.collection), tickets: this.state.collection.tickets || 0 };
-    return { gold, keepers: S.KEEPERS, catalog: cat, cards, twins: twins || null, seals: this.state.shop.seals, wish: wish.map((id) => ({ id, ...(this.wishItem(id) || {}) })), wishMax: this.twCfg().wishMax };
+    return RN.renameDeep({ gold, keepers: S.KEEPERS, catalog: cat, cards, twins: twins || null, seals: this.state.shop.seals, wish: wish.map((id) => ({ id, ...(this.wishItem(id) || {}) })), wishMax: this.twCfg().wishMax }, this.config.npc.name); // 商品說明、雙胞胎的話裡的「艾琳」換成現在的名字
   }
   shopOpen() {
     const sh = this.state.shop;
@@ -1581,10 +1597,10 @@ class Engine {
     const name = this.config.npc.name;
     const visit = TW.build(v.kind, { ...v.data, maxTickets: this.twCfg().maxTickets }, r);
     visit.id = v.id;
-    for (const l of visit.lines) l.text = l.text.replace(/艾琳/g, name);
+    for (const l of visit.lines) l.text = RN.rename(l.text, name);
     if (visit.kind === 'congrats') this.state.collection.tickets = (this.state.collection.tickets || 0) + visit.tickets;
     if (visit.kind === 'tea') {
-      visit.erin = { text: TW.erinTea(S.giftTier(this.affOn() ? this.affStage() : 3), r).replace(/艾琳/g, name), emotion: 'happy' };
+      visit.erin = { text: RN.rename(TW.erinTea(S.giftTier(this.affOn() ? this.affStage() : 3), r), this.npc.names().self), emotion: 'happy' };
       if (this.affOn()) this.affect(this.twCfg().teaAffection, '下午茶外送：雲朵茶舖的奶茶');
     }
     return this.settle({ visit, lines: [], view: this.view() });

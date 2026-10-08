@@ -285,7 +285,7 @@
         <div class="q">請輸入接待員的名字</div>
         <input id="opName" maxlength="16" autocomplete="off" spellcheck="false" value="${esc(cur)}">
         <div class="err" id="opNameErr"></div>
-        <div class="note">她會用這個名字自我介紹，也會這樣稱呼自己。<br>1～8 個字・之後可以從右鍵選單「❓ 說明 → 🎬 重看開場」再改</div>
+        <div class="note">她會用這個名字自我介紹，也會這樣稱呼自己。<br>1～8 個字・之後可以在右鍵「⚙ 設定與資料 → ✏️ 幫接待員改名字」改</div>
         <div class="row"><button type="button" class="btn ghost" id="opNameDef">用預設名字</button><button type="button" class="btn gold" id="opNameOk">決定 ✓</button></div>
       </div>`;
     const input = $('opName'), err = $('opNameErr');

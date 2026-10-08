@@ -2444,3 +2444,96 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const d of [appDir, userDir]) fs.rmSync(d, { recursive: true, force: true });
   console.log('開場測試通過 ✔');
 })();
+
+// ---------- ✏️ 接待員改名：內建台詞、角色設定、雜貨舖、成就、運勢、待機小字都跟著換；罵新名字一樣抓得到 ----------
+(async () => {
+  const os = require('os');
+  const root = path.join(__dirname, '..');
+  const RN = require('../src/renderer/rename');
+  const A = require('../src/main/affection');
+  const { NPC, TEMPLATES, voice } = require('../src/main/npc');
+  const { Lore } = require('../src/main/lore');
+  const { Engine } = require('../src/main/engine');
+  const leftover = (s) => String(s).split('艾琳的任務櫃台').join('').includes('艾琳'); // 程式名稱、資料夾不算
+  // 1. rename：換過再換一樣、程式名稱不動、冒險者寫的字不動、名字裡有艾琳也不會疊字
+  assert.strictEqual(RN.rename('交給艾琳吧！資料在「文件\\艾琳的任務櫃台」', '小雪'), '交給小雪吧！資料在「文件\\艾琳的任務櫃台」');
+  assert.strictEqual(RN.rename(RN.rename('艾琳的房間', '艾琳娜'), '艾琳娜'), '艾琳娜的房間', '換兩次也一樣');
+  assert.strictEqual(RN.rename('幫艾琳買奶茶，艾琳說', '小雪', { protect: ['幫艾琳買奶茶'] }), '幫艾琳買奶茶，小雪說', '任務名不動');
+  assert.strictEqual(RN.rename('艾琳', '艾琳'), '艾琳');
+  assert.deepStrictEqual(RN.renameDeep({ a: ['艾琳的', { b: '艾琳' }], n: 3, f: null }, '小雪'), { a: ['小雪的', { b: '小雪' }], n: 3, f: null });
+  assert.strictEqual(RN.toBase('小雪是白痴', '小雪'), '艾琳是白痴');
+  assert.strictEqual(RN.toBase('今天下雪了', '雪'), '今天下雪了', '一個字的名字不換');
+  // 2. 罵新名字一樣算失禮；稱讚新名字一樣算稱讚
+  assert.strictEqual(A.classify('小雪是白痴'), null);
+  assert.strictEqual(A.classify(RN.toBase('小雪是白痴', '小雪')), 'rude');
+  assert.strictEqual(A.classify(RN.toBase('摸小雪的屁股', '小雪')), 'harass');
+  // 3. AI 的回覆和內建台詞：自稱、AI 不小心說的「艾琳」、填進去的運勢句都換成新名字
+  assert.strictEqual(voice('我是艾琳～交給艾琳吧！', { self: '小雪' }), '這裡是小雪～交給小雪吧！');
+  const npc = new NPC({ npc: { name: '小雪', selfName: '小雪', callName: '冒險者' }, llm: { enabled: false } });
+  for (const key of Object.keys(TEMPLATES)) {
+    for (let i = 0; i < 12; i++) {
+      const t = npc.template(key, { quest: '週報', opener: '🔮 「大吉」！艾琳的尾巴都豎起來了！今天', advice: '適合跟艾琳說說話', item: '奶茶', rank: '大吉', gold: 5, name: '成就', note: '生日', left: 1 }).text;
+      assert.ok(!leftover(t), `${key}：${t}`);
+    }
+  }
+  assert.ok(npc.template('fortune', { opener: '「大吉」！艾琳的尾巴都豎起來了！', advice: '適合喝茶', item: '鈴', gold: 3 }).text.includes('小雪的尾巴'), '運勢句換成新名字');
+  assert.ok(!leftover(npc.template('greet', { quest: '幫艾琳買奶茶' }).text.replace('幫艾琳買奶茶', '')), '任務名裡的艾琳不動');
+  // 4. 角色設定：讀進來就是新名字；打新名字或「艾琳」都找得到
+  const lore = new Lore({ file: path.join(root, 'lore', '艾琳.md'), dataDir: os.tmpdir(), embeddings: false, npcName: '小雪' });
+  const flat = JSON.stringify({ name: lore.name, core: lore.core, e: lore.entries.map((e) => [e.title, e.text, e.reply, e.topics]) });
+  assert.ok(!leftover(flat) && flat.includes('小雪'), '角色設定沒有留下艾琳');
+  const room = lore.entries.find((e) => /小雪的房間/.test(e.title));
+  assert.ok(room, '標題也換了');
+  assert.ok((await lore.retrieve('小雪的房間長什麼樣子')).some((h) => h.entry === room) && (await lore.retrieve('艾琳的房間長什麼樣子')).some((h) => h.entry === room), '新舊名字都找得到');
+  assert.ok(lore.topicPool().every((t) => !leftover(t.text)), '話題');
+  // 5. 引擎：⚙ 改名、雜貨舖、成就、星座卡、運勢、新手任務、AI 的系統提示
+  const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-rn-app-'));
+  const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-rn-user-'));
+  fs.mkdirSync(path.join(appDir, 'plans')); fs.mkdirSync(path.join(appDir, 'lore'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(appDir, 'plans', 'week_sample.md'));
+  fs.copyFileSync(path.join(root, 'lore', '艾琳.md'), path.join(appDir, 'lore', '艾琳.md'));
+  const cfg0 = JSON.parse(fs.readFileSync(path.join(root, 'config.example.json'), 'utf8'));
+  fs.writeFileSync(path.join(userDir, 'config.json'), JSON.stringify({ ...cfg0, lore: { ...(cfg0.lore || {}), embeddings: false }, llm: { ...cfg0.llm, enabled: false } }));
+  const E = new Engine({ appDir, userDir });
+  E.npc.status.online = false;
+  let r = E.renameNpc('我是誰');
+  assert.ok(r.invalid && /我/.test(r.invalid) && E.config.npc.name === '艾琳', '不合規則：不改');
+  assert.ok(E.renameNpc('艾琳').same, '一樣的名字');
+  r = E.renameNpc(' 小雪 ');
+  assert.ok(r.renamed === '小雪' && E.config.npc.name === '小雪' && E.npc.names().self === '小雪' && r.lines[0].event === 'renamed' && r.lines[0].text.includes('小雪'), '改名：' + JSON.stringify(r.lines));
+  assert.strictEqual(E.lore.npcName, '小雪', '角色設定跟著重讀');
+  assert.ok(!leftover(E.npc.systemPrompt()) && E.npc.systemPrompt().includes('小雪'), '系統提示（含角色核心設定）');
+  E.state.player.gold = 9999;
+  const views = [E.shopOpen().shop, E.collectionView(), E.drawFortune().fortune, E.view().tutorial, E.view()];
+  for (const v of views) assert.ok(!leftover(JSON.stringify(v || {})), '還有艾琳：' + (JSON.stringify(v || {}).match(/.{0,20}艾琳.{0,20}/) || [''])[0]);
+  const gift = await E.buyGift('tea');
+  assert.ok(!leftover(JSON.stringify(gift.lines)) && !leftover(JSON.stringify(gift.shop)), '送禮');
+  E.twinsQueue('tea', {});
+  const tea = E.twinsTake();
+  assert.ok(!tea.visit || (!leftover(JSON.stringify(tea.visit.lines)) && !leftover((tea.visit.erin || {}).text || '')), '下午茶外送');
+  // 小本子：說到她的事不記（用新名字說也一樣）
+  const before = E.nb().items.length;
+  E.noteFrom('小雪喜歡吃魚形麵包', []);
+  assert.strictEqual(E.nb().items.length, before, '說她喜歡什麼不記在冒險者的小本子');
+  E.noteFrom('我喜歡吃魚形麵包', []);
+  assert.strictEqual(E.nb().items.length, before + 1);
+  // 罵新名字：扣好感
+  const p0 = E.aff().points = 50;
+  await E.chat('小雪是白痴');
+  assert.ok(E.aff().points < p0, '罵新名字也會扣好感');
+  // 6. 畫面：待機小字、面板台詞、說明小卡、改名表單
+  const rjs = fs.readFileSync(path.join(root, 'src/renderer/renderer.js'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'src/renderer/index.html'), 'utf8');
+  assert.ok(/whisper\.textContent = typeof nmR === 'function' \? nmR\(text\)/.test(fs.readFileSync(path.join(root, 'src/renderer/idle.js'), 'utf8')), '待機小字');
+  assert.ok(rjs.includes('rich(nmR(ln.text))') && rjs.includes('renameStatic(v.npc.name)') && rjs.includes("state.panel === 'rename'"), '面板台詞、說明小卡、改名表單');
+  assert.ok(html.indexOf('src="rename.js"') > 0 && html.indexOf('src="rename.js"') < html.indexOf('src="renderer.js"') && html.includes('src="opening-script.js"'));
+  assert.ok(/幫接待員改名字/.test(fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8')) && /renameNpc/.test(fs.readFileSync(path.join(root, 'src/main/preload.js'), 'utf8')));
+  // 畫面上寫死的「艾琳」：只剩預設值和程式／資料夾名稱
+  for (const f of ['renderer.js', 'shop.js', 'notebook.js', 'journal.js', 'twins.js', 'update.js', 'onboard.js']) {
+    const code = fs.readFileSync(path.join(root, 'src/renderer', f), 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).map((l) => l.replace(/\/\/.*$/, '').replace(/\/\*.*?\*\//g, ''));
+    const bad = code.filter((l) => leftover(l) && !/\|\| '艾琳'|Rename\.BASE|: '艾琳'|關於\|艾琳/.test(l));
+    assert.deepStrictEqual(bad, [], `${f} 還寫死艾琳`);
+  }
+  for (const d of [appDir, userDir]) fs.rmSync(d, { recursive: true, force: true });
+  console.log('接待員改名測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

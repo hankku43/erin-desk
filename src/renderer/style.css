@@ -226,6 +226,7 @@ body.panel-open #panel { flex: 1 1 auto; }
 .field input:focus { outline: none; border-color: var(--sky); box-shadow: 0 0 0 3px rgba(79, 168, 255, .2); }
 .field input[type="date"], .field input[type="time"] { font-variant-numeric: tabular-nums; padding: 5px 8px; }
 .field .fnote { font-size: var(--fs-xs); font-weight: 400; color: var(--ink-soft); }
+.field .fnote.bad { color: #d8445c; font-weight: 700; } /* ✏️ 改名：名字不合規則 */
 .panel-body.form .field { margin-bottom: 8px; }
 .tier-pick { display: flex; gap: 4px; }
 .tp { flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 7px 4px; border: 2px solid var(--line); border-radius: var(--r-m); background: var(--surface); font-size: var(--fs-s); font-weight: 700; cursor: pointer; line-height: 1.2; white-space: nowrap; }

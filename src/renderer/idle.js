@@ -32,7 +32,7 @@
   function showWhisper(text, ms = 3800) {
     if (state.mini) return;
     clearTimeout(whisperTimer);
-    whisper.textContent = text;
+    whisper.textContent = typeof nmR === 'function' ? nmR(text) : text; // ✏️ 改過名：待機小字裡的「艾琳」換成新名字
     whisper.classList.remove('hidden', 'out'); void whisper.offsetWidth; whisper.classList.add('in');
     whisperTimer = setTimeout(() => { whisper.classList.add('out'); whisperTimer = setTimeout(() => whisper.classList.add('hidden'), 400); }, ms);
   }

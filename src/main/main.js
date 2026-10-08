@@ -243,6 +243,10 @@ function createWindow({ hidden = false } = {}) {
 function push(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
+// 工作列／視窗標題跟著接待員的名字（程式名稱、資料夾不改）
+function syncTitle() {
+  if (win && !win.isDestroyed()) win.setTitle(`${engine.config.npc.name}的任務櫃台${TEST_MODE ? '（測試）' : ''}`);
+}
 
 // ---------- 🎬 開場「雨夜的小白貓」（opening.html，全螢幕透明視窗） ----------
 let openingWin = null, openingReplay = false, openingDone = false;
@@ -277,10 +281,8 @@ function endOpening() {
   openingDone = true;
   const ow = openingWin;
   if (ow && !ow.isDestroyed()) setTimeout(() => { if (!ow.isDestroyed()) ow.close(); }, 60);
-  if (win && !win.isDestroyed()) {
-    win.setTitle(`${engine.config.npc.name}的任務櫃台${TEST_MODE ? '（測試）' : ''}`);
-    win.show();
-  }
+  syncTitle();
+  if (win && !win.isDestroyed()) win.show();
   push('opening:done', { view: engine.view(), replay: openingReplay });
 }
 
@@ -554,6 +556,8 @@ function menuTemplate() {
       { label: engine.lore.statusText(), enabled: false },
     ] },
     { label: '⚙ 設定與資料', submenu: [
+      { label: `✏️ 幫接待員改名字（現在叫「${npcName}」）`, click: open('rename') },
+      { type: 'separator' },
       { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
       { label: '📊 狀態欄（等級、當前任務）', type: 'checkbox', checked: engine.config.window.hud !== false, click: (m) => { const r = engine.setHud(m.checked); push('view:update', { view: r.view }); } },
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
@@ -566,7 +570,7 @@ function menuTemplate() {
       { label: '開啟設定檔 config.json', click: () => shell.openPath(engine.configFile()) },
       { label: `開啟角色設定檔（${npcName}的故事）`, click: () => shell.openPath(engine.lore.file) },
       { label: '開啟角色圖片資料夾', click: () => { fs.mkdirSync(userCharDir(), { recursive: true }); shell.openPath(userCharDir()); } },
-      { label: '重新讀取設定', click: async () => { engine.loadConfig(); await engine.npc.checkStatus(); push('view:update', { view: engine.view(), reason: '設定已重新讀取' }); } },
+      { label: '重新讀取設定', click: async () => { engine.loadConfig(); syncTitle(); await engine.npc.checkStatus(); push('view:update', { view: engine.view(), reason: '設定已重新讀取' }); } },
     ] },
     { label: '❓ 說明', submenu: [
       { label: '🩺 健康檢查（哪裡怪怪的？）', click: open('health') },
@@ -709,6 +713,7 @@ app.whenReady().then(async () => {
     const ci = characterImages();
     return { erinName: engine.config.npc.name || '艾琳', playerName: engine.state.playerName || '', replay: openingReplay, images: { ...ci.poses, ...ci.images }, test: !!process.env.QUEST_NPC_TEST };
   }));
+  ipcMain.handle('npc:rename', wrap((name) => { const r = engine.renameNpc(String(name || '').slice(0, 40)); syncTitle(); return r; })); // ✏️ ⚙ 幫接待員改名字
   ipcMain.handle('opening:finish', wrap(async (r) => {
     const out = engine.finishOpening(r || {}, { replay: openingReplay });
     endOpening();

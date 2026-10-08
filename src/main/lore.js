@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const RN = require('../renderer/rename');
 
 const EMOTIONS = ['normal', 'happy', 'thinking', 'surprised', 'cheer', 'worried', 'shy', 'disdain']; // 跟 npc.js 一樣（測試會檢查）
 
@@ -104,8 +105,8 @@ function cosine(a, b) {
 }
 
 class Lore {
-  constructor({ file, dataDir, llm, embeddings = 'auto', embedModel = 'qwen3-embedding:0.6b', log = () => {} }) {
-    this.file = file; this.dataDir = dataDir; this.llm = llm || {};
+  constructor({ file, dataDir, llm, embeddings = 'auto', embedModel = 'qwen3-embedding:0.6b', log = () => {}, npcName = '' }) {
+    this.file = file; this.dataDir = dataDir; this.llm = llm || {}; this.npcName = npcName;
     this.embeddings = embeddings; this.embedModel = embedModel; this.log = log;
     this.name = ''; this.core = ''; this.entries = [];
     this.vectors = null; // Map(entryId → vector)
@@ -117,6 +118,7 @@ class Lore {
     try {
       const parsed = parseLore(fs.readFileSync(this.file, 'utf8'));
       this.name = parsed.name; this.core = parsed.core; this.entries = parsed.entries;
+      this.applyName();
     } catch (e) {
       this.name = ''; this.core = ''; this.entries = [];
       this.error = `讀不到角色設定檔：${this.file}`;
@@ -127,6 +129,20 @@ class Lore {
       tokens: [...tokens(e.title), ...tokens(e.keywords.join(' ')), ...tokens(e.keywords.join(' ')), ...tokens(e.keywords.join(' ')), ...tokens(e.text)],
     })));
     this.vectors = null;
+  }
+
+  // ✏️ 接待員改過名：設定檔照舊用「艾琳」寫，讀進來時換成新名字（AI 看到的、離線台詞、話題都是新名字）
+  // 關鍵字新舊都留著：打新名字或「艾琳」都找得到。向量會照新的內容重算一次（快取依內容）
+  applyName() {
+    const n = this.npcName;
+    if (!RN.isRenamed(n)) return;
+    const r = (t) => RN.rename(t, n);
+    this.name = r(this.name); this.core = r(this.core);
+    for (const e of this.entries) {
+      e.title = r(e.title); e.text = r(e.text); e.reply = r(e.reply);
+      e.topics = e.topics.map((t) => ({ ...t, text: r(t.text) }));
+      e.keywords = [...new Set([...e.keywords.map(r), ...e.keywords])];
+    }
   }
 
   // 冒險者的話裡直接包含某條的關鍵字 → 強命中

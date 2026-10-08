@@ -3,7 +3,18 @@
 const $ = (s) => document.querySelector(s);
 const GREET_COOLDOWN = 30 * 60000; // 半小時內再點她，就不重複報告任務，改成閒聊
 const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null, starSeen: {}, flMode: 'auto', flSlotId: null, flFlashUntil: 0, lastActive: null };
-const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard']); // 表單面板：畫面更新時不重畫，免得打到一半的字不見
+const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename']);
+// ✏️ 接待員改名：內建的句子（待機小字、面板台詞、說明小卡）是用「艾琳」寫的，顯示前換成現在的名字（rename.js）
+const npcNameR = () => (state.view && state.view.npc && state.view.npc.name) || '艾琳';
+const nmR = (t) => (typeof Rename !== 'undefined' ? Rename.rename(t, npcNameR()) : t);
+function renameStatic(name) {
+  if (typeof Rename === 'undefined' || state.staticName === name) return;
+  state.staticName = name;
+  document.querySelectorAll('[data-tip]').forEach((el) => {
+    if (el.dataset.tip0 === undefined) { if (!el.dataset.tip.includes(Rename.BASE)) return; el.dataset.tip0 = el.dataset.tip; }
+    el.dataset.tip = Rename.rename(el.dataset.tip0, name);
+  });
+} // 表單面板：畫面更新時不重畫，免得打到一半的字不見
 
 // 未捕捉的錯誤印到主程式終端機（啟動.bat 的視窗看得到）
 window.addEventListener('error', (e) => console.error('[renderer error]', e.message, e.filename, e.lineno));
@@ -314,7 +325,7 @@ $('#hudHide').addEventListener('click', (e) => {
     const r = await api.setHud(false);
     document.body.classList.remove('hud-out');
     if (r && r.view) applyView(r.view);
-    toast('📊 狀態欄收起來了。右鍵艾琳 →「📊 顯示狀態欄」可以再打開', 4200, { at: 'hud' });
+    toast(`📊 狀態欄收起來了。右鍵${npcNameR()} →「📊 顯示狀態欄」可以再打開`, 4200, { at: 'hud' });
   }, 300);
 });
 
@@ -473,6 +484,7 @@ function applyView(v) {
   $('#xptext').textContent = `${p.xpInLevel} / ${p.xpForNext} XP`;
   const nbBtn = document.querySelector('#choices [data-act="notebook"]'); if (nbBtn) nbBtn.dataset.tip = `偷看${v.npc.name}的小本子：她記得你說過的事`;
   $('#npcName').textContent = v.npc.name;
+  renameStatic(v.npc.name); // ✏️ 寫在 index.html 裡的說明小卡
   const cold = !!(v.affection && v.affection.cold); // 冷戰中：名牌上一片雪花（好感度本身不顯示）
   $('#npcName').classList.toggle('cold', cold);
   $('#npcName').title = cold ? `${v.npc.name}好像還在生氣……` : '';
@@ -956,7 +968,7 @@ $('#choices').addEventListener('click', async (e) => {
 // 聊天裡說「幫我占卜…」「算一卦」就直接打開占卜面板（問「梅花易數是什麼」這種還是聊天）
 const DV_RE = /(占卜|算一卦|卜一卦|卜個卦|起一?卦|算個卦)/;
 function questionFromChat(t) {
-  const q = t.replace(/(請|幫我|幫忙|可以|能不能|用梅花易數|梅花易數|占卜|算一卦|卜一卦|卜個卦|起一?卦|算個卦|一下|看看|關於|艾琳)/g, '').replace(/^[，,：:、\s]+|[，,：:、\s]+$/g, '').trim();
+  const q = (typeof Rename !== 'undefined' ? Rename.toBase(t, npcNameR()) : t).replace(/(請|幫我|幫忙|可以|能不能|用梅花易數|梅花易數|占卜|算一卦|卜一卦|卜個卦|起一?卦|算個卦|一下|看看|關於|艾琳)/g, '').replace(/^[，,：:、\s]+|[，,：:、\s]+$/g, '').trim();
   return q.length >= 2 ? q : '';
 }
 const CHAT_HINT = $('#chatInput').placeholder;
@@ -1017,7 +1029,7 @@ function sayContext(kind) {
   const ln = typeof PanelLines !== 'undefined' ? PanelLines.line(kind, state.view, { questId: state.panelArg }) : null;
   if (!ln) { $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.shownLogId = null; logRefresh(); return; }
   $('#dialog').classList.remove('hidden'); hideWhisper();
-  $('#dlgText').innerHTML = rich(ln.text);
+  $('#dlgText').innerHTML = rich(nmR(ln.text));
   $('#dlgMore').classList.add('hidden');
   setShown(null);
   setEmotion(ln.emotion || 'normal');
@@ -1168,6 +1180,17 @@ function renderPanelInner(el, v) {
     setTimeout(() => { const i = $('#mfText'); if (i) i.focus(); }, 30);
   }
 
+  // ✏️ 幫接待員改名字（右鍵 ⚙ 設定與資料）
+  if (state.panel === 'rename') {
+    const cur = v.npc.name, base = typeof Rename !== 'undefined' ? Rename.BASE : '艾琳';
+    el.innerHTML = head('✏️ 幫接待員改名字', `現在叫「${esc(cur)}」`, '', `她會用這個名字自我介紹，也會這樣稱呼自己；台詞、角色設定、雜貨舖和成就的說明都會跟著換。程式名稱和「文件\\艾琳的任務櫃台」資料夾不會變`) + `<div class="panel-body form">
+      <div class="field">🏷 新的名字<input id="rnName" maxlength="16" autocomplete="off" spellcheck="false" value="${esc(cur)}"><small class="fnote" id="rnErr">1～8 個字；不能有「我、你、妳、您」，也不能叫「冒險者」</small></div>
+      <p class="hint">會跟著換：她的自稱和台詞、名牌、角色設定（AI 看到的故事）、雜貨舖和成就的說明、待機時的小聲自言自語、視窗標題。<br>不會變：程式名稱、資料夾「文件\\艾琳的任務櫃台」、角色設定檔的檔名。</p>
+    </div>
+    <div class="panel-foot">${cur !== base ? `<button class="btn ghost" id="rnDefault">改回${esc(base)}</button>` : ''}<span class="spacer"></span><button class="btn ghost" data-close>取消</button><button class="btn gold" id="rnSave">✏️ 改名</button></div>`;
+    setTimeout(() => { const i = $('#rnName'); if (i) { i.focus(); i.select(); } }, 30);
+  }
+
   if (state.panel === 'divine') renderDivine(el, v);
   if (state.panel === 'onboard') renderOnboard(el, v);
   if (state.panel === 'health') renderHealth(el, v);
@@ -1236,6 +1259,18 @@ async function saveRowForm() {
   state.panelBack = null; openPanel('daily');
   toast(date === todayISO() ? '⏱ 已加進今天的行程' : `⏱ 已加進 ${isoToLabel(date)} 的行程`);
 }
+// ✏️ 改名：先在畫面檢查一次（跟開場的系統提示同一套規則），關掉表單再送出，她的那句話才看得到
+async function saveRename(raw) {
+  const chk = typeof OpeningScript !== 'undefined' ? OpeningScript.validateName(raw) : { ok: true, name: String(raw || '').trim() };
+  if (!chk.ok) { const n = $('#rnErr'); if (n) { n.textContent = `⚠ ${chk.error}`; n.classList.add('bad'); } const i = $('#rnName'); if (i) i.focus(); return; }
+  if (chk.name === npcNameR()) { closePanel(); toast(`名字還是「${chk.name}」，沒有改喔`); return; }
+  closePanel();
+  const r = await run(() => api.renameNpc(chk.name), { thinking: false });
+  if (!r || !r.ok) return;
+  if (r.invalid) { toast(`⚠ ${r.invalid}`, 4500); return; }
+  if (r.renamed) toast(`✏️ 接待員現在叫「${r.renamed}」了`, 3200);
+}
+
 async function saveRemForm() {
   const date = $('#mfDate').value, time = $('#mfTime').value, text = $('#mfText').value.trim(), action = $('#mfAction').value.trim();
   if (!date || !time) { toast('⚠ 請填日期和時間'); return; }
@@ -1316,6 +1351,8 @@ async function panelClick(e) {
   if (t.id === 'qfSave') { await saveQuestForm(); return; }
   if (t.id === 'rfSave') { await saveRowForm(); return; }
   if (t.id === 'mfSave') { await saveRemForm(); return; }
+  if (t.id === 'rnSave') { await saveRename($('#rnName').value); return; }
+  if (t.id === 'rnDefault') { await saveRename(Rename.BASE); return; }
   // 刪除都先問一次（在原地變成「刪除／取消」）
   if (t.closest('[data-del-no]')) { state.confirmDel = null; renderPanel(); return; }
   const dq = dataAttr(t, 'del-quest'); if (dq) { state.confirmDel = `quest:${dq}`; renderPanel(); return; }
@@ -1379,6 +1416,7 @@ $('#panel').addEventListener('keydown', async (e) => {
   if (t.tagName === 'INPUT' && state.panel === 'questForm') { e.preventDefault(); await saveQuestForm(); }
   else if (t.tagName === 'INPUT' && state.panel === 'rowForm') { e.preventDefault(); await saveRowForm(); }
   else if (t.tagName === 'INPUT' && state.panel === 'remForm') { e.preventDefault(); await saveRemForm(); }
+  else if (t.tagName === 'INPUT' && state.panel === 'rename') { e.preventDefault(); await saveRename(t.value); }
 });
 $('#panel').addEventListener('change', async (e) => {
   const t = e.target;

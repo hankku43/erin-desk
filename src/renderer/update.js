@@ -25,7 +25,7 @@
       ${notes}
       <div class="upd-btns">${portable
         ? '<button class="btn small gold" data-upd-page>打開下載頁</button><button class="btn small ghost" data-upd-later>知道了</button>'
-        : '<button class="btn small gold" data-upd-install>現在更新（會重新啟動）</button><button class="btn small ghost" data-upd-later title="下次關掉艾琳時會自動換上">下次再裝</button>'}</div>`;
+        : `<button class="btn small gold" data-upd-install>現在更新（會重新啟動）</button><button class="btn small ghost" data-upd-later title="下次關掉${esc(npcName())}時會自動換上">下次再裝</button>`}</div>`;
     card.style.bottom = document.body.classList.contains('no-hud') ? '14px' : `${($('#hud') && $('#hud').offsetHeight) + 22}px`;
   }
 

@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('fs');
+const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建台詞裡的「艾琳」換成現在的名字
 
 let toTW = (s) => s;
 try {
@@ -29,7 +30,7 @@ const EMOTION_CUES = {
   surprised: /[欸咦誒哇喵][？?！!]|[？?][！!]|[！!][？?]|嚇(了一跳|到了|一跳)|竟然|居然|真的假的|尾巴(的毛)?(都)?炸/,
   worried: /擔心|別太累|不要太累|別勉強|不要勉強|要注意身體|不舒服|逾期|來不及|糟糕|怎麼辦|唉|嗚/,
   cheer: /太棒了|恭喜|萬歲|好耶|耶[！!～~]|成功了|做到了|🎉|乾杯|加油[！!]{2,}/,
-  thinking: /嗯[…\.]{1,}|讓(艾琳|我)想想|想一想|歪著頭|歪頭|抵著下巴|托著下巴|思考|該不會|會不會是/,
+  thinking: /嗯[…\.]{1,}|讓[^，,。！!？?\s]{1,8}想想|想一想|歪著頭|歪頭|抵著下巴|托著下巴|思考|該不會|會不會是/,
   // 鄙視不靠台詞推測：它只在冒險者失禮、騷擾、一直戳時出現（會扣好感）
 };
 // 這些事件模型選了 happy／normal、台詞又看不出情緒時，用事件本身的表情
@@ -339,6 +340,12 @@ const TEMPLATES = {
     ['星粉不夠了……一次占卜要 {cost} 金幣，你現在有 {gold}。先去完成幾個委託再來吧～', 'worried'],
     ['星粉不夠了喔……一次要 {cost} 金幣，你現在有 {gold}。完成一個小委託就湊得到了～', 'worried'],
   ],
+  // ✏️ ⚙ 幫接待員改名字之後
+  renamed: [
+    ['……{self}。嗯哼，名牌換好了！以後也請多指教喔，{call}。', 'happy'],
+    ['{self}、{self}……好，記住了！從今天起，交給{self}吧！', 'cheer'],
+    ['新的名字……{self}會好好珍惜的。嘿嘿，請多指教！', 'shy'],
+  ],
   smart_on: [['{self}戴上思考帽了！換個說法問，{self}也聽得懂喔～', 'cheer']],
   smart_off: [['思考帽先收起來，{self}改翻小本子上的關鍵字找～', 'normal']],
   smart_missing: [['欸，{self}的思考帽戴不上……要先開著 Ollama、裝好 {model} 才行喔。在那之前先用關鍵字找。', 'worried']],
@@ -515,6 +522,7 @@ function voice(text, { self = '艾琳', call = '冒險者', protect = [] } = {})
   s = s.replace(/玩家|使用者|用戶/g, call);
   s = s.replace(/(^|[，,。！!？?～~、\s…])(主人|勇者大人|勇者)(?=[，,。！!？?～~、\s…]|$)/g, `$1${call}`);
   s = s.replace(new RegExp(`${escRe(call)}(大人|先生|小姐|閣下|同學|桑|醬)`, 'g'), call);
+  s = RN.rename(s, self); // 改過名：AI 還是說了「艾琳」就換成新名字
   s = s.replace(new RegExp(`(${escRe(self)}){2,}`, 'g'), self).replace(new RegExp(`(${escRe(call)}){2,}`, 'g'), call);
   s = s.replace(new RegExp(`^${escRe(self)}(是|叫做?)${escRe(self)}`), `這裡是${self}`).replace(new RegExp(`([，,。！!？?…：:～~\\s])${escRe(self)}(是|叫做?)${escRe(self)}`, 'g'), `$1這裡是${self}`);
   // 保護的片段可能一層包一層（「」裡面是任務名），還原到沒有記號為止
@@ -589,7 +597,7 @@ class NPC {
     const r = this.relation;
     if (!r) return [];
     const { self, call } = this.names();
-    const L = [`【關係】${call}對${self}來說是「${r.name}」：${r.desc}用這個親近程度說話，但不要說出「好感」或數字。`];
+    const L = [`【關係】${call}對${self}來說是「${r.name}」：${RN.rename(r.desc, self)}用這個親近程度說話，但不要說出「好感」或數字。`];
     if (r.cold) L.push(MOODS.cold(call, self));
     return L;
   }
@@ -632,7 +640,8 @@ class NPC {
     }
     if (key === 'poke' && !f.quest) pool = pool.filter(([t]) => !t.includes('{quest}'));
     const [tpl, emotion] = pick(pool);
-    return { text: fill(tpl, { ...this.names(), ...f }), emotion, source: 'template', tpl };
+    // 內建台詞和填進去的片段（運勢、話題…）是用「艾琳」寫的：換成現在的名字（冒險者自己寫的字不動）
+    return { text: RN.rename(fill(tpl, { ...this.names(), ...f }), this.names().self, { protect: protectedTexts(f) }), emotion, source: 'template', tpl };
   }
 
   // 健康檢查：問 Ollama 有沒有活著、模型在不在。回傳 status，並用 changed 標記狀態是否翻轉

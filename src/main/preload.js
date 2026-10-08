@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   getView: () => ipcRenderer.invoke('view:get'),
   greet: () => ipcRenderer.invoke('npc:greet'),
+  renameNpc: (name) => ipcRenderer.invoke('npc:rename', name), // ✏️ 幫接待員改名字
   daily: () => ipcRenderer.invoke('npc:daily'),
   poke: () => ipcRenderer.invoke('npc:poke'),
   chat: (text) => ipcRenderer.invoke('npc:chat', text),
