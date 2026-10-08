@@ -757,6 +757,7 @@ app.whenReady().then(async () => {
   createWindow();
   setupUpdater();
   watchPlan();
+  if (!engine.state.onboarding || !engine.state.onboarding.done) require('./hardware').detect().catch(() => {}); // 第一次開：先看好顯示卡，新手教學的「大腦」那步就不用等
   engine.npc.checkStatus().then((st) => { push('view:update', { view: engine.view() }); if (st.online) engine.npc.warmUp(); });
   if (TEST_MODE) win.webContents.once('did-finish-load', () => setTimeout(() => push('view:update', { view: engine.view(), reason: `🧪 測試用的${engine.config.npc.name}：全新的資料夾，平常的存檔不受影響` }), 1200));
   scheduleHealth();

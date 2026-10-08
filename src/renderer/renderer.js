@@ -1361,6 +1361,7 @@ async function saveObjective(qid) {
 }
 $('#panel').addEventListener('input', (e) => {
   const d = state.dv, t = e.target;
+  if (t.id === 'obCustom' && state.ob) { state.ob.customDraft = t.value; return; } // 下載進度會重畫面板：打到一半的字要留著
   if (!d) return;
   if (t.id === 'dvQ') d.question = t.value;
   if (t.id === 'dvA') d.a = t.value;
@@ -1370,6 +1371,7 @@ $('#panel').addEventListener('keydown', async (e) => {
   const t = e.target;
   if (e.isComposing) return;
   if (e.key === 'Enter' && state.panel === 'divine' && state.dv && state.dv.step === 'ask' && t.tagName === 'INPUT') { e.preventDefault(); divineStart(); return; }
+  if (e.key === 'Enter' && state.panel === 'onboard' && t.id === 'obCustom') { e.preventDefault(); $('[data-ob-custom]').click(); return; }
   if (state.panel === 'onboard') return; // 新手教學用按鈕前進後退
   if (e.key === 'Escape') { if (state.addingObj) { state.addingObj = null; renderPanel(); } else if (FORM_PANELS.has(state.panel)) backFromForm(); return; }
   if (e.key !== 'Enter') return;

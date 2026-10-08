@@ -21,8 +21,8 @@ module.exports = ({ win, engine, app }) => {
   const flush = async () => { for (let i = 0; i < 40; i++) { if (!(await js('state.talking || state.queue.length > 0 || state.typing'))) break; if (await js('state.typing || state.queue.length > 0')) await js('advance()'); await wait(150); } };
   // 假的 Ollama 狀態：missing → （裝好）running；outdated
   let fake = { ollama: 'missing', models: [], version: null, outdated: false };
-  const choices = () => Object.entries(SETUP.MODELS).map(([name, m]) => ({ name, ...m, installed: fake.models.includes(name) }));
-  SETUP.probe = async () => ({ ...fake, ramGB: 16, recommend: 'qwen3:4b', why: '你的電腦有 16GB 記憶體，可以用標準版', minVersion: SETUP.MIN_OLLAMA, choices: choices(), embed: { ...SETUP.EMBED, installed: false }, downloadUrl: SETUP.OLLAMA_DOWNLOAD, canInstall: true });
+  const REC = SETUP.recommend(16);
+  SETUP.probe = async () => ({ ...fake, ramGB: 16, recommend: REC.model, up: REC.up, down: REC.down, why: REC.why, hw: { ramGB: 16, gpu: null, text: REC.hwText }, minVersion: SETUP.MIN_OLLAMA, choices: SETUP.buildChoices(REC, fake.models), embed: { ...SETUP.EMBED, installed: false }, downloadUrl: SETUP.OLLAMA_DOWNLOAD, canInstall: true });
   OI.supported = () => true;
   OI.installerSize = async () => 1181116006;
   // 假的安裝：一步一步由測試推進

@@ -951,18 +951,54 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const qText = PP.addQuest('# 這週\n', { title: '整理月報', tier: 'major', objectives: ['收齊數字', '寫摘要'] });
   assert.ok(/## 整理月報 🔧/.test(qText));
   assert.deepStrictEqual(PP.parsePlan(qText).quests.map((q) => [q.title, q.objectives.length]), [['整理月報', 2]], '一個任務兩個目標');
-  // 依記憶體推薦模型
-  assert.strictEqual(S.recommend(32).model, 'qwen3:4b');
-  assert.strictEqual(S.recommend(16).model, 'qwen3:4b');
-  assert.strictEqual(S.recommend(8).model, 'qwen3:1.7b');
-  assert.strictEqual(S.recommend(4).model, null);
+  // 依記憶體和顯示卡推薦模型：推薦／上一階／下一階
+  const R = (h) => { const r = S.recommend(h); return [r.model, r.up, r.down]; };
+  const G = (ram, vram, name = 'NVIDIA GeForce RTX 4060') => ({ ramGB: ram, gpu: { name, vendor: 'nvidia', vramGB: vram } });
+  assert.deepStrictEqual(R(15.8), ['qwen3:4b', 'qwen3:8b', 'qwen3:1.7b'], '沒顯示卡 16GB：照舊用 4b');
+  assert.deepStrictEqual(R(7.8), ['qwen3:1.7b', 'qwen3:4b', null], '沒顯示卡 8GB：輕量');
+  assert.deepStrictEqual(R(3.8), [null, 'qwen3:1.7b', null], '4GB：先不用 AI');
+  assert.deepStrictEqual(R(31.7), ['qwen3:30b-instruct', null, 'qwen3:4b'], '沒顯示卡 32GB：MoE 旗艦');
+  assert.deepStrictEqual(R(63.8), ['qwen3:30b-instruct', 'qwen3.6:35b-a3b', 'qwen3:4b'], '64GB：上一階是實驗版');
+  assert.deepStrictEqual(R(G(15.8, 8)), ['qwen3:8b', 'qwen3:14b', 'qwen3:4b'], '4060 + 16GB');
+  assert.deepStrictEqual(R(G(31.8, 8)), ['qwen3:30b-instruct', 'qwen3.6:35b-a3b', 'qwen3:8b'], '4060 + 32GB：顯示卡＋記憶體一起跑');
+  assert.deepStrictEqual(R(G(15.9, 12, 'RTX 3060')), ['qwen3:14b', 'qwen3:30b-instruct', 'qwen3:8b'], '3060 12GB');
+  assert.deepStrictEqual(R(G(31.8, 24, 'RTX 4090')), ['qwen3:30b-instruct', 'qwen3.6:35b-a3b', 'qwen3:14b'], '4090');
+  assert.deepStrictEqual(R({ ramGB: 16, gpu: { name: 'Apple Silicon', vendor: 'apple', vramGB: 10.6, unified: true } }), ['qwen3:8b', 'qwen3:14b', 'qwen3:4b'], 'Apple 16GB');
+  assert.ok(!S.LADDER.filter((m) => m.experimental).some((m) => [31.7, 63.8, G(31.8, 24), G(31.8, 8)].some((h) => S.recommend(h).model === m.name)), '實驗版不會被自動推薦');
+  const f4060 = Object.fromEntries(S.recommend(G(15.8, 8)).fits.map((f) => [f.m.name, `${f.speed}/${f.where}`]));
+  assert.deepStrictEqual([f4060['qwen3:8b'], f4060['qwen3:14b'], f4060['qwen3:30b-instruct']], ['great/gpu', 'slow/mix', 'no/cpu']);
+  assert.ok(/RTX 4060（8GB）・16GB 記憶體/.test(S.recommend(G(15.8, 8)).why) && /整個放進顯示卡/.test(S.recommend(G(15.8, 8)).why));
+  assert.ok(/用處理器跑/.test(S.recommend(15.8).why) && /先不用|內建台詞/.test(S.recommend(3.8).why));
+  assert.ok(/顯示卡 Intel UHD Graphics 目前 AI 用不到/.test(S.recommend({ ramGB: 15.8, gpu: null, gpus: [{ name: 'Intel(R) UHD Graphics', vendor: 'intel', vramGB: 1 }] }).why), '內顯：說明為什麼不用');
+  // 偵測顯示卡：nvidia-smi → Windows 登錄檔
+  const HW = require('../src/main/hardware');
+  assert.deepStrictEqual(HW.parseNvidiaSmi('NVIDIA GeForce RTX 4060, 8188\r\nNVIDIA GeForce RTX 3090, 24576\n'), [{ name: 'NVIDIA GeForce RTX 4060', vendor: 'nvidia', vramGB: 8 }, { name: 'NVIDIA GeForce RTX 3090', vendor: 'nvidia', vramGB: 24 }]);
+  assert.deepStrictEqual(HW.parseNvidiaSmi('NVIDIA-SMI has failed because it couldn\'t communicate with the NVIDIA driver.'), []);
+  const reg = HW.parseRegistry(`Intel(R) UHD Graphics 770|2147483648\r\nAMD Radeon RX 7600|8589934592\nAMD Radeon RX 7600|8589934592\nAMD Radeon RX 580 Series|8589934592\n|`);
+  assert.deepStrictEqual(reg.map((g) => [g.vendor, g.vramGB, HW.usable(g)]), [['intel', 2, false], ['amd', 8, true], ['amd', 8, false]], '登錄檔：重複的合併；RX 580 太舊、Intel 先不用');
+  const fakeRun = (out) => async (cmd) => out[cmd] === undefined ? null : out[cmd];
+  let hw = await HW.detect({ platform: 'win32', totalmem: 32 * 1024 ** 3, run: fakeRun({ 'nvidia-smi': 'NVIDIA GeForce RTX 4060 Laptop GPU, 8188\n' }), fresh: true });
+  assert.ok(hw.gpu.name === 'NVIDIA GeForce RTX 4060 Laptop GPU' && hw.gpu.vramGB === 8 && hw.ramGB === 32);
+  hw = await HW.detect({ platform: 'win32', totalmem: 16 * 1024 ** 3, run: fakeRun({ 'powershell.exe': 'Intel(R) Iris(R) Xe Graphics|1073741824\nNVIDIA GeForce GTX 1660 SUPER|6442450944\n' }), fresh: true });
+  assert.ok(hw.gpu.name === 'NVIDIA GeForce GTX 1660 SUPER' && hw.gpu.vramGB === 6 && hw.gpus.length === 2, 'nvidia-smi 問不到：看登錄檔');
+  hw = await HW.detect({ platform: 'win32', totalmem: 16 * 1024 ** 3, run: fakeRun({}), fresh: true });
+  assert.ok(hw.gpu === null && hw.gpus.length === 0, '什麼都問不到：當作沒有顯示卡');
+  hw = await HW.detect({ platform: 'darwin', arch: 'arm64', totalmem: 16 * 1024 ** 3, run: fakeRun({}), fresh: true });
+  assert.ok(hw.gpu.unified && hw.gpu.vramGB > 10 && hw.gpu.vramGB < 11, 'Apple：共用記憶體');
+  assert.strictEqual(await HW.detect({ run: fakeRun({ 'nvidia-smi': 'X, 99999' }) }), hw, '同一次開機只問一次');
   assert.ok(S.hasModel(['qwen3:4b'], 'qwen3:4b') && S.hasModel(['qwen3:4b-q4_K_M'], 'qwen3:4b') && !S.hasModel(['qwen3:1.7b'], 'qwen3:4b'));
   // 偵測：Ollama 有開／沒開
   const fakeFetch = (models) => async (url) => { if (!models) throw new Error('ECONNREFUSED'); return { ok: true, json: async () => ({ models: models.map((name) => ({ name })) }) }; };
-  let pr = await S.probe({ fetchImpl: fakeFetch(['qwen3:1.7b']), totalmem: 8 * 1024 ** 3 });
+  let pr = await S.probe({ fetchImpl: fakeFetch(['qwen3:1.7b', 'gemma3:4b', 'qwen3-embedding:0.6b']), totalmem: 8 * 1024 ** 3, gpu: null });
   assert.strictEqual(pr.ollama, 'running'); assert.strictEqual(pr.recommend, 'qwen3:1.7b');
   assert.ok(pr.choices.find((c) => c.name === 'qwen3:1.7b').installed && !pr.choices.find((c) => c.name === 'qwen3:4b').installed);
-  pr = await S.probe({ fetchImpl: fakeFetch(null), totalmem: 16 * 1024 ** 3 });
+  assert.deepStrictEqual(pr.choices.filter((c) => c.tier).map((c) => [c.tier, c.name, c.speed]), [['rec', 'qwen3:1.7b', 'great'], ['up', 'qwen3:4b', 'slow']], '8GB：推薦輕量、上一階標準（會慢）');
+  assert.ok(pr.choices.some((c) => c.name === 'gemma3:4b' && c.other && c.installed) && !pr.choices.some((c) => /embedding/.test(c.name)), '自選：電腦裡已經有的其他模型（語意模型除外）');
+  assert.ok(pr.hw.text === '8GB 記憶體' && pr.up === 'qwen3:4b' && pr.down === null);
+  pr = await S.probe({ fetchImpl: fakeFetch([]), totalmem: 16 * 1024 ** 3, gpu: { name: 'NVIDIA GeForce RTX 4060', vendor: 'nvidia', vramGB: 8 } });
+  assert.ok(pr.recommend === 'qwen3:8b' && pr.up === 'qwen3:14b' && pr.down === 'qwen3:4b' && /RTX 4060/.test(pr.hw.text), '4060：' + JSON.stringify([pr.recommend, pr.up, pr.down]));
+  assert.strictEqual(pr.choices.find((c) => c.name === 'qwen3:14b').speedText, '會等比較久');
+  pr = await S.probe({ fetchImpl: fakeFetch(null), totalmem: 16 * 1024 ** 3, gpu: null });
   assert.ok(['missing', 'stopped'].includes(pr.ollama) && pr.recommend === 'qwen3:4b');
   // Ollama 版本：0.9.0 以前太舊（關不掉思考）；問不到版本、開發版都不算太舊
   assert.ok(S.versionLess('0.6.2', '0.9.0') && S.versionLess('0.8.9', '0.9.0') && !S.versionLess('0.9.0', '0.9.0') && !S.versionLess('0.12.3', '0.9.0') && !S.versionLess('1.0.0', '0.9.0'));
@@ -971,11 +1007,11 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
     if (/version$/.test(url)) { if (version === null) throw new Error('404'); return { ok: true, json: async () => ({ version }) }; }
     return { ok: true, json: async () => ({ models: [{ name: 'qwen3:4b' }] }) };
   };
-  pr = await S.probe({ fetchImpl: verFetch('0.6.2'), totalmem: 16 * 1024 ** 3 });
+  pr = await S.probe({ fetchImpl: verFetch('0.6.2'), totalmem: 16 * 1024 ** 3, gpu: null });
   assert.ok(pr.version === '0.6.2' && pr.outdated && pr.minVersion === S.MIN_OLLAMA, '舊版 Ollama：' + JSON.stringify([pr.version, pr.outdated]));
-  pr = await S.probe({ fetchImpl: verFetch('0.12.3'), totalmem: 16 * 1024 ** 3 });
+  pr = await S.probe({ fetchImpl: verFetch('0.12.3'), totalmem: 16 * 1024 ** 3, gpu: null });
   assert.ok(pr.version === '0.12.3' && !pr.outdated, '新版不提醒');
-  pr = await S.probe({ fetchImpl: verFetch(null), totalmem: 16 * 1024 ** 3 });
+  pr = await S.probe({ fetchImpl: verFetch(null), totalmem: 16 * 1024 ** 3, gpu: null });
   assert.ok(pr.ollama === 'running' && pr.version === null && !pr.outdated, '問不到版本：不提醒');
   assert.ok(/版本太舊/.test(S.friendlyPullError('pull model manifest: 412: The model you are attempting to pull requires a newer version of Ollama.')), '舊版下載新模型：中文說明');
   assert.strictEqual(S.friendlyPullError('file does not exist'), 'file does not exist');
@@ -1012,11 +1048,18 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(st({ probe: { ollama: 'running', models: [], embed: {} } }).ai.fixes.some((f) => f.action === 'pull:qwen3:4b'));
   assert.strictEqual(st({ llm: { enabled: false, model: 'qwen3:4b' } }).ai.status, 'info');
   assert.ok(st({ ramGB: 8 }).ram.fixes.some((f) => f.action === 'useModel:qwen3:1.7b'), '8GB 用 4b → 建議換輕量');
+  const gp = (model, hw) => st({ llm: { enabled: true, model }, probe: { ollama: 'running', models: [model], embed: { installed: true }, hw } });
+  const h4060 = { ramGB: 15.8, gpu: { name: 'RTX 4060', vramGB: 8 } };
+  assert.ok(gp('qwen3:8b', h4060).ram.status === 'ok' && /RTX 4060（8GB）/.test(gp('qwen3:8b', h4060).ram.detail), '4060 跑 8b：沒問題');
+  assert.ok(gp('qwen3:30b-instruct', h4060).ram.fixes.some((f) => f.action === 'useModel:qwen3:8b'), '4060 + 16GB 跑 30b：建議換推薦的 8b');
+  assert.strictEqual(gp('gemma3:12b', h4060).ram.status, 'ok', '自己填的模型：不亂建議');
   assert.strictEqual(st({ configError: 'config.json 格式錯誤：Unexpected token' }).config.status, 'error');
   assert.strictEqual(st({ plan: { file: 'x.md', exists: false } }).plan.status, 'error');
   assert.ok(st({ plan: { file: 'x.md', exists: true, quests: 0 } }).plan.fixes.some((f) => f.action === 'ui:newQuest'));
   const slowLog = parseLog(Array.from({ length: 5 }, () => '9/30 10:00:00\tchat\t60000ms\t載入模型 5ms').join('\n'));
   assert.strictEqual(st({ log: slowLog }).speed.status, 'warn');
+  assert.ok(st({ log: slowLog }).speed.fixes.some((f) => f.action === 'useModel:qwen3:1.7b'), '太慢：換小一階');
+  assert.strictEqual(st({ log: slowLog, llm: { enabled: true, model: 'qwen3:1.7b' }, probe: { ollama: 'running', models: ['qwen3:1.7b'], embed: { installed: true } } }).speed.fixes.length, 0, '已經最小了：不建議');
   assert.strictEqual(st({ log: parseLog('9/30 10:00:00\tpoke\t900ms\t失敗：timeout\n'.repeat(4)) }).fails.status, 'warn');
   assert.strictEqual(st({ saveOK: false }).save.status, 'error');
   assert.strictEqual(st({ smart: { on: true, status: 'no-model' }, probe: { ollama: 'running', models: ['qwen3:4b'], embed: { installed: false } } }).smart.status, 'info', '自動模式：語意模型是選用');

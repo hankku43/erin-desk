@@ -37,7 +37,7 @@ const bar = (p) => `<div class="ob-bar"><div style="width:${Math.max(2, p || 0)}
 
 function pullHtml(model, size) {
   const p = (state.pulls || {})[model];
-  if (!p) return `<button class="btn small gold" data-ob-pull="${esc(model)}">⬇ 下載（約 ${esc(size)}）</button>`;
+  if (!p) return `<button class="btn small gold" data-ob-pull="${esc(model)}">⬇ 下載${size ? `（約 ${esc(size)}）` : ''}</button>`;
   if (p.status === 'success') return '<span class="chip ok">✔ 下載完成</span>';
   if (p.status === 'error') return `<span class="chip bad">下載失敗：${esc(p.error || '')}</span>${/版本太舊/.test(p.error || '') ? '<button class="btn small gold" data-ob-install>更新 Ollama</button>' : ''}<button class="btn small" data-ob-pull="${esc(model)}">再試一次</button>`;
   const mb = p.total ? `（${Math.round((p.completed || 0) / 1048576)}／${Math.round(p.total / 1048576)} MB）` : '';
@@ -61,6 +61,16 @@ function ollamaInstallHtml() {
   return `<div class="oi-step">${esc(text)}……</div><div class="ob-pull"><div class="ob-bar busy"><div></div></div>${cancel}</div>`;
 }
 const oiSize = (p) => (p && p.installSize ? `（約 ${(p.installSize / 1024 ** 3).toFixed(1)} GB）` : '');
+
+// 模型清單（階梯＋電腦裡已經有的＋自己填的那個）；自己填的不在清單上就補一筆
+const obHas = (models, n) => (models || []).some((m) => m === n || m === `${n}:latest` || m.startsWith(`${n.includes(':') ? n : `${n}:latest`}-`));
+function obChoices(p) {
+  const ob = obState();
+  const list = [...(p.choices || [])];
+  if (ob.custom && !list.some((c) => c.name === ob.custom)) list.push({ name: ob.custom, title: '自己填的', desc: '', size: '', speed: null, tier: null, custom: true, installed: obHas(p.models, ob.custom) });
+  return list;
+}
+const obChoice = (p) => { const ob = obState(); return ob.choice ? obChoices(p).find((c) => c.name === ob.choice) || { name: ob.choice, size: '', installed: obHas(p.models, ob.choice) } : null; };
 
 function renderOnboard(el, v) {
   const ob = obState();
@@ -97,17 +107,36 @@ function renderOnboard(el, v) {
           : p.canInstall
             ? `<div class="ob-status off">⚪ 還沒有安裝 Ollama<div class="ob-sub">${esc(name)}可以幫你下載 Ollama 官方的安裝程式${oiSize(p)}，自動裝好：不會跳出視窗，也不需要系統管理員權限。裝好後會接著下載你選的模型。</div><div class="ob-btns">${state.ollamaInstall && state.ollamaInstall.phase !== 'done' ? ollamaInstallHtml() : `<button class="btn small gold" data-ob-install>⬇ 幫我安裝${oiSize(p)}</button><button class="btn small" data-ob-openollama>自己去官網下載</button><button class="btn small ghost" data-ob-probe>再檢查一次</button>`}</div></div>`
             : `<div class="ob-status off">⚪ 還沒有安裝 Ollama<div class="ob-sub">到官網下載安裝程式，照著畫面安裝就好。裝好後回來按「再檢查一次」。</div><div class="ob-btns"><button class="btn small gold" data-ob-openollama>打開下載頁</button><button class="btn small" data-ob-probe>再檢查一次</button></div></div>`;
+      // 推薦／上一階／下一階三張大卡，其他的收在「自選」裡（還有自己填名稱）
+      const TIER = { rec: ['rec', '推薦'], up: ['up', '⬆ 上一階・更聰明'], down: ['down', '⬇ 下一階・更快'] };
+      const SPEED_ICON = { great: '⚡', ok: '🙂', slow: '🐢', no: '⛔' };
+      const speedHtml = (c) => (c.speed ? `<span class="ob-speed ${c.speed}">${SPEED_ICON[c.speed]} ${esc(c.speedText)}${c.speed === 'no' ? '' : `・${esc(c.whereText)}`}</span>` : '');
+      const tail = (c) => (ob.choice === c.name && p.ollama === 'running' ? (c.installed ? '<span class="chip ok">✔ 已經下載好了</span>' : pullHtml(c.name, c.size)) : '');
+      const warn = (c) => (ob.choice !== c.name ? '' : c.speed === 'slow' ? `<div class="ob-warn">這台電腦跑起來會比較吃力，${esc(name)}偶爾來不及想好，就會先用內建台詞回答</div>`
+        : c.speed === 'no' ? '<div class="ob-warn">這台電腦大概跑不動，很可能一直等不到回覆</div>' : '')
+        + (ob.choice === c.name && (c.experimental || c.other || c.custom) ? `<div class="ob-warn">${esc(name)}還沒用這個模型測試過，說話方式可能不太一樣；不習慣的話隨時可以換回推薦的</div>` : '');
       const card = (c) => {
-        const rec = c.name === p.recommend ? '<span class="chip rec">推薦</span>' : '';
         const on = ob.choice === c.name;
-        const tail = on && p.ollama === 'running' ? (c.installed ? '<span class="chip ok">✔ 已經下載好了</span>' : pullHtml(c.name, c.size)) : '';
-        return `<label class="ob-card ${on ? 'on' : ''}"><input type="radio" name="obModel" value="${esc(c.name)}" ${on ? 'checked' : ''}><div><b>${esc(c.label.split('（')[0])}　<code>${esc(c.name)}</code></b>${rec}<small>${esc(c.label.match(/（(.+)）/) ? c.label.match(/（(.+)）/)[1] : '')}・約 ${esc(c.size)}</small>${tail}</div></label>`;
+        const [cls, txt] = TIER[c.tier];
+        return `<label class="ob-card t-${cls} ${on ? 'on' : ''}"><input type="radio" name="obModel" value="${esc(c.name)}" ${on ? 'checked' : ''}><div><b>${esc(c.title)}　<code>${esc(c.name)}</code></b><span class="chip ${cls}">${txt}</span>${c.experimental ? '<span class="chip exp">實驗</span>' : ''}<small>${esc(c.desc)}・約 ${esc(c.size)}</small>${speedHtml(c)}${warn(c)}${tail(c)}</div></label>`;
       };
+      const row = (c) => {
+        const on = ob.choice === c.name;
+        return `<label class="ob-row ${on ? 'on' : ''}"><input type="radio" name="obModel" value="${esc(c.name)}" ${on ? 'checked' : ''}><div><div class="ob-row-top"><b>${esc(c.title)}</b><code>${esc(c.name)}</code>${c.experimental ? '<span class="chip exp">實驗</span>' : ''}${c.installed && !on ? '<span class="chip ok">已下載</span>' : ''}<span class="spacer"></span>${c.size ? `<small>${esc(c.size)}</small>` : ''}</div>${speedHtml(c)}${warn(c)}${tail(c)}</div></label>`;
+      };
+      const all = obChoices(p);
+      const tiers = ['rec', 'up', 'down'].map((t) => all.find((c) => c.tier === t)).filter(Boolean);
+      const more = ob.more || (ob.choice && !tiers.some((c) => c.name === ob.choice));
+      const moreHtml = `<button class="ob-more ${more ? 'open' : ''}" data-ob-more>🔧 自選其他模型<span class="spacer"></span>${more ? '▴' : '▾'}</button>`
+        + (more ? `<div class="ob-more-list">${all.filter((c) => !c.tier).map(row).join('')}
+          <div class="ob-custom"><input id="obCustom" placeholder="其他 Ollama 模型，例如 gemma3:12b" maxlength="80" value="${esc(ob.customDraft || '')}"><button class="btn small" data-ob-custom>用這個</button></div>
+          <small class="ob-note">模型名稱可以在 ollama.com/library 找到。速度是照你的電腦估的，實際用起來不順，之後在右鍵選單「🩺 健康檢查」可以換。</small></div>` : '');
       body = say(`${esc(name)}的「大腦」是裝在你電腦裡的 AI（叫做 Ollama），聊天內容不會傳到網路上。沒有它也能玩，只是${esc(name)}只會說內建的台詞。`)
         + st
         + `<p class="ob-why">💻 ${esc(p.why)}</p>`
-        + p.choices.map(card).join('')
-        + `<label class="ob-card ${ob.choice === null ? 'on' : ''}"><input type="radio" name="obModel" value="" ${ob.choice === null ? 'checked' : ''}><div><b>先不用 AI</b><small>${esc(name)}用內建台詞說話，之後隨時可以在右鍵選單打開</small></div></label>`
+        + tiers.map(card).join('')
+        + `<label class="ob-card ${ob.choice === null ? 'on' : ''}"><input type="radio" name="obModel" value="" ${ob.choice === null ? 'checked' : ''}><div><b>先不用 AI</b>${p.recommend ? '' : '<span class="chip rec">推薦</span>'}<small>${esc(name)}用內建台詞說話，之後隨時可以在右鍵選單打開</small></div></label>`
+        + moreHtml
         + (ob.choice && p.ollama === 'running' ? `<label class="ob-opt"><input type="checkbox" id="obEmbed" ${ob.embed || p.embed.installed ? 'checked' : ''} ${p.embed.installed ? 'disabled' : ''}> 也準備「聰明${esc(name)}」（約 ${esc(p.embed.size)}）：換個說法問，她也聽得懂${p.embed.installed ? '（已經下載好了）' : ''}</label>${ob.embed && !p.embed.installed ? `<div class="ob-embed">${pullHtml(p.embed.name, p.embed.size)}</div>` : ''}` : '');
     }
     const downloading = Object.values(state.pulls || {}).some((x) => x && !x.done) || oiBusy();
@@ -186,7 +215,7 @@ async function obProbe() {
   if (ob.autoPull && ob.probe.ollama === 'running') { // Ollama 剛裝好：接著下載選的模型
     ob.autoPull = false;
     if (ob.choice === undefined) ob.choice = ob.probe.recommend || null;
-    const c = ob.choice && ob.probe.choices.find((x) => x.name === ob.choice);
+    const c = obChoice(ob.probe);
     if (c && !c.installed && !(state.pulls || {})[c.name]) api.setupPull(c.name);
   }
   if (state.panel === 'onboard') renderPanel();
@@ -216,13 +245,19 @@ async function onboardClick(e) {
     if (r && r.opened === 'app') setTimeout(() => { if (state.panel === 'onboard' && ob.step === 'ai') { ob.probe = null; renderPanel(); } }, 5000);
     return true;
   }
+  if (t.closest('[data-ob-more]')) { ob.more = !(ob.more || (ob.choice && ob.probe && !['recommend', 'up', 'down'].some((k) => ob.probe[k] === ob.choice))); if (!ob.more && ob.probe && !['recommend', 'up', 'down'].some((k) => ob.probe[k] === ob.choice)) ob.choice = ob.probe.recommend || null; renderPanel(); return true; }
+  if (t.closest('[data-ob-custom]')) {
+    const n = ($('#obCustom').value || '').trim().toLowerCase();
+    if (!/^[a-z0-9][\w.\-]*(\/[\w.\-]+)*(:[\w.\-]+)?$/.test(n)) { toast('⚠ 模型名稱看起來不太對，例如 gemma3:12b'); $('#obCustom').focus(); return true; }
+    ob.custom = n; ob.customDraft = ''; ob.choice = n; ob.more = true; renderPanel(); return true;
+  }
   const pl = t.closest('[data-ob-pull]'); if (pl) { await api.setupPull(pl.dataset.obPull); return true; }
   const cp = t.closest('[data-ob-cancel]'); if (cp) { await api.setupCancelPull(cp.dataset.obCancel); return true; }
   if (t.closest('[data-ob-next]')) {
     if (ob.step === 'ai' && ob.probe) {
       const r = await api.setupSetModel(ob.choice || null);
       if (r && r.view) applyView(r.view);
-      const c = ob.choice && ob.probe.choices.find((x) => x.name === ob.choice);
+      const c = obChoice(ob.probe);
       if (c && !c.installed && ob.probe.ollama === 'running' && !(state.pulls || {})[c.name]) api.setupPull(c.name); // 還沒下載：按下一步就開始下載
     }
     obGo(1); return true;
@@ -281,6 +316,7 @@ async function obFinish() {
 function onboardChange(e) {
   const t = e.target, ob = obState();
   if (t.name === 'obModel') { ob.choice = t.value || null; renderPanel(); return true; }
+  if (t.id === 'obCustom') { ob.customDraft = t.value; return true; }
   if (t.id === 'obEmbed') {
     ob.embed = t.checked;
     if (t.checked && ob.probe && !ob.probe.embed.installed) { api.setSmart(true); api.setupPull(ob.probe.embed.name); }

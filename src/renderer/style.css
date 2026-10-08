@@ -648,6 +648,35 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .ob-card b { font-size: var(--fs-m); }
 .ob-card small { display: block; font-size: var(--fs-s); color: var(--ink-soft); margin: 1px 0 3px; }
 .chip.rec { background: #ffe1b3; color: var(--gold-text); margin-left: 4px; }
+.chip.up { background: var(--sky-soft); color: var(--blue); margin-left: 4px; }
+.chip.down { background: var(--green-soft); color: var(--green); margin-left: 4px; }
+.chip.exp { background: #efe4ff; color: #6a43b8; margin-left: 4px; }
+/* 模型：速度標籤、提醒、自選清單 */
+.ob-card code, .ob-row code { font-size: var(--fs-xs); color: var(--ink-soft); }
+.ob-card.t-rec { border-color: #f1d08a; }
+.ob-card.t-rec.on { border-color: var(--gold); }
+.ob-speed { display: inline-block; font-size: var(--fs-xs); font-weight: 700; padding: 1px 7px; border-radius: var(--r-s); background: var(--track); color: var(--ink-soft); margin: 1px 0 2px; }
+.ob-speed.great { background: var(--green-soft); color: var(--green); }
+.ob-speed.ok { background: var(--sky-soft); color: var(--blue); }
+.ob-speed.slow { background: var(--gold-soft); color: var(--gold-text); }
+.ob-speed.no { background: var(--rose-soft); color: var(--red); }
+.ob-warn { font-size: var(--fs-xs); color: var(--gold-text); margin: 2px 0; line-height: 1.5; }
+.ob-more { display: flex; width: 100%; align-items: center; gap: 6px; margin: 8px 0 4px; padding: 6px 10px; border: 2px dashed var(--line); border-radius: var(--r-m); background: transparent; font: inherit; font-size: var(--fs-s); font-weight: 700; color: var(--ink-soft); cursor: pointer; }
+.ob-more .spacer { flex: 1; }
+.ob-more:hover, .ob-more.open { border-style: solid; background: var(--paper-2); color: var(--ink); }
+.ob-more-list { padding: 2px 0 4px; }
+.ob-row { display: flex; gap: 8px; align-items: flex-start; padding: 5px 8px; margin: 3px 0; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--surface); cursor: pointer; font-size: var(--fs-s); }
+.ob-row > div { flex: 1; min-width: 0; }
+.ob-row.on { border-color: var(--gold); background: var(--gold-soft); }
+.ob-row input { margin-top: 2px; }
+.ob-row-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ob-row-top small { color: var(--ink-soft); }
+.ob-row-top .spacer { flex: 1; }
+.ob-row .chip { margin-left: 0; }
+.ob-custom { display: flex; gap: 6px; margin: 6px 0 2px; }
+.ob-custom input { flex: 1; min-width: 0; border: 2px solid var(--line); border-radius: var(--r-m); padding: 4px 8px; font: inherit; font-size: var(--fs-s); background: var(--surface); color: var(--ink); user-select: text; }
+.ob-custom input:focus { outline: none; border-color: var(--sky); box-shadow: 0 0 0 3px rgba(79, 168, 255, .2); }
+.ob-note { display: block; font-size: var(--fs-xs); color: var(--ink-soft); line-height: 1.5; margin: 2px 2px 0; }
 .chip.bad { background: var(--rose-soft); color: var(--red); white-space: normal; }
 .ob-opt { display: flex; gap: 6px; align-items: flex-start; font-size: var(--fs-s); margin: 8px 2px; line-height: 1.5; cursor: pointer; }
 .ob-embed { margin: 0 0 6px 22px; }

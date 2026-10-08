@@ -2,7 +2,7 @@
 // 純函式：資料由 main.js 收集好傳進來，方便測試
 'use strict';
 
-const { hasModel, EMBED, MODELS } = require('./setup');
+const { hasModel, EMBED, MODELS, LADDER, LADDER_BY, fit, hwText, recommend } = require('./setup');
 
 // llm.log 的一行：「9/30 13:24:55	chat	21650ms	載入模型 …」或「…	失敗：timeout」
 function parseLog(text) {
@@ -47,11 +47,14 @@ function buildHealth(x) {
   // 3b. Ollama 太舊：0.9 以前沒辦法關掉模型的「思考」
   if (pr && pr.ollama === 'running' && pr.outdated) add('ollamaVer', '🧩', 'Ollama 版本', 'warn', `你的 Ollama 是 ${pr.version}，太舊了（需要 ${pr.minVersion} 以上）：${name}會回得很慢、常常回不好，新的模型也可能下載不了。下載新版直接安裝就好，已經下載的模型會留著。`, pr.canInstall ? [{ action: 'installOllama', label: '幫我更新 Ollama' }, { action: 'updateOllama', label: '自己去官網下載' }] : [{ action: 'updateOllama', label: '下載新版 Ollama' }]);
 
-  // 4. 記憶體和模型大小
-  if (x.ramGB) {
-    const need = (MODELS[llm.model] || {}).minRamGB;
-    if (llm.enabled && need && x.ramGB < need) add('ram', '🧮', '記憶體', 'warn', `電腦有 ${Math.round(x.ramGB)}GB 記憶體，${llm.model} 可能會很慢。`, [{ action: 'useModel:qwen3:1.7b', label: '改用輕量版 qwen3:1.7b' }]);
-    else add('ram', '🧮', '記憶體', 'ok', `${Math.round(x.ramGB)}GB`);
+  // 4. 這台電腦（記憶體＋顯示卡）跑得動現在的模型嗎：太吃力的話，建議換推薦的
+  const hw = (pr && pr.hw && pr.hw.ramGB ? pr.hw : null) || (x.ramGB ? { ramGB: x.ramGB, gpu: null } : null);
+  if (hw) {
+    const m = LADDER_BY[llm.model];
+    const f = m ? fit(m, hw) : null;
+    const rec = recommend(hw).model || LADDER[0].name;
+    if (llm.enabled && f && (f.speed === 'slow' || f.speed === 'no') && rec !== llm.model) add('ram', '🧮', '電腦配備', 'warn', `${hwText(hw)}，${llm.model} ${f.speed === 'no' ? '可能跑不太動' : '可能會很慢'}。`, [{ action: `useModel:${rec}`, label: `改用推薦的 ${rec}（${MODELS[rec].title}版）` }]);
+    else add('ram', '🧮', '電腦配備', 'ok', hwText(hw));
   }
 
   // 5. 最近回應速度（看 llm.log 最後 10 次聊天）
@@ -60,7 +63,9 @@ function buildHealth(x) {
   const fails = log.slice(-10).filter((l) => l.fail).length;
   if (llm.enabled && chats.length >= 3) {
     const avg = Math.round(chats.reduce((n, l) => n + l.ms, 0) / chats.length / 1000);
-    const light = llm.model !== 'qwen3:1.7b' ? [{ action: 'useModel:qwen3:1.7b', label: '改用輕量版（快一些）' }] : [];
+    const i = LADDER.findIndex((m) => m.name === llm.model);
+    const smaller = i > 0 ? LADDER[i - 1] : null; // 換小一階（自己填的模型就不建議）
+    const light = smaller ? [{ action: `useModel:${smaller.name}`, label: `改用小一階的 ${smaller.name}（快一些）` }] : [];
     if (avg > 45) add('speed', '⏱', '回應速度', 'warn', `最近聊天平均要 ${avg} 秒才回。關掉其他吃記憶體的程式會好一點。`, light);
     else add('speed', '⏱', '回應速度', 'ok', `最近聊天平均 ${avg} 秒`);
   }

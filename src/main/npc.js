@@ -741,7 +741,7 @@ class NPC {
       }
       messages.push({ role: h.role, content });
     }
-    const task = `${this.llm.noThinkPrefix || ''}【狀態】（最新，以這裡為準）\n${this.factsText(facts)}${extraUser ? `\n\n${extraUser}` : ''}\n\n【情境】${EVENT_DESC[event] || EVENT_DESC.chat}`;
+    const task = `${/^qwen3:(?!.*instruct)/.test(this.llm.model || '') ? this.llm.noThinkPrefix || '' : ''}【狀態】（最新，以這裡為準）\n${this.factsText(facts)}${extraUser ? `\n\n${extraUser}` : ''}\n\n【情境】${EVENT_DESC[event] || EVENT_DESC.chat}`;
     messages.push({ role: 'user', content: userText ? `${task}\n\n${this.names().call}說：「${userText}」` : task });
     const t0 = Date.now();
     try {
