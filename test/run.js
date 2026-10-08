@@ -2331,3 +2331,116 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.example.json'), 'utf8')).update.auto, true);
   console.log('自動更新測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🎬 開場「雨夜的小白貓」：名字規則、說回來的那句、劇本結構、口吻、存檔 ----------
+(() => {
+  const os = require('os');
+  const root = path.join(__dirname, '..');
+  const OS = require('../src/renderer/opening-script');
+  const OA = require('../src/renderer/opening-art');
+  // 1. 接待員的名字：1～8 字，不能有 我／你／妳／您，不能叫「冒險者」；控制字元和 <>{} 拿掉
+  assert.deepStrictEqual(OS.validateName('  小雪 '), { ok: true, name: '小雪', error: '' });
+  assert.ok(!OS.validateName('').ok && !OS.validateName('   ').ok && !OS.validateName(null).ok, '空白');
+  assert.ok(OS.validateName('一二三四五六七八').ok && !OS.validateName('一二三四五六七八九').ok, '最多 8 個字');
+  for (const bad of ['我是艾琳', '小你', '妳妳', '您', '冒險者']) assert.ok(!OS.validateName(bad).ok && OS.validateName(bad).error, bad);
+  assert.strictEqual(OS.validateName('莉{name}亞').name, '莉name亞', '大括號會被當成台詞的 {name}');
+  assert.strictEqual(OS.validateName('<b>莉亞').name, 'b莉亞');
+  assert.ok(OS.validateName('Erin').ok && OS.validateName('小 雪').name === '小 雪');
+  // 2. 冒險者登記的名字：可以空著，最多 12 字
+  assert.strictEqual(OS.cleanPlayerName('  阿明  '), '阿明');
+  assert.strictEqual(OS.cleanPlayerName(null), '');
+  assert.strictEqual(OS.cleanPlayerName('一二三四五六七八九十一二三四'), '一二三四五六七八九十一二');
+  // 3. 序章那句話 → 現在她說回來的那句；沒選（跳過）用通用句
+  assert.strictEqual(OS.ECHOES.length, 3);
+  OS.ECHOES.forEach((e, i) => assert.strictEqual(OS.echoLine(i + 1), e.echo));
+  for (const n of [0, undefined, 4, -1]) assert.strictEqual(OS.echoLine(n), OS.GENERIC_ECHO);
+  assert.ok(OS.HEAT.warm > 0 && OS.HEAT.warm < OS.HEAT.hot && OS.HEAT.hot < 1, '溫度條：月光涼 < 星火溫 < 日焰燙');
+  // 4. 劇本結構：id 不重複、每步剛好一種等待方式、道具和人物都畫得出來、順序對
+  const ids = OS.STEPS.map((s) => s.id);
+  assert.strictEqual(new Set(ids).size, ids.length, 'id 不重複');
+  const WAITS = ['auto', 'click', 'action', 'heat', 'choice', 'name', 'register', 'finale'];
+  const SPECIAL = ['fireCg', 'book', 'bookDone'];
+  const CATS = ['kitten', 'cloak', 'cloakEmpty', 'catSleep', 'catStartled'];
+  for (const s of OS.STEPS) {
+    assert.ok(['black', 'forest', 'guild'].includes(s.scene), s.id + ' 的場景');
+    assert.strictEqual(Object.keys(s.wait).filter((k) => WAITS.includes(k)).length, 1, s.id + ' 的等待方式');
+    for (const p of s.props || []) assert.ok(SPECIAL.includes(p) || OA.prop(p).length > 20, s.id + ' 的道具 ' + p);
+    for (const a of s.actors || []) assert.ok(CATS.includes(a) || /^erin:(normal|surprised|happy|wave|tea|cheer)(@right)?$/.test(a), s.id + ' 的人物 ' + a);
+    if (s.scene === 'forest') assert.ok(!(s.dlg && s.dlg.np), s.id + '：序章是你的心聲，沒有名牌');
+  }
+  const at = (id) => ids.indexOf(id);
+  assert.ok(at('title') === 0 && at('finale') === ids.length - 1, '黑底字開頭、結尾縮到右下角');
+  assert.ok(at('heat') < at('words') && at('words') < at('guild') && at('intro') < at('name') && at('name') < at('named') && at('named') < at('register') && at('register') < at('cheer'));
+  assert.ok(OS.STEPS.filter((s) => s.scene === 'forest').every((s) => at(s.id) < at('guild')), '序章都在現在之前');
+  assert.deepStrictEqual(OS.STEPS[at('words')].wait.choice, OS.ECHOES.map((e) => e.say));
+  assert.ok(/星火溫/.test(OS.STEPS[at('warm')].dlg.text) && /星火溫/.test(OS.STEPS[at('tea')].dlg.text), '星火溫：你說的 ↔ 她說的');
+  assert.ok(/星火溫/.test(OS.STEPS[at('cold')].wait.action), '動作按鈕：用火魔法加熱到星火溫');
+  assert.strictEqual(OS.STEPS[at('name')].dlg.np, '？？？', '取名前名牌是 ？？？');
+  assert.ok(!/規矩|取名/.test(JSON.stringify(OS.STEPS)), '劇情裡沒有「冒險者幫她取名」的規矩（10/8 使用者）');
+  // 5. 口吻：她說的每一句（三種說回來的話＋沒選＋空著登記簿）用預設和改過的名字都對
+  for (const name of [OS.DEFAULT_NAME, '小雪']) {
+    const lines = OS.erinLines(name);
+    assert.ok(lines.length >= 12, '台詞數量');
+    for (const t of lines) {
+      assert.ok(!/玩家|您/.test(t) && !/(^|[^我])我(?!們)/.test(t), '口吻：' + t);
+      assert.ok(!/\{(name|echo)\}/.test(t), '都換掉了：' + t);
+    }
+    assert.ok(lines.some((t) => t.includes(`——接待員是${name}！`)) && lines.some((t) => t.includes(`交給${name}吧！`)), '自稱跟著名字變');
+    for (const e of OS.ECHOES) assert.ok(lines.some((t) => t.startsWith(e.echo)), '說回來：' + e.echo);
+  }
+  assert.ok(!/艾琳/.test(OS.erinLines('小雪').join('')), '改名後台詞裡不會再出現艾琳');
+  // 6. 登記簿：名字會跳脫、空著有標示、有受理章
+  assert.ok(OA.regBook({ name: '<阿明>' }).includes('&lt;阿明&gt;') && !OA.regBook({ name: '<阿明>' }).includes('<阿明>'));
+  assert.ok(/先空著/.test(OA.regBook({ blank: true })) && /受理/.test(OA.regBook({ blank: true })) && !/受理/.test(OA.regBook({})));
+  // 7. 檔案：圖都在、打包會帶上、主視窗收得到 opening:done、開場頁載入三支腳本
+  for (const f of ['forest.jpg', 'guild.jpg', 'fire_tea.jpg', 'kitten_wet.png', 'kitten_cloak.png', 'cloak_empty.png', 'mini_sleep.png', 'mini_startled.png']) {
+    assert.ok(fs.statSync(path.join(root, 'assets', 'opening', f)).size > 1000, '開場圖 ' + f);
+  }
+  const ojs = fs.readFileSync(path.join(root, 'src/renderer/opening.js'), 'utf8');
+  for (const m of ojs.matchAll(/'([\w]+\.(?:png|jpg))'/g)) assert.ok(fs.existsSync(path.join(root, 'assets', 'opening', m[1])), 'opening.js 用到的圖 ' + m[1]);
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  assert.ok(pkg.build.files.includes('assets/opening/*'), '打包帶上開場圖');
+  assert.ok(/'opening:done'/.test(fs.readFileSync(path.join(root, 'src/main/preload.js'), 'utf8')));
+  const ohtml = fs.readFileSync(path.join(root, 'src/renderer/opening.html'), 'utf8');
+  assert.ok(['opening-script.js', 'opening-art.js', 'opening.js'].every((f) => ohtml.includes(`src="${f}"`)) && /Content-Security-Policy/.test(ohtml));
+  assert.ok(/id="actors"[\s\S]*id="front"[\s\S]*id="actors2"/.test(ohtml), '艾琳在櫃台後面、貓在櫃台前面');
+  const mjs = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
+  assert.ok(/重看開場/.test(mjs) && /QUEST_NPC_OPENING/.test(mjs), '選單可以重看；其他自動測試不演開場');
+  // 8. 存檔：改名寫進 config（自稱跟著變）、登記的名字和那句話存進存檔、演過開場新手教學從「基本操作」開始
+  const { Engine } = require('../src/main/engine');
+  const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-op-app-'));
+  const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-op-user-'));
+  fs.mkdirSync(path.join(appDir, 'plans')); fs.mkdirSync(path.join(appDir, 'lore'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(appDir, 'plans', 'week_sample.md'));
+  fs.copyFileSync(path.join(root, 'lore', '艾琳.md'), path.join(appDir, 'lore', '艾琳.md'));
+  fs.copyFileSync(path.join(root, 'config.example.json'), path.join(appDir, 'config.example.json'));
+  const cfg0 = JSON.parse(fs.readFileSync(path.join(root, 'config.example.json'), 'utf8'));
+  fs.writeFileSync(path.join(userDir, 'config.json'), JSON.stringify({ ...cfg0, lore: { ...(cfg0.lore || {}), embeddings: false } })); // 不碰 Ollama（別的測試在數向量呼叫次數）
+  const E = new Engine({ appDir, userDir });
+  E.npc.status.online = false;
+  assert.ok(E.config.opening.enabled === true && cfg0.npc.selfName === '艾琳', '預設會演開場；範例設定的自稱寫死艾琳');
+  assert.deepStrictEqual([E.view().onboarding.needed, E.view().onboarding.start, E.view().opening.done], [true, 'welcome', false]);
+  let r = E.finishOpening({ name: '小雪', player: '  阿明 ', blank: false, echo: 2, skipped: false });
+  assert.ok(r.renamed && E.config.npc.name === '小雪' && E.npc.names().self === '小雪', '改名：自稱跟著變（範例設定的 selfName 也跟著改）');
+  assert.ok(E.config.npc.catchphrases.includes('交給小雪吧！') && !E.config.npc.catchphrases.join('').includes('艾琳'), '口頭禪裡的名字跟著改');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(userDir, 'config.json'), 'utf8')).npc.name, '小雪', '寫進 config.json');
+  assert.strictEqual(E.state.playerName, '阿明');
+  assert.ok(E.state.opening.done && E.state.opening.echo === 2 && !E.state.opening.skipped && E.state.opening.at);
+  assert.deepStrictEqual([E.view().onboarding.needed, E.view().onboarding.start, E.view().npc.name], [true, 'basics', '小雪']);
+  const saved = JSON.parse(fs.readFileSync(path.join(userDir, 'data', 'save.json'), 'utf8'));
+  assert.ok(saved.opening.done && saved.playerName === '阿明', '存進存檔');
+  // 重看：直接關＝什麼都不改；改回艾琳、沒選話＝那句話保留、記下重看時間
+  const at0 = E.state.opening.at;
+  E.finishOpening({ keep: true }, { replay: true });
+  assert.ok(E.config.npc.name === '小雪' && E.state.playerName === '阿明' && !E.state.opening.replayedAt);
+  r = E.finishOpening({ name: '艾琳', player: '阿明', echo: 0, skipped: true }, { replay: true });
+  assert.ok(r.renamed && E.config.npc.name === '艾琳' && E.state.opening.echo === 2 && E.state.opening.at === at0 && E.state.opening.replayedAt && !E.state.opening.skipped);
+  E.finishOpening({ name: '我', blank: true, echo: 3 }, { replay: true });
+  assert.ok(E.config.npc.name === '艾琳' && E.state.playerName === '' && E.state.opening.echo === 3, '不合規則的名字不改；登記簿可以改成空著');
+  // 舊存檔（新手教學已完成）：不會自動演
+  const E2 = new Engine({ appDir, userDir });
+  E2.state.onboarding = { done: true };
+  assert.ok(!E2.view().onboarding.needed);
+  for (const d of [appDir, userDir]) fs.rmSync(d, { recursive: true, force: true });
+  console.log('開場測試通過 ✔');
+})();

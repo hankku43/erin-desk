@@ -1410,6 +1410,12 @@ api.on('ui:fortune', () => drawFortune());
 api.on('fx:reward', (reward) => { if (!state.mini) celebrate(reward); });
 setInterval(() => { if (state.view && !state.mini) renderTracker(); }, 15000); // 沙漏、下一格、切換時段
 api.on('ui:shrink', () => goMini());
+// 🎬 開場演完：名字可能改了（標題、台詞都跟著換），第一次的話接新手教學
+api.on('opening:done', ({ view, replay }) => {
+  applyView(view);
+  if (!replay && view.onboarding && view.onboarding.needed && !state.mini) setTimeout(() => openOnboard(view.onboarding.start || 'welcome'), 500);
+  else if (!replay && !state.mini) setTimeout(() => { openDialog(); greet(); }, 500);
+});
 api.on('ui:open', (kind) => {
   if (kind === 'onboard') { state.ob = null; openOnboard('welcome'); return; }
   if (kind === 'health') { openHealth(); return; }
@@ -1427,7 +1433,8 @@ api.on('ui:open', (kind) => {
   if (!r.character.images.normal) $('#npcImg').alt = '（找不到角色圖片）';
   applyMini(r.mini, { greet: false });
   applyView(r.view);
-  if (r.view.onboarding && r.view.onboarding.needed && !state.mini) setTimeout(() => openOnboard('welcome'), 600); // 🎓 第一次開啟：新手教學
+  if (r.openingPending) return; // 🎬 開場還在演：演完（opening:done）再接新手教學
+  if (r.view.onboarding && r.view.onboarding.needed && !state.mini) setTimeout(() => openOnboard(r.view.onboarding.start || 'welcome'), 600); // 🎓 第一次開啟：新手教學（演過開場就從「基本操作」開始）
   else if (!state.mini) setTimeout(() => { openDialog(); greet(); }, 600);
   else setTimeout(async () => { state.lastGreetAt = Date.now(); const g = await api.greet(); if (g && g.ok && g.lines) miniNotify(g.lines); }, 600); // 縮小時啟動：貓咪揮手，點開才說
 })();

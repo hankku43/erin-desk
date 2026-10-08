@@ -220,10 +220,10 @@ function displayMenu() {
   return items;
 }
 
-function createWindow() {
+function createWindow({ hidden = false } = {}) {
   const b = isMini() ? miniBounds() : fullBounds();
   win = new BrowserWindow({
-    ...b,
+    ...b, show: !hidden, // 第一次開要先演開場：主視窗先藏著，演完才出來
     transparent: true, frame: false, resizable: false, hasShadow: false,
     alwaysOnTop: engine.config.window.alwaysOnTop !== false,
     skipTaskbar: false, backgroundColor: '#00000000',
@@ -242,6 +242,46 @@ function createWindow() {
 
 function push(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+// ---------- 🎬 開場「雨夜的小白貓」（opening.html，全螢幕透明視窗） ----------
+let openingWin = null, openingReplay = false, openingDone = false;
+// 第一次打開（新手教學和開場都還沒完成）才自動演；舊存檔從選單「🎬 重看開場」看
+function needOpening() {
+  if ((engine.config.opening || {}).enabled === false) return false;
+  if (process.env.QUEST_NPC_TEST && !process.env.QUEST_NPC_OPENING) return false; // 其他自動測試不演
+  const s = engine.state;
+  return !(s.onboarding && s.onboarding.done) && !(s.opening && s.opening.done);
+}
+function startOpening({ replay = false } = {}) {
+  if (openingWin && !openingWin.isDestroyed()) { openingWin.focus(); return openingWin; }
+  openingReplay = replay; openingDone = false;
+  const d = targetDisplay();
+  openingWin = new BrowserWindow({
+    ...d.bounds,
+    transparent: true, frame: false, resizable: false, movable: false, hasShadow: false, fullscreenable: false,
+    skipTaskbar: false, backgroundColor: '#00000000', alwaysOnTop: true,
+    title: `${engine.config.npc.name}的任務櫃台`,
+    icon: path.join(APP_DIR, 'build', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, 'opening-preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  openingWin.setAlwaysOnTop(true, 'screen-saver');
+  openingWin.on('page-title-updated', (e) => e.preventDefault());
+  openingWin.loadFile(path.join(APP_DIR, 'src', 'renderer', 'opening.html'));
+  // 被關掉（Alt+F4）也要把主視窗叫回來；第一次的話下次打開會再演
+  openingWin.on('closed', () => { openingWin = null; if (!openingDone) endOpening(); });
+  if (win && !win.isDestroyed() && win.isVisible()) win.hide();
+  return openingWin;
+}
+function endOpening() {
+  openingDone = true;
+  const ow = openingWin;
+  if (ow && !ow.isDestroyed()) setTimeout(() => { if (!ow.isDestroyed()) ow.close(); }, 60);
+  if (win && !win.isDestroyed()) {
+    win.setTitle(`${engine.config.npc.name}的任務櫃台${TEST_MODE ? '（測試）' : ''}`);
+    win.show();
+  }
+  push('opening:done', { view: engine.view(), replay: openingReplay });
 }
 
 function wrap(fn) {
@@ -531,6 +571,7 @@ function menuTemplate() {
     { label: '❓ 說明', submenu: [
       { label: '🩺 健康檢查（哪裡怪怪的？）', click: open('health') },
       { label: '🎓 新手教學（再看一次）', click: open('onboard') },
+      { label: '🎬 重看開場', click: () => startOpening({ replay: true }) },
       { type: 'separator' },
       updateMenuItem(),
     ] },
@@ -662,7 +703,17 @@ app.whenReady().then(async () => {
   engine.deferSpeech = true;
   engine.onSpeech = (lines) => push('npc:lines', lines);
 
-  ipcMain.handle('view:get', wrap(async () => ({ view: engine.view(), character: characterImages(), mini: isMini() })));
+  ipcMain.handle('view:get', wrap(async () => ({ view: engine.view(), character: characterImages(), mini: isMini(), openingPending: !!openingWin })));
+  // 🎬 開場
+  ipcMain.handle('opening:init', wrap(async () => {
+    const ci = characterImages();
+    return { erinName: engine.config.npc.name || '艾琳', playerName: engine.state.playerName || '', replay: openingReplay, images: { ...ci.poses, ...ci.images }, test: !!process.env.QUEST_NPC_TEST };
+  }));
+  ipcMain.handle('opening:finish', wrap(async (r) => {
+    const out = engine.finishOpening(r || {}, { replay: openingReplay });
+    endOpening();
+    return { renamed: out.renamed };
+  }));
   ipcMain.on('win:mini', (_e, on) => setMini(on));
   ipcMain.handle('npc:greet', wrap(() => engine.greet()));
   ipcMain.handle('npc:daily', wrap(() => engine.daily()));
@@ -754,7 +805,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('update:dismiss', wrap((v) => { engine.state.update = { ...(engine.state.update || {}), dismissed: String(v || '') }; engine.saveState(); return {}; }));
   ipcMain.handle('update:openPage', wrap(() => { shell.openExternal(updater ? updater.status().url : UPD.RELEASES_PAGE); return {}; }));
 
-  createWindow();
+  const opening = needOpening();
+  createWindow({ hidden: opening });
+  if (opening) startOpening();
   setupUpdater();
   watchPlan();
   if (!engine.state.onboarding || !engine.state.onboarding.done) require('./hardware').detect().catch(() => {}); // 第一次開：先看好顯示卡，新手教學的「大腦」那步就不用等
@@ -774,9 +827,9 @@ app.whenReady().then(async () => {
   scheduleFocus(4000); // 上次關程式時還在專注：時間到了就補結算（等畫面載好）
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
-  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, updater });
+  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, updater, opening: { start: startOpening, win: () => openingWin } });
 });
 
-app.on('second-instance', () => { if (win) { win.restore(); win.focus(); } });
+app.on('second-instance', () => { if (openingWin && !openingWin.isDestroyed()) { openingWin.focus(); return; } if (win) { win.restore(); win.focus(); } });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => { clearInterval(tickTimer); clearInterval(idleTimer); clearInterval(watchTimer); clearInterval(healthTimer); clearInterval(presenceTimer); clearInterval(cursorTimer); });

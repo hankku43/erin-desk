@@ -91,6 +91,7 @@ class Engine {
       achievements: { enabled: true }, // 🏅 成就徽章牆
       streak: { enabled: true }, // 🔥 連續上工（restDays、base、cap、milestones 見 achievements.js STREAK）
       update: { auto: true }, // 🔄 自動檢查更新（打包版才有；updater.js）
+      opening: { enabled: true }, // 🎬 第一次打開時演開場「雨夜的小白貓」（false＝直接進新手教學）
       reminders: {
         weekdaysOnly: true, graceMinutes: 15,
         items: [
@@ -463,7 +464,8 @@ class Engine {
       divination: this.divineInfo(),
       fortune: this.fortuneToday(),
       affection: { cold: this.isCold(), fond: this.affOn() && this.affStage() >= 4 }, // 好感度本身不給畫面看；fond＝很熟了（待機會冒 ♡）
-      onboarding: { needed: !(this.state.onboarding && this.state.onboarding.done) },
+      onboarding: { needed: !(this.state.onboarding && this.state.onboarding.done), start: this.state.opening && this.state.opening.done ? 'basics' : 'welcome' }, // 演過開場就跳過「歡迎」那步
+      opening: { done: !!(this.state.opening && this.state.opening.done) },
       tutorial: this.tutorialInfo(),
       schedule: this.scheduleInfo(),
       llm: { enabled: !!this.config.llm.enabled, model: this.config.llm.model },
@@ -843,6 +845,35 @@ class Engine {
     return this.settle({ lines: [...g.lines, intro], view: this.view() });
   }
   restartOnboarding() { this.state.onboarding = { done: false }; this.saveState(); return { view: this.view() }; }
+  // 🎬 開場演完（或跳過）：接待員的名字寫進 config（自稱跟著變）、冒險者登記的名字和序章選的那句存進存檔
+  // r：{ name, player, blank, echo, skipped }；keep＝重看時直接關掉，什麼都不改
+  finishOpening(r = {}, { replay = false } = {}) {
+    const OS = require('../renderer/opening-script');
+    let renamed = false;
+    if (r.keep) return { view: this.view(), renamed };
+    if (r.name != null) {
+      const v = OS.validateName(r.name);
+      const n0 = this.config.npc;
+      if (v.ok && v.name !== n0.name && !this.configError) { // config.json 壞掉時不寫，免得蓋掉
+        const patch = { name: v.name };
+        if (n0.selfName === n0.name) patch.selfName = v.name; // 範例設定把自稱寫死成艾琳：跟著改
+        if (Array.isArray(n0.catchphrases) && n0.catchphrases.some((c) => String(c).includes(n0.name))) patch.catchphrases = n0.catchphrases.map((c) => String(c).split(n0.name).join(v.name)); // 「交給艾琳吧！」
+        this.saveConfigPatch({ npc: patch });
+        renamed = true;
+      }
+    }
+    if (r.blank) this.state.playerName = '';
+    else if (r.player != null) this.state.playerName = OS.cleanPlayerName(r.player);
+    const prev = this.state.opening || {};
+    const n = Number(r.echo);
+    const echo = n >= 1 && n <= OS.ECHOES.length ? n : (prev.echo || 0); // 序章對小貓說的那句（第 5 階說破時會用）
+    const now = this.now().toISOString();
+    this.state.opening = replay && prev.done
+      ? { ...prev, echo, replayedAt: now }
+      : { done: true, at: now, echo, skipped: !!r.skipped };
+    this.saveState();
+    return { view: this.view(), renamed };
+  }
   // 這週一～週五，例如「我的一週 10/5–10/9」
   defaultPlanTitle() {
     const d = new Date(this.now()); const wd = d.getDay() || 7;

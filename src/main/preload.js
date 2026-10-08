@@ -86,7 +86,7 @@ contextBridge.exposeInMainWorld('api', {
   openMenu: () => ipcRenderer.send('win:menu'),
   setMini: (on) => ipcRenderer.send('win:mini', on),
   on: (channel, fn) => {
-    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor'];
+    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor', 'opening:done'];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, payload) => fn(payload));
   },

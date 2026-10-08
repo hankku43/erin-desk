@@ -38,6 +38,7 @@
       "!assets/character/PROMPTS.md",
       "assets/ui/**/*",
       "assets/shop/*.png",
+      "assets/opening/*",
       "plans/_template.md",
       "plans/week_sample.md",
       "build/icon.png"
