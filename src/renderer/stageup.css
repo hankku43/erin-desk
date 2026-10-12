@@ -1,0 +1,112 @@
+/* 💗 好感升階動畫（漫畫）：主視窗裡 574×780 的漫畫框，蓋在面板和艾琳上面（stageup.js） */
+#story { position: absolute; left: 18px; top: 10px; width: 574px; height: 780px; z-index: 20; font-family: var(--font); color: #2a2d4a; }
+.st-card { position: absolute; inset: 0; box-sizing: border-box; background: #1c2142; border: 3px solid #34437a; border-radius: 10px; box-shadow: 0 18px 50px rgba(10, 14, 40, .55); overflow: hidden; cursor: pointer; transform-origin: var(--ox, 80%) var(--oy, 75%); }
+.st-card.opening { animation: stOpen .46s cubic-bezier(.2, 1.15, .4, 1) both; }
+.st-card.closing { animation: stClose .44s cubic-bezier(.5, 0, .8, .4) both; pointer-events: none; }
+@keyframes stOpen { from { transform: scale(.1); opacity: 0; } 60% { opacity: 1; } to { transform: none; opacity: 1; } }
+@keyframes stClose { from { transform: none; opacity: 1; } to { transform: scale(.08); opacity: 0; } }
+
+.st-ttl { position: absolute; left: 0; top: 0; width: 100%; height: 34px; box-sizing: border-box; background: linear-gradient(180deg, #46578f, #24305c); color: #fff3d6; font-weight: 900; font-size: 16px; letter-spacing: 3px; padding: 6px 12px; white-space: nowrap; z-index: 3; }
+.st-ttl b { color: #ff9ab8; }
+.st-skip { position: absolute; right: 8px; top: 5px; font: inherit; font-size: 12px; font-weight: 800; letter-spacing: 1px; color: #fff3d6; background: rgba(255, 255, 255, .15); border: 1px solid rgba(255, 255, 255, .4); border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+.st-skip:hover { background: rgba(255, 255, 255, .3); }
+.st-vp { position: absolute; left: 0; top: 34px; width: 568px; height: 700px; overflow: hidden; background: #fff; }
+.st-vp.shake { animation: stShake .42s linear; }
+.st-vp.zoomout { transform-origin: 287px 672px; transform: scale(.2); opacity: 0; transition: transform .5s cubic-bezier(.5, 0, .3, 1), opacity .45s ease .1s; }
+@keyframes stShake { 0%, 100% { transform: none; } 15% { transform: translate(-7px, 4px); } 30% { transform: translate(6px, -5px); } 45% { transform: translate(-5px, -3px); } 60% { transform: translate(4px, 4px); } 80% { transform: translate(-2px, 1px); } }
+.st-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 5; }
+.st-flash.go { animation: stFlash .55s ease-out; }
+@keyframes stFlash { from { opacity: 1; } to { opacity: 0; } }
+.st-bar { position: absolute; left: 0; top: 734px; width: 100%; height: 40px; background: linear-gradient(180deg, #24305c, #1c2142); color: #ffd66b; font-size: 13px; font-weight: 800; }
+.st-dots { position: absolute; left: 50%; top: 15px; transform: translateX(-50%); display: flex; gap: 8px; }
+.st-dots i { display: block; width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, .25); transition: background .3s; }
+.st-dots i.on { background: #ffd66b; }
+.st-dots i.cur { background: #ff9ab8; box-shadow: 0 0 6px #ff9ab8; }
+.st-hint { position: absolute; right: 14px; top: 10px; opacity: 0; transition: opacity .25s; }
+.st-hint.on { opacity: 1; animation: stHint 1.1s ease-in-out infinite; }
+@keyframes stHint { 50% { transform: translateY(2px); } }
+
+/* 一格（鏡頭）：換格時往左滑出、下一格從右滑進 */
+.st-shot { position: absolute; inset: 0; overflow: hidden; background: #fff; transition: transform .4s cubic-bezier(.4, 0, .2, 1); }
+.st-shot.right { transform: translateX(100%); }
+.st-shot.left { transform: translateX(-100%); }
+.st-cam { position: absolute; left: 0; top: 0; width: 568px; height: 700px; transform-origin: 0 0; will-change: transform; }
+.st-ov { position: absolute; inset: 0; pointer-events: none; }
+.st-shot img { user-select: none; -webkit-user-drag: none; }
+/* 第幾步才出現：淡入（sv）、彈出來（pop）、滑進來（slide） */
+.st-shot .sv { position: absolute; inset: 0; opacity: 0; transition: opacity .55s ease; }
+.st-shot .sv.on { opacity: 1; }
+.st-shot .sv.fade-slow { transition-duration: 1.6s; }
+.st-shot .sv.fade-fast { transition-duration: .35s; }
+.st-shot .sv.slide { transform: var(--from); transition: opacity .35s ease, transform 1.1s cubic-bezier(.2, .8, .2, 1); }
+.st-shot .sv.slide.on { transform: none; }
+.st-shot .sv.slide.leave:not(.on) { transition: opacity .6s ease, transform .9s cubic-bezier(.5, 0, .7, .4); }
+.st-shot .pop { position: absolute; inset: 0; opacity: 0; transform: scale(.4); transition: opacity .16s ease, transform .42s cubic-bezier(.3, 1.7, .5, 1); }
+.st-shot .pop.on { opacity: 1; transform: none; }
+.st-shot.ff, .st-shot.ff * { transition-duration: 0s !important; transition-delay: 0s !important; }
+
+/* 小動作 */
+.st-rise { animation: stRise 2.4s ease-in-out infinite; }
+@keyframes stRise { 0% { transform: translateY(6px); opacity: 0; } 30% { opacity: .9; } 100% { transform: translateY(-14px); opacity: 0; } }
+.st-blink { animation: stBlink .45s steps(2, jump-none) 4; }
+@keyframes stBlink { 0% { opacity: 1; } 100% { opacity: .1; } }
+.st-swing { animation: stSwing .42s ease-in-out infinite alternate !important; }
+@keyframes stSwing { from { transform: rotate(-16deg); } to { transform: rotate(16deg); } }
+.st-tremble { position: absolute; inset: 0; animation: stTremble .22s linear infinite; }
+@keyframes stTremble { 0%, 100% { transform: none; } 25% { transform: translate(-1px, .5px); } 75% { transform: translate(1px, -.5px); } }
+.st-squish { position: absolute; inset: 0; transform-origin: 290px 575px; animation: stSquish .8s ease-in-out 1s 2; }
+@keyframes stSquish { 45% { transform: scale(1.04, .9); } }
+.st-pat { position: absolute; inset: 0; animation: stPat .8s ease-in-out 1s 2; }
+@keyframes stPat { 45% { transform: translate(-6px, 22px); } }
+.st-bob { animation: stBob 1.4s ease-in-out infinite; }
+@keyframes stBob { 50% { transform: translateY(-6px); } }
+.st-twk { transform-box: fill-box; transform-origin: center; animation: stTwk 1.1s ease-in-out infinite; }
+@keyframes stTwk { 50% { transform: scale(.6) rotate(20deg); opacity: .6; } }
+.st-shot .sv.splash.on { animation: stSplash .7s cubic-bezier(.2, .9, .3, 1) both; }
+@keyframes stSplash { from { transform: translate(-40px, 120px) scale(.3); opacity: 0; } to { transform: none; opacity: 1; } }
+.st-shot .sv.drip.on { animation: stDrip 1.6s ease-in .4s both; }
+@keyframes stDrip { from { transform: translateY(-6px); } to { transform: translateY(10px); } }
+
+/* 字：對話框、爆炸框、場景字卡、狀聲字、旁白、圓框特寫、小本子 */
+.st-bub { position: absolute; box-sizing: border-box; background: #fff; border: 3px solid #2a2d4a; border-radius: 18px; padding: 10px 14px; line-height: 1.5; font-weight: 700; text-align: center; box-shadow: 2px 3px 0 rgba(42, 45, 74, .18); }
+.st-bub .who { position: absolute; left: 8px; top: -13px; font-style: normal; font-size: 12px; background: #7d8f5c; color: #fff; border-radius: 6px; padding: 1px 8px; letter-spacing: 1px; line-height: 1.5; }
+.st-burst { position: absolute; text-align: center; font-weight: 900; letter-spacing: 2px; }
+.st-cap { position: absolute; background: #24305c; color: #fff3d6; font-size: 15px; font-weight: 800; letter-spacing: 2px; padding: 4px 12px 5px; border-left: 4px solid #f0b23a; border-radius: 0 6px 6px 0; z-index: 3; }
+.st-sfx { position: absolute; font-weight: 900; -webkit-text-stroke: 8px #fff; paint-order: stroke fill; letter-spacing: 3px; filter: drop-shadow(0 3px 0 rgba(42, 45, 74, .18)); white-space: nowrap; z-index: 4; }
+.st-nar { position: absolute; font-size: 20px; font-weight: 800; color: #fff3d6; letter-spacing: 2px; background: rgba(36, 48, 92, .82); padding: 6px 16px; border-radius: 999px; border: 1.5px solid rgba(255, 214, 107, .7); white-space: nowrap; }
+.st-inset { position: absolute; width: 230px; height: 230px; box-sizing: border-box; border-radius: 50%; background: radial-gradient(circle, #ffd3e2 40%, #ffaecb); border: 4px solid #2a2d4a; overflow: hidden; box-shadow: 0 6px 0 rgba(42, 45, 74, .15); }
+.st-nbname { position: absolute; font-family: "Noto Serif TC", "Noto Serif CJK TC", "PMingLiU", "MingLiU", serif; font-weight: 700; font-size: 30px; color: #5a3a22; opacity: .86; transform: rotate(-19.4deg); transform-origin: 0 100%; letter-spacing: 4px; mix-blend-mode: multiply; white-space: nowrap; }
+.st-nbname.s { font-size: 12px; letter-spacing: 1px; }
+.st-nbmini { position: absolute; width: 150px; height: 118px; box-sizing: border-box; overflow: hidden; border: 5px solid #fffdf7; border-radius: 4px; box-shadow: 0 6px 14px rgba(20, 10, 30, .35); }
+
+/* 拉遠成整頁（回憶相簿看的也是這一頁） */
+.st-page { position: absolute; inset: 0; background: #fffdf7; opacity: 0; transition: opacity .35s; z-index: 6; }
+.st-page.on { opacity: 1; }
+.st-pdots { position: absolute; left: 50%; top: 13px; transform: translateX(-50%); display: flex; gap: 6px; }
+.st-pdots i { display: block; width: 8px; height: 8px; border-radius: 50%; background: #ffd66b; }
+.st-pn { position: absolute; overflow: hidden; background: #fff; opacity: 0; transform: translateY(-26px); transition: opacity .3s, transform .5s cubic-bezier(.2, 1.3, .4, 1); }
+.st-pn.on { opacity: 1; transform: none; }
+.st-pn .st-shot { transition: none; }
+.st-frames { position: absolute; left: 0; top: 0; pointer-events: none; opacity: 0; transition: opacity .3s; }
+.st-words { position: absolute; inset: 0; opacity: 0; transition: opacity .45s; pointer-events: none; }
+.st-page.done .st-frames, .st-page.done .st-words { opacity: 1; }
+.st-pb { position: absolute; box-sizing: border-box; background: #fff; border: 2px solid #2a2d4a; border-radius: 12px; padding: 4px 7px; font-size: 10.5px; line-height: 1.45; font-weight: 700; text-align: center; z-index: 3; }
+.st-pb.burstish { border-radius: 4px; font-size: 15px; font-weight: 900; transform: rotate(-6deg); }
+.st-pc { position: absolute; font-size: 16px; font-weight: 900; color: #ff7aa8; -webkit-text-stroke: 5px #fff; paint-order: stroke fill; transform: rotate(-8deg); z-index: 3; }
+.st-pcap { position: absolute; background: #24305c; color: #fff3d6; font-size: 12px; font-weight: 800; letter-spacing: 2px; padding: 3px 9px 4px; border-left: 4px solid #f0b23a; border-radius: 0 6px 6px 0; z-index: 3; }
+.st-nar.small { font-size: 11px; padding: 2px 10px; }
+.st-foot { position: absolute; right: 12px; top: 8px; font-size: 12px; letter-spacing: 1px; color: #ffd66b; font-weight: 800; opacity: 0; transition: opacity .3s; }
+.st-page.done .st-foot { opacity: 1; animation: stHint 1.1s ease-in-out infinite; }
+
+/* 頭上的「!」：升階漫畫（粉色驚嘆號旁邊多一顆小愛心） */
+.marker.story::after { content: ''; position: absolute; right: -8px; top: -2px; width: 18px; height: 16px; background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 30'%3E%3Cpath d='M16 28 C6 20 2 15 2 9.5 C2 5 5.5 2 9.5 2 C12.5 2 14.8 3.8 16 6 C17.2 3.8 19.5 2 22.5 2 C26.5 2 30 5 30 9.5 C30 15 26 20 16 28 Z' fill='%23ff9fb8' stroke='%23d9607f' stroke-width='3'/%3E%3C/svg%3E"); animation: stBob 1.2s ease-in-out infinite; }
+
+/* 🎬 回憶相簿 */
+.alb-body { display: flex; flex-direction: column; gap: 10px; }
+.alb-card { display: flex; gap: 12px; align-items: stretch; background: var(--card); border: 2px solid var(--line); border-radius: var(--r-m, 10px); padding: 8px; }
+.alb-thumb { flex: 0 0 96px; height: 96px; border-radius: 8px; background: #f6efe0 center/cover no-repeat; border: 2px solid var(--line); display: grid; place-items: center; font-size: 40px; font-weight: 900; color: #ff9ab8; }
+.alb-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.alb-info b { font-size: var(--fs-m, 14px); color: var(--ink); }
+.alb-info span { font-size: var(--fs-s, 12px); color: var(--ink-soft); }
+.alb-btns { display: flex; gap: 6px; margin-top: auto; }
+.alb-card.locked { opacity: .75; border-style: dashed; }

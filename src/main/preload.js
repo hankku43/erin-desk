@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('api', {
   getView: () => ipcRenderer.invoke('view:get'),
   greet: () => ipcRenderer.invoke('npc:greet'),
   renameNpc: (name) => ipcRenderer.invoke('npc:rename', name), // ✏️ 幫接待員改名字
+  storyDone: (n, opts) => ipcRenderer.invoke('story:done', n, opts || {}), // 💗 升階漫畫演完（或跳過）
+  replayOpening: () => ipcRenderer.invoke('opening:replay'), // 🎬 回憶相簿：重看開場
   daily: () => ipcRenderer.invoke('npc:daily'),
   poke: () => ipcRenderer.invoke('npc:poke'),
   chat: (text) => ipcRenderer.invoke('npc:chat', text),

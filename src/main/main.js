@@ -544,6 +544,7 @@ function menuTemplate() {
       { type: 'separator' },
       { label: '🛒 雲朵雜貨舖', click: open('shop') },
       { label: '🏅 成就', click: open('collection') },
+      { label: '🎬 回憶相簿', click: open('album') }, // 💗 開場、升階漫畫可以重看
     ] },
     { type: 'separator' },
     ...(engine.config.window.hud === false && !mini ? [{ label: '📊 顯示狀態欄', click: () => { const r = engine.setHud(true); push('view:update', { view: r.view }); } }] : []), // 狀態欄收起來時：第一層就找得到
@@ -731,6 +732,8 @@ app.whenReady().then(async () => {
     return { erinName: engine.config.npc.name || '艾琳', playerName: engine.state.playerName || '', replay: openingReplay, images: { ...ci.poses, ...ci.images }, test: !!process.env.QUEST_NPC_TEST };
   }));
   ipcMain.handle('npc:rename', wrap((name) => { const r = engine.renameNpc(String(name || '').slice(0, 40)); syncTitle(); return r; })); // ✏️ ⚙ 幫接待員改名字
+  ipcMain.handle('story:done', wrap((n, opts) => engine.finishShow(Number(n), { skipped: !!(opts && opts.skipped) }))); // 💗 升階漫畫演完、收進回憶相簿
+  ipcMain.handle('opening:replay', wrap(async () => { startOpening({ replay: true }); return {}; })); // 🎬 回憶相簿裡的開場
   ipcMain.handle('opening:finish', wrap(async (r) => {
     const out = engine.finishOpening(r || {}, { replay: openingReplay });
     endOpening();

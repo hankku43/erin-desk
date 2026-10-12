@@ -12,6 +12,7 @@ const STAGES = [
 
 const DEFAULTS = {
   enabled: true,
+  shows: true,                       // 💗 升階時演漫畫（頭上冒「!」，點她才演）；false＝照舊直接說一句
   thresholds: [0, 30, 80, 160, 280], // 升到第 n 階需要的好感
   dailyCap: 10,                      // 一天最多加幾點（扣分沒有上限）
   shyChance: [0.2, 0.35, 0.5, 0.6, 0.7],   // 聊到稱讚／感情／秘密時真的害羞的機率（依階段）

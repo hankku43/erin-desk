@@ -912,7 +912,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const g0 = E.state.player.gold;
   r = await E.setObjective(q.id, 1, true);
   r = await E.setObjective(q.id, 2, true);
-  assert.ok(r.lines.some((l) => /常客才有/.test(l.text)), '升到第 2 階的台詞');
+  // 💗 第 2 階有漫畫：當下只說一句預告（頭上冒「!」，點她才演；原本那句在漫畫最後一格）
+  assert.ok(r.lines.some((l) => /晚點再跟冒險者說|有件事想跟冒險者說/.test(l.text)) && !r.lines.some((l) => /常客才有/.test(l.text)), '升到第 2 階：預告');
+  assert.deepStrictEqual(a().shows.pending, [2], '排進待演');
+  assert.strictEqual(E.view().affection.shows.next, 2);
   assert.strictEqual(a().stage, 2); assert.ok(E.state.player.gold >= g0 + 20, '心意：20 金幣');
   assert.ok(/「常客」/.test((await E.chat('今天好忙'), sys())), '系統提示換成常客');
   a().points = 20; E.pokeTimes = [];
@@ -2933,4 +2936,70 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(/【可操作項目】/.test(usr()) && /艾琳剛講過工作/.test(lastLog()));
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('閒聊不附清單測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 💗 好感升階動畫（漫畫）：哪幾階有、舊存檔只補演最新的一階、演完收進相簿、口吻、圖都在 ----------
+(async () => {
+  const os = require('os');
+  const root = path.join(__dirname, '..');
+  const SU = require('../src/renderer/stageup-script');
+  const { Engine } = require('../src/main/engine');
+  // 1. 舊存檔：升過的只補演最新的一階，更早的直接收進相簿；新版本多一階動畫也一樣
+  assert.deepStrictEqual(SU.STAGES, [2]);
+  assert.deepStrictEqual(SU.migrate(undefined, 1), { pending: [], seen: {}, known: [2] }, '還在第 1 階：不用演');
+  assert.deepStrictEqual(SU.migrate(undefined, 2).pending, [2], '第 2 階（使用者的存檔）：補演');
+  assert.deepStrictEqual(SU.migrate(undefined, 4).pending, [2], '更高階但只有第 2 階的動畫：演第 2 階');
+  const seen = SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2] }, 3);
+  assert.deepStrictEqual([seen.pending, seen.seen[2].at], [[], 'x'], '看過的不再演');
+  assert.deepStrictEqual(SU.migrate({ pending: [2, 9], seen: {}, known: [2] }, 2).pending, [2], '不認得的階段拿掉');
+  assert.strictEqual(SU.next({ pending: [2] }), 2); assert.strictEqual(SU.next({ pending: [] }), 0);
+  assert.deepStrictEqual(SU.album({ seen: { 2: { at: '2026-10-12T00:00:00Z' } } }).map((x) => [x.n, x.title]), [[2, '其之二　常客']]);
+  // 2. 口吻：艾琳的台詞自稱用名字、叫對方冒險者；瑪格大姐的才有「你」
+  const L = SU.LINES[2];
+  for (const k of ['huh', 'deny', 'star', 'hehe', 'end']) assert.ok(!/[我您]|玩家/.test(L[k]), '艾琳的台詞：' + k);
+  assert.ok(/艾琳/.test(L.star) && /冒險者/.test(L.star), '星星那句：用名字和冒險者（畫面會換成現在的名字）');
+  const { TEMPLATES } = require('../src/main/npc');
+  for (const [x] of TEMPLATES.stageup_tease) assert.ok(/\{self\}/.test(x) && /\{call\}/.test(x) && !/[我您]|玩家/.test(x), x);
+  // 3. 引擎：升到第 2 階 → 預告＋待演＋心意；演完 → 收進相簿；跳過也算；重看只記時間；關掉動畫 → 照舊說那句話
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-stageup-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, lore: { path: path.join(root, 'lore', '艾琳.md'), embeddings: false } }));
+  let t = new Date(`${new Date().getFullYear()}-09-30T10:00:00`).getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  const a = E.aff();
+  Object.assign(a, { points: 29, stage: 1, maxStage: 1 });
+  assert.strictEqual(E.view().affection.shows.next, 0);
+  E.affect(3, '測試');
+  let r = E.settle({ lines: [] });
+  assert.ok(r.lines.some((l) => l.event === 'affection' && /晚點再跟冒險者說|有件事想跟冒險者說/.test(l.text)), '預告');
+  assert.deepStrictEqual([E.view().affection.shows.next, E.state.player.gold, a.maxStage], [2, 20, 2]);
+  r = E.finishShow(2, { skipped: true });
+  assert.ok(r.first && r.title === '其之二　常客' && r.view.affection.shows.next === 0 && a.shows.seen[2].skipped, '跳過也收進相簿');
+  t += 60000;
+  r = E.finishShow(2, {});
+  assert.ok(!r.first && a.shows.seen[2].replayedAt && a.shows.seen[2].skipped, '重看：只記時間');
+  assert.deepStrictEqual(E.view().affection.shows.album.map((x) => x.n), [2]);
+  assert.ok(!E.finishShow(3).first && !E.finishShow('x').first, '沒有動畫的階段');
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'save.json'), 'utf8'));
+  assert.ok(saved.affection.shows.seen[2], '存進存檔');
+  // 掉下去再升回來：不再演、不再送
+  Object.assign(a, { points: 20 }); E.settle({ lines: [] });
+  Object.assign(a, { points: 35 }); r = E.settle({ lines: [] });
+  assert.ok(r.lines.some((l) => /常客才有/.test(l.text)) && E.view().affection.shows.next === 0 && E.state.player.gold === 20, '再升回來');
+  // 關掉動畫（config affection.shows=false）：照舊直接說那句、頭上不冒「!」
+  E.saveConfigPatch({ affection: { shows: false } });
+  Object.assign(a, { points: 10, stage: 1, maxStage: 1, shows: undefined }); E.settle({ lines: [] });
+  Object.assign(a, { points: 35 }); r = E.settle({ lines: [] });
+  assert.ok(r.lines.some((l) => /常客才有/.test(l.text)) && E.view().affection.shows.next === 0 && E.view().affection.shows.album.length === 0, '關掉動畫');
+  fs.rmSync(dir, { recursive: true, force: true });
+  // 4. 畫面：載入順序、選單、IPC、用到的圖都在
+  const html = fs.readFileSync(path.join(root, 'src/renderer/index.html'), 'utf8');
+  assert.ok(html.indexOf('src="stageup-script.js"') > html.indexOf('src="renderer.js"') && html.indexOf('src="stageup.js"') > html.indexOf('src="stageup-script.js"') && html.includes('href="stageup.css"'), 'index.html');
+  assert.ok(/🎬 回憶相簿/.test(fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8')) && /storyDone/.test(fs.readFileSync(path.join(root, 'src/main/preload.js'), 'utf8')));
+  const sjs = fs.readFileSync(path.join(root, 'src/renderer/stageup.js'), 'utf8');
+  const files = [...new Set([...sjs.matchAll(/(?:ART|bgImg|ball)\('([^']+)'/g)].map((m) => m[1]))];
+  assert.ok(files.length >= 10 && files.includes('mini_hide.webp') && files.includes('mini_peek.webp'), files.join(','));
+  for (const f of [...files, SU.SHOWS[2].thumb]) assert.ok(fs.existsSync(path.join(root, 'assets', 'stageup', f)), '圖：' + f);
+  for (const p of [...sjs.matchAll(/pose\('(\w+)'/g)].map((m) => m[1])) assert.ok(fs.existsSync(path.join(root, 'assets', 'character', p + '.png')), '立繪：' + p);
+  console.log('好感升階動畫測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });

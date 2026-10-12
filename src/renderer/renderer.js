@@ -143,13 +143,16 @@ function setEmotion(emo) {
     : (c.images[emo] || c.images.normal);
   if (src && $('#npcImg').getAttribute('src') !== src) $('#npcImg').src = src;
 }
-// 頭上的提示圖示：ready = 可交付（藍色問號）、alert = 有新訊息（粉色驚嘆號）
+const storyTip = () => `${npcNameR()}好像有話想說……（點她）`; // 💗 改名字也跟著換（Story.syncMarker 每次都重寫）
+// 頭上的提示圖示：ready = 可交付（藍色問號）、alert = 有新訊息（粉色驚嘆號）、story = 💗 升階漫畫（粉色驚嘆號＋小愛心，點她才演）
 function setMarker(kind) {
   const m = $('#marker');
-  if (!kind) { m.classList.add('hidden'); m.dataset.kind = ''; return; }
-  const src = state.character && state.character.markers && state.character.markers[kind];
+  if (!kind) { m.classList.add('hidden'); m.dataset.kind = ''; delete m.dataset.tip; m.classList.remove('story'); return; }
+  const src = state.character && state.character.markers && state.character.markers[kind === 'story' ? 'alert' : kind];
   m.dataset.kind = kind;
   m.classList.toggle('q', kind === 'ready');
+  m.classList.toggle('story', kind === 'story');
+  if (kind === 'story') m.dataset.tip = storyTip(); else delete m.dataset.tip;
   m.innerHTML = src ? `<img src="${src}" alt="${kind === 'ready' ? '?' : '!'}" draggable="false">` : (kind === 'ready' ? '?' : '!');
   m.classList.toggle('img', !!src);
   m.classList.remove('hidden');
@@ -162,6 +165,7 @@ async function onNpcClick() {
   if (state.mini) { if (!fx.busy) api.setMini(false); return; } // 展開後由 ui:mini 事件接手（縮小動畫中先不理）
   jump();
   if (typeof obMark === 'function' && obMark('click')) return; // 🎓 新手教學的「點她一下」
+  if (typeof Story !== 'undefined' && Story.onNpcClick()) return; // 💗 頭上是升階的「!」：演漫畫
   $('#marker').classList.add('hidden');
   if (state.queue.length || state.typing) { advance(); state.clickedAt = Date.now(); return; } // 還有話沒說完 → 先聽完
   if (state.pendingAmbient && state.pendingAmbient.length) { sayPending(); return; } // 頭上亮「!」：她早就想好要說什麼了，直接說
@@ -192,6 +196,7 @@ async function greet() {
 // ---------- 縮小化（貓咪型態） ----------
 function applyMini(on, { greet: sayHi = true } = {}) { // 參數改名，避免和下面的 greet() 函式撞名
   const was = state.mini;
+  if (on && typeof Story !== 'undefined' && Story.active()) Story.abort(); // 💗 演到一半縮成貓：先收起來，下次再演
   state.mini = !!on;
   document.body.classList.toggle('mini', state.mini);
   document.body.classList.remove('shrinking'); $('#npcWrap').classList.remove('shrinking');
@@ -504,7 +509,8 @@ function applyView(v) {
   sb.disabled = !canSubmit; sb.classList.toggle('hidden', !canSubmit); // 能交付時才出現，上面直接寫報酬
   if (canSubmit) { const rw = questReward(a); sb.innerHTML = `🏆 交付「${esc(shortTitle(a.title, 12))}」<span class="sr-gain">✨${rw.xp} XP　${COIN}${rw.gold}</span>`; }
   const m = $('#marker');
-  if (state.mini && state.miniAlert) { /* 保留 ! */ }
+  if (typeof Story !== 'undefined' && Story.syncMarker()) { /* 💗 升階的「!」優先（交付按鈕本來就看得到） */ }
+  else if (state.mini && state.miniAlert) { /* 保留 ! */ }
   else if (a && a.status === 'ready') setMarker('ready');
   else if (m.dataset.kind === 'ready' || state.mini) setMarker(null);
   if (v.planError && !(v.onboarding && v.onboarding.needed) && state.panel !== 'onboard') toast(`⚠ ${v.planError}`, 6000);
@@ -1221,6 +1227,7 @@ function renderPanelInner(el, v) {
   if (state.panel === 'raidForm') renderRaidForm(el, v);
   if (state.panel === 'leave') renderLeave(el, v);
   if (state.panel === 'ach') renderAch(el, v);
+  if (state.panel === 'album') Story.renderAlbum(el, v); // 🎬 回憶相簿
 
   if (state.panel === 'report') {
     const t = v.today;
@@ -1355,6 +1362,7 @@ async function panelClick(e) {
   if (['raids', 'raidForm', 'daily'].includes(state.panel) && await raidsClick(e)) return;
   if (['leave', 'daily'].includes(state.panel) && await leaveClick(e)) return;
   if (state.panel === 'ach' && await achClick(e)) return;
+  if (state.panel === 'album' && await Story.albumClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }
   if (t.closest('[data-back]')) { backFromForm(); return; }
@@ -1461,6 +1469,7 @@ $('#panel').addEventListener('change', async (e) => {
 api.on('view:update', ({ view, reason }) => { applyView(view); if (reason) toast(reason); });
 api.on('npc:lines', (lines) => {
   if (!lines || !lines.length) return;
+  if (typeof Story !== 'undefined' && Story.hold(lines)) return; // 💗 正在演升階漫畫：演完再說
   if (state.mini) { miniNotify(lines); return; }
   if ($('#dialog').classList.contains('hidden') && lines.every((l) => l.ambient)) {
     setMarker('alert');

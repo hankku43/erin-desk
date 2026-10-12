@@ -38,6 +38,7 @@ const R = require('./raids'); // 📯 團戰（會議）：提醒、自動專注
 const CAL = require('./calendar'); // 📆 週末、台灣國定假日、請假
 const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建的「艾琳」換成現在的名字
 const OS = require('../renderer/opening-script'); // 🎬 開場：名字規則
+const SU = require('../renderer/stageup-script'); // 💗 好感升階動畫：哪幾階有、舊存檔補演
 
 function deepMerge(a, b) {
   const out = { ...a };
@@ -475,7 +476,7 @@ class Engine {
       calendar: this.calendarView(), // 📆 今天放不放假、接下來的國定假日、請假
       divination: this.divineInfo(),
       fortune: this.fortuneToday(),
-      affection: { cold: this.isCold(), fond: this.affOn() && this.affStage() >= 4 }, // 好感度本身不給畫面看；fond＝很熟了（待機會冒 ♡）
+      affection: { cold: this.isCold(), fond: this.affOn() && this.affStage() >= 4, shows: this.showInfo() }, // 好感度本身不給畫面看；fond＝很熟了（待機會冒 ♡）；shows＝💗 頭上「!」要演哪一階、回憶相簿
       onboarding: { needed: !(this.state.onboarding && this.state.onboarding.done), start: this.state.opening && this.state.opening.done ? 'basics' : 'welcome' }, // 演過開場就跳過「歡迎」那步
       opening: { done: !!(this.state.opening && this.state.opening.done) },
       tutorial: this.tutorialInfo(),
@@ -976,6 +977,36 @@ class Engine {
       this.affPending.push('cold_start');
     }
   }
+  // ---- 💗 好感升階動畫（漫畫）：待演、看過、回憶相簿 ----
+  showsOn() { return this.affOn() && this.affCfg().shows !== false; }
+  affShows() { const a = this.aff(); a.shows = SU.migrate(a.shows, a.maxStage || 1); return a.shows; }
+  queueShow(st) {
+    if (!this.showsOn() || !SU.SHOWS[st]) return false;
+    const sh = this.affShows();
+    if (sh.seen[st]) return false;
+    if (!sh.pending.includes(st)) sh.pending.push(st);
+    return true;
+  }
+  showInfo() {
+    if (!this.showsOn()) return { next: 0, album: [] };
+    const sh = this.affShows();
+    return { next: SU.next(sh), album: SU.album(sh) };
+  }
+  // 演完（或跳過）：從待演拿掉、收進相簿；從相簿重看只記時間
+  finishShow(n, { skipped = false } = {}) {
+    n = Number(n);
+    if (!SU.SHOWS[n]) return { view: this.view() };
+    const sh = this.affShows();
+    const first = sh.pending.includes(n);
+    const now = this.now().toISOString();
+    if (first) {
+      sh.pending = sh.pending.filter((x) => x !== n);
+      sh.seen[n] = { at: now, skipped: !!skipped };
+    } else if (sh.seen[n]) sh.seen[n] = { ...sh.seen[n], replayedAt: now };
+    else return { view: this.view() }; // 還沒升到這一階
+    this.saveState();
+    return { first, title: SU.title(n), view: this.view() };
+  }
   relationInfo() {
     if (!this.affOn()) return null;
     const st = A.stageInfo(this.affStage());
@@ -993,8 +1024,11 @@ class Engine {
       extra.push(...this.affPending.splice(0).map((k) => this.affTpl(k)));
       const st = A.stageOf(a.points, a.stage, this.affCfg().thresholds);
       if (st > a.stage) {
-        extra.push(this.affTpl(`stageup_${st}`));
-        if (st > (a.maxStage || 1)) { G.grant(this.state, { xp: 0, gold: 10 * st }, `${this.config.npc.name}的心意`, this.config.rewards, this.now()); a.maxStage = st; }
+        const first = st > (a.maxStage || 1);
+        // 第一次升到有動畫的階段：只說一句預告，頭上冒「!」，點她才演（原本那句話在漫畫最後一格）
+        const show = first && this.queueShow(st);
+        extra.push(this.affTpl(show ? 'stageup_tease' : `stageup_${st}`));
+        if (first) { G.grant(this.state, { xp: 0, gold: 10 * st }, `${this.config.npc.name}的心意`, this.config.rewards, this.now()); a.maxStage = st; }
       } else if (st < a.stage) extra.push(this.affTpl('stagedown'));
       a.stage = st;
     }
