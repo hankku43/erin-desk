@@ -69,11 +69,23 @@ function classify(text, words = {}) {
   return null;
 }
 
-// AI 判斷的態度要再過一次：罵人／騷擾要有針對艾琳的字眼，或是很短、跟工作無關的一句，才算數（小模型會誤判）
+// AI 判斷的態度要再過一次（小模型會誤判，提示被截斷時更會亂判）：
+//   道歉、稱讚、關心艾琳的話一律不算失禮；句子裡要找得到罵人或騷擾的字；
+//   沒有指向艾琳的字眼時，只有 6 個字以內的一句（「滾」「醜八怪」「這專案爛透了」）才算；
+//   AI 說騷擾但句子裡沒有任何跟騷擾有關的字 → 最多算失禮
+const WORRY = /擔心|還好嗎|沒事吧|要不要緊|不要生氣|別生氣|消消氣|休息一下|保重/;
+const NEG_HINT = new RegExp(`${RUDE_WORD}|滾|閉嘴|煩|討厭|笨|蠢|醜|吵|噁心|走開|囉嗦|爛|差勁|沒用|很遜|好遜|白目`);
+const HARASS_HINT = /胸|奶|屁股|內褲|胸罩|大腿|身體|摸|舔|脫|陪我睡|一起睡|上床|床上|房間|開房|過夜|裸|色色|性感|親親|親一下|親你|親妳|老婆|嫁給我/;
 function guardAttitude(att, text, { hasWork = false } = {}) {
   const t = norm(text);
   if (CARE.test(t)) return 'ok';
-  if (att === 'rude' || att === 'harass') return !hasWork && (TARGET.test(t) || t.length <= 20) ? att : 'ok';
+  if (att === 'rude' || att === 'harass') {
+    if (hasWork || APOLOGY.test(t) || KIND.test(t) || WORRY.test(t)) return 'ok';
+    const sexual = HARASS_HINT.test(t);
+    if (!sexual && !NEG_HINT.test(t)) return 'ok';
+    if (!TARGET.test(t) && t.length > 6) return 'ok';
+    return att === 'harass' && !sexual ? 'rude' : att;
+  }
   return ['ok', 'kind', 'apology'].includes(att) ? att : 'ok';
 }
 

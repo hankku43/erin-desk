@@ -410,10 +410,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   // 2. context 長度：聊天、閒話、暖機都一樣（不同的話 Ollama 會重載模型）；聊天的逾時比較長
   reply = { line: '嗯哼～', emotion: 'happy' };
   await npc.say('poke', facts);
-  assert.deepStrictEqual(calls.map((c) => c.body.options.num_ctx), [4096, 4096]);
+  assert.deepStrictEqual(calls.map((c) => c.body.options.num_ctx), [6144, 6144], '預設 6144（4096 放不下聊天的提示）');
   assert.ok(calls[0].timeout >= 90000 && calls[1].timeout === 45000, `聊天 ${calls[0].timeout}ms、閒話 ${calls[1].timeout}ms`);
   npc.warmUp(); await new Promise((r) => setTimeout(r, 10));
-  assert.strictEqual(calls.at(-1).body.options.num_ctx, 4096, '暖機也用同一個 num_ctx');
+  assert.strictEqual(calls.at(-1).body.options.num_ctx, 6144, '暖機也用同一個 num_ctx');
   // 3. 逾時：不當斷線；閒話 2 分鐘內用內建台詞，聊天照樣問 AI
   calls = [];
   fail = () => Object.assign(new Error('aborted'), { name: 'AbortError' });
@@ -2797,4 +2797,77 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.notStrictEqual(E.proactiveDue({ idleSec: 0 }), 'daily', '國定假日不說「現在這格」');
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('假日與請假測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 📏 提示太長：Ollama 會默默把前面一半切掉 → 艾琳照抄冒險者的話、回英文、亂判態度（10/12 的 bug） ----------
+(async () => {
+  const os = require('os');
+  const { NPC, estTokens, badReply } = require('../src/main/npc');
+  const A = require('../src/main/affection');
+  // 估 token：跟 Qwen 分詞比過（中文 0.85／字、英文 0.25／字母、數字每位 1）
+  const near = (s, real) => { const e = estTokens(s); return e >= real * 0.95 && e <= real * 1.2; };
+  assert.ok(near('冒險者，今天的委託是整理第三季的會議紀錄，記得在週五前交給艾琳喔！', 26) && near('SKU-A12 > 0.85（含甜度、酸度、CO2／pH），Brix 評估口感，試吃 30 份內；查核點 2 是 10/31 前上架 500 瓶', 65), '中文、中英數字混合（Qwen 分詞器實際是 26、65）');
+  assert.ok(estTokens('Hello world, this is a test of the tokenizer.') >= 11, '英文寧可多估');
+  // 壞掉的回覆（10/12 真的出現過的）
+  assert.strictEqual(badReply('你還好嗎?我有點擔心你', '你還好嗎?我有點擔心你'), '照抄了冒險者的話');
+  assert.strictEqual(badReply('冒險者說：「對不起 不要生氣」', '對不起 不要生氣'), '照抄了提示裡的「說：」');
+  assert.strictEqual(badReply("So the user says: 'He's a salary thief'. I need to respond to this based on the context.", '他是薪水小偷'), '回了英文');
+  // 正常的回覆不算：引用一部分、夾幾個英文字
+  for (const [l, u] of [['週五準備狂歡？好耶！', '週五 準備狂歡'], ['Excel 表格整理好了嗎？太好了，下一步核對價格吧', '表格整理好了'], ['嗯哼～', '嗯'], ['午安～', '午安']]) assert.strictEqual(badReply(l, u), null, l);
+  // 態度：道歉、關心、說別人壞話、沒有罵人字眼 → AI 說騷擾／失禮也不扣；真的罵人照扣；騷擾要有相關的字，不然最多算失禮
+  for (const t of ['你還好嗎?我有點擔心你', '對不起 不要生氣', '他是薪水小偷', '你喜歡德樣子', '已經把咖啡豆的庫存表整理好了，後續剩下核對價格']) {
+    assert.strictEqual(A.guardAttitude('harass', t), 'ok', t); assert.strictEqual(A.guardAttitude('rude', t), 'ok', t);
+  }
+  assert.strictEqual(A.guardAttitude('rude', '你這個白癡'), 'rude');
+  assert.strictEqual(A.guardAttitude('harass', '你好醜'), 'rude', '沒有騷擾的字 → 最多算失禮');
+  assert.strictEqual(A.guardAttitude('harass', '給我看你的內褲'), 'harass');
+  assert.strictEqual(A.guardAttitude('rude', '煩死了這個bug'), 'ok', '罵 bug 不是罵艾琳');
+  // 送出去的提示一定放得進 num_ctx：先拿掉舊對話 → 長行縮短 → 從尾巴拿掉資料；角色設定和規則都在
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-ctx-'));
+  const calls = [];
+  let reply = { line: '收到～艾琳記下來了。', emotion: 'happy' };
+  const npc = new NPC({ npc: { name: '艾琳', callName: '冒險者' }, llm: { enabled: true, baseUrl: 'http://x', model: 'qwen3:4b', numCtx: 2048 } });
+  npc.status.online = true; npc.setLogFile(path.join(dir, 'llm.log'));
+  npc.fetchJSON = async (_p, body) => { calls.push(body); return { message: { content: JSON.stringify(reply) }, prompt_eval_count: 1500, eval_count: 30 }; };
+  const sys0 = npc.systemPrompt();
+  const history = [
+    { role: 'user', content: '早安' }, { role: 'assistant', content: JSON.stringify({ line: '早安，冒險者！', emotion: 'happy' }) },
+    { role: 'user', content: '今天好忙' }, { role: 'assistant', content: JSON.stringify({ line: '辛苦了，先從最小的一項開始吧。', emotion: 'worried' }) },
+  ];
+  const extraUser = ['【可操作項目】', ...Array.from({ length: 120 }, (_, i) => `- q${i} 這是一個很長很長的任務目標說明，包含很多細節、數字 ${i}${i}${i} 和查核點，模型其實只需要知道它是哪一項就好了 ${'・'.repeat(10)}`), '【角色設定】最後面的設定'].join('\n');
+  const r = await npc.say('chat', {}, { userText: '我做完第一項了', history, extraUser, maxTokens: 320 });
+  const sent = calls[0].messages;
+  const total = sent.reduce((n, m) => n + estTokens(m.content) + 6, 0);
+  assert.ok(total <= 2048 - 320 - 64, `提示 ${total} tok 要放得進去`);
+  assert.ok(sent[0].role === 'system' && sent[0].content.startsWith(sys0), '角色設定、規則完整保留');
+  assert.ok(sent.length === 2 && sent[1].role === 'user', '舊對話先拿掉');
+  assert.ok(/【狀態】/.test(sent[1].content) && /【可操作項目】/.test(sent[1].content) && /冒險者說：「我做完第一項了」$/.test(sent[1].content), '狀態、資料開頭、冒險者的話都在');
+  assert.ok(!/最後面的設定/.test(sent[1].content) && /…/.test(sent[1].content), '長行縮短、從尾巴拿掉');
+  assert.ok(r.source === 'llm' && r.text === '收到～艾琳記下來了。');
+  const log = () => fs.readFileSync(path.join(dir, 'llm.log'), 'utf8');
+  assert.ok(/提示太長（約 \d+ tok，上限 1664）：舊對話 4→0 句、長的資料行縮短、資料 122→\d+ 行，剩約 \d+ tok/.test(log()), log());
+  // 放得下就不動
+  calls.length = 0;
+  await npc.say('chat', {}, { userText: '你好', history, extraUser: '【可操作項目】\n- q1 寫週報', maxTokens: 320 });
+  assert.strictEqual(calls[0].messages.length, 6, '系統＋4 句舊對話＋這次');
+  // Ollama 還是切了（讀到的剛好是 (num_ctx − 4) / 2 + 4）：日誌提醒
+  npc.llm.numCtx = 4096; // 10/12 的情況：要 4096，提示超過一半，Ollama 卻只讀了 (4096 − 4) / 2 + 4 = 2050
+  npc.fetchJSON = async (_p, body) => { calls.push(body); return { message: { content: JSON.stringify(reply) }, prompt_eval_count: 2050, eval_count: 30 }; };
+  const mid = ['【可操作項目】', ...Array.from({ length: 60 }, (_, i) => `- q${i} ${'整理會議紀錄並寄給所有與會者確認'.repeat(2)}`)].join('\n');
+  await npc.say('chat', {}, { userText: '你好', history, extraUser: mid, maxTokens: 320 });
+  assert.ok(/⚠ 提示可能被 Ollama 截斷/.test(log().trim().split('\n').pop()), log().trim().split('\n').pop());
+  assert.ok(!/提示太長/.test(log().trim().split('\n').pop()), '這次沒有超過，不用精簡');
+  // 回覆壞掉：改用內建台詞（AI 的態度判斷也就不會被採用），日誌寫原因；壞掉的那一輪不再送給模型
+  for (const [bad, why] of [[{ line: '我做完第一項了', emotion: 'disdain', attitude: 'harass' }, '照抄了冒險者的話'], [{ line: "So the user says: 'I finished the first item'. I need to respond.", emotion: 'disdain' }, '回了英文']]) {
+    reply = bad;
+    const b = await npc.say('chat', {}, { userText: '我做完第一項了', history: [], extraUser: '' });
+    assert.ok(b.source === 'template' && !b.data, `${why} → 內建台詞`);
+    assert.ok(log().includes(`失敗：${why}`), why);
+  }
+  reply = { line: '好的', emotion: 'happy' }; calls.length = 0;
+  await npc.say('chat', {}, { userText: '再見', history: [{ role: 'user', content: '你還好嗎' }, { role: 'assistant', content: JSON.stringify({ line: '你還好嗎', emotion: 'disdain' }), source: 'llm' }, { role: 'user', content: '午安' }, { role: 'assistant', content: JSON.stringify({ line: '午安～', emotion: 'happy' }), source: 'llm' }] });
+  const sentHist = JSON.stringify(calls[0].messages.slice(1, -1));
+  assert.ok(!/你還好嗎/.test(sentHist) && /午安/.test(sentHist), '照抄的那一輪不給模型看');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('提示長度與壞掉的回覆測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });

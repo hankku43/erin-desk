@@ -566,6 +566,35 @@ const RE_FALLBACK = /[（(]\s*(AI|ＡＩ)[^）)]{0,20}(內建|内建)[台臺]詞
 // 模型偶爾會把格式說明當成答案（line 只回「台詞」），這種回覆當作這次沒回好
 const RE_PLACEHOLDER = /^[「『"'（(]?\s*(台詞|臺詞|台词|台詞內容|臺詞內容|要說的話|你要說的話|說的話|回覆|line|text|\.\.\.|…+)\s*[」』"'）)]?[。.！!]?$/i;
 function isPlaceholder(t) { return RE_PLACEHOLDER.test(String(t || '').trim()); }
+// 估 token 數（照 Qwen 的分詞方式：中文約 0.8／字、全形標點 1、數字每一位 1、英文小寫約 4 個字母 1、大寫縮寫約 2 個字母 1、
+// 空白後面接中文會被拆成好幾個位元組）。用 Qwen 的分詞器比過：中文說明大約多估 2%，中英數字混在一起多估 5～15%，寧可多估
+function estTokens(s) {
+  let n = 0, m;
+  const re = /([A-Za-z]+)|([0-9])|(\n)|([ \t]+(?=[\u3400-\u9FFF]))|([ \t]+)|([\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF])|([\u3000-\u303F\uFF00-\uFFEF])|([\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E])|([\s\S])/gu;
+  const str = String(s || '');
+  while ((m = re.exec(str))) {
+    if (m[1]) n += /^[A-Z]{2,}$/.test(m[1]) ? Math.ceil(m[1].length / 2) : Math.max(1, Math.ceil(m[1].length / 4));
+    else if (m[2] || m[3]) n += 1;
+    else if (m[4]) n += 2.4;
+    else if (m[5]) n += 0.4;
+    else if (m[6]) n += 0.8;
+    else if (m[7]) n += 1;
+    else if (m[8]) n += 0.8;
+    else n += 1.5;
+  }
+  return Math.ceil(n);
+}
+// 回覆壞掉了（小模型讀不到規則時會這樣）：照抄提示裡的「冒險者說：「…」」、一字不差照抄冒險者的話、整句英文
+const keyText = (s) => String(s || '').replace(/[\s，。、；：！？!?,.;:~～…「」『』（）()"'“”‘’]/g, '').toLowerCase();
+function badReply(line, userText, call = '冒險者') {
+  const t = String(line || '');
+  if (!t) return null;
+  if (t.includes(`${call}說：「`) || /^(冒險者|使用者|玩家|user)\s*(說|says?)[:：]/i.test(t)) return '照抄了提示裡的「說：」';
+  const latin = (t.match(/[A-Za-z]/g) || []).length, cjk = (t.match(/[\u3400-\u9fff]/g) || []).length;
+  if (latin >= 12 && cjk * 4 < latin) return '回了英文';
+  if (userText && keyText(userText).length >= 4 && keyText(t) === keyText(userText)) return '照抄了冒險者的話'; // 「午安」回「午安～」不算
+  return null;
+}
 function isFallbackText(t) { RE_FALLBACK.lastIndex = 0; const r = RE_FALLBACK.test(String(t || '')); RE_FALLBACK.lastIndex = 0; return r; }
 
 const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -605,20 +634,21 @@ class NPC {
   }
 
   // 每次呼叫都用同一個 context 長度：Ollama 遇到 num_ctx 不同會整個重載模型，CPU 上要好幾秒
-  numCtx() { return this.llm.numCtx || 4096; }
+  // 預設 6144：聊天的提示（規則＋任務清單＋角色設定＋小本子）常常 3000～4500 tok，4096 不夠時 Ollama 會默默把前面一半切掉
+  numCtx() { return this.llm.numCtx || 6144; }
   // 聊天的提示最長（任務清單＋角色設定＋對話紀錄），給久一點
   timeoutFor(event) { const base = this.llm.timeoutMs || 45000; return event === 'chat' || event === 'divine' ? Math.max(base, this.llm.chatTimeoutMs || 90000) : base; }
 
   // 每次呼叫 AI 的耗時記到 data/llm.log（最多留 300 行），AI 常常回不出來時看這裡
   setLogFile(file) { this.logFile = file; }
-  logCall(event, t0, r, err) {
+  logCall(event, t0, r, err, note) {
     if (!this.logFile) return;
     const ms = (ns) => (ns ? Math.round(ns / 1e6) : 0);
     const d = new Date();
     const stamp = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
     const line = err
       ? `${stamp}\t${event}\t${Date.now() - t0}ms\t失敗：${err}`
-      : `${stamp}\t${event}\t${Date.now() - t0}ms\t載入模型 ${ms(r.load_duration)}ms｜讀提示 ${r.prompt_eval_count || 0} tok ${ms(r.prompt_eval_duration)}ms｜產生 ${r.eval_count || 0} tok ${ms(r.eval_duration)}ms`;
+      : `${stamp}\t${event}\t${Date.now() - t0}ms\t載入模型 ${ms(r.load_duration)}ms｜讀提示 ${r.prompt_eval_count || 0} tok ${ms(r.prompt_eval_duration)}ms｜產生 ${r.eval_count || 0} tok ${ms(r.eval_duration)}ms${note ? `｜${note}` : ''}`;
     try {
       let lines = [];
       try { lines = fs.readFileSync(this.logFile, 'utf8').split('\n').filter(Boolean); } catch (_) { /* 新檔 */ }
@@ -797,22 +827,51 @@ class NPC {
     for (const h of history || []) {
       let line = h.content;
       if (h.role === 'assistant') { try { line = JSON.parse(h.content).line; } catch (_) { /* 純文字 */ } }
-      if (h.role === 'assistant' && (h.source === 'template' || isFallbackText(line))) {
+      const prevUser = hist.length && hist[hist.length - 1].role === 'user' ? hist[hist.length - 1].content : null;
+      if (h.role === 'assistant' && (h.source === 'template' || isFallbackText(line) || badReply(line, prevUser, this.names().call))) {
         if (hist.length && hist[hist.length - 1].role === 'user') hist.pop(); // 那一輪整個不給模型看，免得它學著說「離線中」
         continue;
       }
       hist.push(h);
     }
     const recentLines = hist.filter((h) => h.role === 'assistant').slice(-3).map((h) => { try { return JSON.parse(h.content).line; } catch (_) { return h.content; } });
-    for (const h of hist.slice(-4)) { // 太多舊回覆會讓小模型一直照抄自己的句型
+    const histMsgs = hist.slice(-4).map((h) => { // 太多舊回覆會讓小模型一直照抄自己的句型
       let content = h.content;
       if (h.role === 'assistant') {
         try { const j = JSON.parse(content); j.line = voice(j.line, this.names()); content = JSON.stringify(j); } catch (_) { content = voice(content, this.names()); }
       }
-      messages.push({ role: h.role, content });
+      return { role: h.role, content };
+    });
+    const factsBlock = this.factsText(facts);
+    const userMsg = (extra) => {
+      const task = `${/^qwen3:(?!.*instruct)/.test(this.llm.model || '') ? this.llm.noThinkPrefix || '' : ''}【狀態】（最新，以這裡為準）\n${factsBlock}${extra ? `\n\n${extra}` : ''}\n\n【情境】${EVENT_DESC[event] || EVENT_DESC.chat}`;
+      return { role: 'user', content: userText ? `${task}\n\n${this.names().call}說：「${userText}」` : task };
+    };
+    // 📏 提示不能超過 num_ctx：超過的話 Ollama 會默默把前面一半切掉（角色設定、規則、格式都不見，模型就會照抄、回英文）。
+    //   超過時依序：拿掉舊對話 → 太長的資料行縮短 → 從資料的尾巴（小本子、角色設定、後面的任務）一行一行拿掉
+    const predict = maxTokens || this.llm.maxTokens || 160;
+    const budget = this.numCtx() - predict - 64;
+    const size = (msgs) => msgs.reduce((n, m) => n + estTokens(m.content) + 6, 0);
+    let keep = histMsgs, extra = extraUser || '';
+    const build = () => [...messages, ...keep, userMsg(extra)];
+    let all = build();
+    const before = size(all), trimmed = [];
+    if (before > budget) {
+      while (keep.length && size(all) > budget) { keep = keep.slice(Math.min(2, keep.length)); all = build(); }
+      if (keep.length < histMsgs.length) trimmed.push(`舊對話 ${histMsgs.length}→${keep.length} 句`);
+      if (size(all) > budget && extra) {
+        extra = extra.split('\n').map((l) => (l.length > 60 ? `${l.slice(0, 60)}…` : l)).join('\n'); all = build();
+        trimmed.push('長的資料行縮短');
+      }
+      if (size(all) > budget && extra) {
+        let lines = extra.split('\n');
+        const n0 = lines.length;
+        while (lines.length && size(all) > budget) { lines = lines.slice(0, -1); extra = lines.join('\n'); all = build(); }
+        trimmed.push(`資料 ${n0}→${lines.length} 行`);
+      }
     }
-    const task = `${/^qwen3:(?!.*instruct)/.test(this.llm.model || '') ? this.llm.noThinkPrefix || '' : ''}【狀態】（最新，以這裡為準）\n${this.factsText(facts)}${extraUser ? `\n\n${extraUser}` : ''}\n\n【情境】${EVENT_DESC[event] || EVENT_DESC.chat}`;
-    messages.push({ role: 'user', content: userText ? `${task}\n\n${this.names().call}說：「${userText}」` : task });
+    const trimNote = before > budget ? `提示太長（約 ${before} tok，上限 ${budget}）：${trimmed.join('、')}，剩約 ${size(all)} tok` : '';
+    messages.splice(0, messages.length, ...all);
     const t0 = Date.now();
     try {
       const r = await this.fetchJSON('/api/chat', {
@@ -828,11 +887,15 @@ class NPC {
         },
         options: { temperature: this.llm.temperature ?? 0.8, num_predict: maxTokens || this.llm.maxTokens || 160, num_ctx: this.numCtx() },
       }, this.timeoutFor(event));
-      this.logCall(event, t0, r);
+      // Ollama 把提示切成一半時，讀到的剛好是 (num_ctx − 4) / 2 + 4 個 token
+      const cut = r.prompt_eval_count && r.prompt_eval_count === Math.floor((this.numCtx() - 4) / 2) + 4 && size(messages) > this.numCtx() / 2 + 64 ? '⚠ 提示可能被 Ollama 截斷' : '';
+      this.logCall(event, t0, r, null, [trimNote, cut].filter(Boolean).join('；'));
       const out = this.parseReply(r.message && r.message.content, maxChars);
       out.text = out.text.replace(RE_FALLBACK, '').trim(); // 模型照抄了舊的備援句子
       if (!out.text) throw new Error('空白回覆');
       if (isPlaceholder(out.text)) throw new Error(`照抄了格式說明「${out.text}」`);
+      const bad = badReply(out.text, userText, this.names().call);
+      if (bad) throw new Error(`${bad}「${out.text.slice(0, 30)}」`); // 改用內建台詞；聊天時 AI 的態度判斷也不採用
       out.text = voice(out.text, { ...this.names(), protect: protectedTexts(facts, userText) });
       const rep = dropRepeats(out.text, recentLines.map((l) => voice(l, this.names())));
       out.text = rep.text;
@@ -863,4 +926,4 @@ class NPC {
   }
 }
 
-module.exports = { NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, MOOD_EMOTION, EVENT_EMOTION, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };
+module.exports = { estTokens, badReply, NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, MOOD_EMOTION, EVENT_EMOTION, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };
