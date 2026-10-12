@@ -212,7 +212,126 @@
     };
     return { shots, page };
   }
-  const BUILD = { 2: show2 };
+
+  // ================= 第 3 階「熟面孔」=================
+  // 晚上的三號櫃台（scene_guild_night 跟晴天、傍晚構圖一樣；往左帶 40px 才看得到左邊那盞油燈）
+  const SHOP = (n) => `../../assets/shop/${n}`;
+  const nightBg = (front = false, b = 1, blur = 0) => `<div style="position:absolute;left:0;top:0;width:${VW}px;height:${VH}px;background:url('${ART('scene_guild_night.jpg')}') -40px 0/auto 700px;filter:brightness(${b})${blur ? ` blur(${blur}px)` : ''};${front ? 'clip-path:inset(476px 0 0 0)' : ''}"></div>`;
+  // 燈光：油燈那邊暖、越遠越暗
+  const lamp = (x = 42, y = 430, warm = .38, dark = .5) => `<div style="position:absolute;inset:0;background:radial-gradient(circle at ${x}px ${y}px,rgba(255,196,120,${warm}) 0,rgba(255,170,90,.12) 34%,rgba(12,14,44,${dark}) 100%)"></div>`;
+  // 近景：背景模糊（景深），不畫櫃台前面
+  const nightClose = (warmX = 60, warmY = 420) => nightBg(false, .82, 4) + lamp(warmX, warmY, .34, .42);
+  const note8 = (x, y, s = 1, rot = 0, c = '#ffd66b') => `<text x="${x}" y="${y}" font-size="${34 * s}" font-weight="900" fill="${c}" stroke="#2a2d4a" stroke-width="${2.5 * s}" paint-order="stroke" transform="rotate(${rot} ${x} ${y})">♪</text>`;
+  // 小本子三張圖（1448×1086，同一本、同一個角度；紙的斜度 −15°）
+  const nb3 = (file, extra = '') => bgImg(file, 1448, 1086, .645, 287, 0, extra);
+  const onPage3 = (inner) => svg(`<g transform="rotate(-15 284 300)">${inner}</g>`);
+  const pageWord = (cls, text, ox, oy, size) => `<div class="st-nbname ${cls}" style="left:${(ox * .645 - 287).toFixed(0)}px;top:${(oy * .645 - size * 1.2).toFixed(0)}px;font-size:${size}px;transform:rotate(-15deg)">${text}</div>`;
+  const choiceBtn = (i, x, y, w, text) => `<button type="button" class="st-pick" data-pick="${i}" style="left:${x}px;top:${y}px;width:${w}px">${esc(text)}</button>`;
+  const chip = (x, y, text) => `<div class="st-chip" style="left:${x}px;top:${y}px">你：${esc(text)}</div>`;
+  const thought = (x, y, w, text) => bubble({ x, y, w, text, size: 15 }).replace('class="st-bub"', 'class="st-bub think"') + svg(`<g fill="#fff" stroke="#2a2d4a" stroke-width="2.4"><circle cx="${x + w - 30}" cy="${y + 100}" r="8"/><circle cx="${x + w - 12}" cy="${y + 120}" r="5"/></g>`);
+
+  function show3() {
+    const L = SU.LINES[3], P = SU.PAGE_LINES[3];
+    const poofAt = (s, fy) => img(ART('erin_poof.webp'), 1024, s, 500, 466, 284, fy);
+    const shots = [
+      { // 1　那天晚上・打烊後：一盞油燈，閉著眼睛哼歌寫小本子（旁邊蠟封章木盒），尾巴尖在櫃台後面輕輕晃
+        start: { x: 284, y: 350, z: 1 },
+        steps: [{ cam: { x: 300, y: 268, z: 1.32 }, ms: 3400, ready: 1900 }],
+        content: nightBg() + img(SHOP('sealbox.png'), 144, .95, 72, 120, 150, 470, 'filter:brightness(.8) sepia(.2)') +
+          `<img class="st-wag" src="${ART('tail.webp')}" alt="" draggable="false" style="position:absolute;left:452px;top:206px;height:250px;transform-origin:30% 100%">` +
+          img(ART('erin_write_hum.webp'), 1023, .38, 515, 470, 300, 230) + nightBg(true, .85) + lamp(),
+        over: cap(10, 10, '那天晚上・打烊後') + pop('0', svg(`<g class="st-bob">${note8(410, 150, 1, 10)}</g>`), 500, 420, 140) +
+          pop('0', svg(`<g class="st-bob">${note8(470, 104, .8, -8, '#ffb3c8')}</g>`), 900, 470, 96) + pop('0', svg(`<g class="st-bob">${note8(520, 160, .7, 14)}</g>`), 1300, 520, 150) +
+          pop('0', csfx(372, 236, L.hum, 24, -6, '#c98a15'), 700, 450, 250),
+      },
+      { // 2　小本子：她畫的冒險者（兩顆星）→ 偷偷加一顆愛心 →「……啊。」唰唰唰塗掉
+        start: { x: 284, y: 350, z: 1.05 },
+        steps: [{ cam: { x: 300, y: 300, z: 1.18 }, ms: 2000, auto: 2800 }, { cam: { x: 350, y: 285, z: 1.45 }, ms: 700 }],
+        content: nb3('notebook_doodle.jpg') + pageWord('', '冒險者', 615, 335, 30) +
+          sv('0+', onPage3('<path class="st-draw" pathLength="1" d="M368,268 c-6,-10 -20,-6 -18,6 c2,10 18,18 18,18 c0,0 16,-8 18,-18 c2,-12 -12,-16 -18,-6 z" fill="none" stroke="#e0567a" stroke-width="3"/>'), 'fade-fast') +
+          sv('1', onPage3('<path class="st-draw fast" pathLength="1" d="M342,258 l50,4 l-46,8 l48,6 l-44,8 l46,4 l-40,8" fill="none" stroke="#5a4a3a" stroke-width="3.6" stroke-linejoin="round" opacity=".88"/>'), 'fade-fast'),
+        over: pop('0', csfx(40, 600, L.sneak, 22, -4, '#8a6a52'), 600, 150, 610) +
+          pop('1', csfx(40, 90, L.oops, 34, -6, '#6c6f8e'), 150, 100, 110) + pop('1', csfx(380, 520, '唰唰唰！', 34, -8, '#8a6a52'), 300, 450, 540),
+      },
+      { // 3　叮鈴～：門鈴響，耳朵豎直 → 頭髮和尾巴炸開、耳朵冒煙，鼓著臉硬撐（這次沒變回貓）
+        start: { x: 284, y: 350, z: 1 },
+        steps: [{ cam: { x: 284, y: 350, z: 1.06 }, ms: 300, fx: 'shake', auto: 1400 }, { cam: { x: 284, y: 350, z: 1 }, ms: 500 }],
+        content: nightClose() + sv('0', pose('surprised', .78, 536, 368, 284, 300), 'fade-fast') + sv('1+', poofAt(.6, 300), 'fade-fast'),
+        over: `<img class="st-ring" src="${SHOP('bell.png')}" alt="" draggable="false" style="position:absolute;left:18px;top:-14px;width:104px;transform-origin:50% 0">` +
+          pop('0', csfx(118, 66, '叮鈴～', 34, -6, '#c98a15'), 80, 180, 80) +
+          pop('0', svg(`${zoomUp(170, 70, 1.2)}${zoomUp(410, 70, 1.2)}`), 300) + pop('0', csfx(420, 240, '！！', 44, 8, '#34437a'), 400, 450, 260) +
+          pop('1', csfx(372, 40, '噗、噗', 22, -6, '#8a7aa8'), 300, 420, 50) + pop('1', thought(14, 430, 290, L.hold), 700, 160, 480),
+      },
+      { // 4　咚！：用金星蠟封章蓋住畫你的那一頁（對著你）
+        start: { x: 284, y: 350, z: 1.12 },
+        steps: [{ cam: { x: 284, y: 350, z: 1 }, ms: 260, fx: 'shake' }],
+        content: svg(`<defs><radialGradient id="stG34" cx=".5" cy=".45" r=".75"><stop offset="0" stop-color="#ffe3ec"/><stop offset="1" stop-color="#ff9ab8"/></radialGradient></defs><rect width="${VW}" height="${VH}" fill="url(#stG34)"/>${softRays(284, 330, '#fff', 26, .35)}`) +
+          img(ART('erin_stamp.webp'), 1024, .44, 522, 453, 284, 226),
+        over: pop('0', svg(`<g stroke="#2a2d4a" stroke-width="4" stroke-linecap="round">${[[200, 620, 168, 612], [214, 664, 184, 684], [330, 666, 362, 686], [336, 620, 370, 612]].map(([a, b, c, d]) => `<line x1="${a}" y1="${b}" x2="${c}" y2="${d}"/>`).join('')}</g><g class="st-twk">${sparkle(265, 640, 24, '#f0b23a')}</g>`), 120, 265, 640) +
+          pop('0', csfx(392, 470, '咚！', 64, -10, '#34437a'), 40, 450, 500) +
+          pop('0', bubble({ x: 330, y: 40, w: 220, text: L.nope, tail: [300, 250], size: 24 }), 380, 440, 100),
+      },
+      { // 5　風把小本子吹到第一頁（★ 線索：雨夜的斗篷、很久以前的日期、名字是後來才補上的）→ 啪！闔起來
+        start: { x: 284, y: 330, z: 1.05 },
+        steps: [{ cam: { x: 284, y: 330, z: 1.05 }, ms: 0, auto: 1400 }, { cam: { x: 300, y: 300, z: 1.2 }, ms: 1500, ready: 1600 }, { cam: { x: 284, y: 350, z: 1 }, ms: 0, fx: 'shake' }],
+        content: sv('0', nb3('notebook_doodle.jpg', 'filter:blur(1.5px)') + svg(`<g fill="#fbf4e4" stroke="#b8a888" stroke-width="2">${[[-34, 0], [-18, 1], [-4, 2], [12, 3]].map(([r, i]) => `<path class="st-flip" style="animation-delay:${i * 90}ms" transform="rotate(${r} 284 520)" d="M284,520 L284,180 Q360,170 470,200 L470,520 Z" opacity="${.65 + i * .1}"/>`).join('')}</g>`), 'fade-fast') +
+          sv('1', nb3('notebook_first_page.jpg') + pageWord('old', '12 日　雨', 612, 300, 20) + pageWord('fresh', '冒險者<span>✦</span>', 630, 352, 28), 'fade-fast') +
+          sv('2', bgImg('notebook_slam.jpg', 1448, 1086, .75, 283, -100), 'fade-fast'),
+        over: pop('0', svg('<g fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".85"><path d="M-10,180 q120,-30 230,10 q60,20 40,-20"/><path d="M-10,260 q160,-26 300,4"/><path d="M-10,340 q110,-16 200,10"/></g>'), 0, 0, 260) +
+          pop('0', csfx(330, 90, '呼——', 34, 4, '#6c6f8e'), 100, 380, 110) + pop('0', csfx(60, 560, '啪啦啪啦', 30, -6, '#8a6a52'), 400, 130, 580) +
+          pop('1', csfx(30, 620, '（第一頁）', 22, 0, '#6c6f8e'), 900, 90, 630) +
+          pop('2', csfx(60, 60, '啪！', 76, -8, '#34437a'), 40, 130, 110),
+      },
+      { // 6　「……什麼都沒看到，對吧？」→ 你的回答（二選一，不存檔）→ 她把你忘了的提燈遞過來（★ 小線索：序章那盞）
+        start: { x: 284, y: 350, z: 1 },
+        steps: [
+          { cam: { x: 284, y: 350, z: 1 }, ms: 0, choice: [{ go: 1 }, { go: 2 }] },
+          { cam: { x: 284, y: 350, z: 1 }, ms: 0, next: 3 },
+          { cam: { x: 284, y: 350, z: 1.04 }, ms: 300, fx: 'shake', next: 3 },
+          { cam: { x: 284, y: 350, z: 1 }, ms: 0 },
+        ],
+        content: nightBg() + sv('0', pose('worried', .62, 520, 380, 284, 300), 'fade-fast') + sv('1', pose('happy', .62, 520, 360, 284, 290), 'fade-fast') + nightBg(true, .85) + lamp(42, 430, .3, .5) +
+          sv('2', nightClose() + poofAt(.55, 270), 'fade-fast') +
+          sv('3', nightClose(290, 520) + img(ART('erin_lantern.webp'), 1024, .42, 491, 443, 284, 250) +
+            '<div style="position:absolute;inset:0;background:radial-gradient(circle at 292px 520px,rgba(255,206,120,.42),rgba(255,170,90,.08) 38%,rgba(12,14,44,.32) 100%);mix-blend-mode:screen"></div>', 'fade-x'),
+        over: pop('0', svg(drop(372, 180, 1.8)), 300, 372, 180) + pop('0', bubble({ x: 18, y: 40, w: 280, text: L.ask, tail: [250, 230], size: 18 }), 200, 150, 90) +
+          pop('0', choiceBtn(0, 54, 598, 210, L.pickA) + choiceBtn(1, 304, 598, 210, L.pickB), 900, 284, 620) +
+          pop('1', chip(14, 640, L.pickA), 0, 100, 650) + pop('1', bubble({ x: 18, y: 40, w: 220, text: L.replyA, tail: [230, 220], size: 18 }), 250, 120, 80) + pop('1', csfx(392, 160, '（鬆一口氣）', 20, 6, '#d9ddf0'), 600, 450, 170) +
+          pop('2', chip(14, 640, L.pickB), 0, 100, 650) + pop('2', bubble({ x: 18, y: 40, w: 250, text: L.replyB, tail: [230, 230], size: 20 }), 250, 140, 80) + pop('2', csfx(380, 200, '噗咻——', 28, 6), 500, 440, 210) +
+          pop('3', bubble({ x: 10, y: 24, w: 250, text: nmR(L.lantern), tail: [240, 250], size: 16 }), 600, 130, 70) + pop('3', csfx(430, 330, '……', 30, 0, '#ffd66b'), 1500, 450, 340),
+      },
+      { // 7　你要走了 →「……冒險者。」→ 抱著小本子：「……這是秘密喔。」
+        start: { x: 284, y: 350, z: 1 },
+        steps: [{ cam: { x: 284, y: 350, z: 1 }, ms: 0 }, { cam: { x: 290, y: 330, z: 1.08 }, ms: 900 }],
+        content: sv('0', nightBg() + pose('normal', .62, 520, 380, 284, 300) + nightBg(true, .85) + lamp(42, 430, .34, .5), 'fade-x') +
+          sv('1', nightClose() + img(ART('erin_hug_notebook.webp'), 1024, .5, 476, 447, 284, 250), 'fade-x'),
+        over: pop('0', bubble({ x: 30, y: 60, w: 170, text: L.call, tail: [230, 240], size: 20 }), 300, 110, 80) + pop('0', csfx(310, 620, '（你正要走出門）', 18, 0, '#d9ddf0'), 0, 400, 630) +
+          pop('1', bubble({ x: 12, y: 30, w: 300, text: nmR(L.secret), tail: [250, 270], size: 16 }), 500, 160, 80) +
+          pop('1', svg(`<g class="st-bob">${heart(480, 150, 1.4)}</g><g class="st-blink" stroke="#ff7aa8" stroke-width="4" fill="none" stroke-linecap="round"><path d="M500,380 q22,30 4,64"/><path d="M530,350 q20,26 4,56"/><path d="M470,430 q22,26 6,56"/></g>`), 900, 500, 300) +
+          pop('1', nar(70, 612, L.nar), 1400, 284, 630),
+      },
+    ];
+    const page = {
+      panels: [
+        { k: 0, st: 0, box: [11, 42, 552, 150], cam: { x: 284, y: 250, z: 1 } },
+        { k: 1, st: 1, box: [11, 200, 272, 150], cam: { x: 330, y: 290, z: .78 } },
+        { k: 2, st: 1, box: [291, 200, 272, 150], cam: { x: 284, y: 300, z: .62 } },
+        { k: 3, st: 0, box: [11, 358, 552, 130], cam: { x: 284, y: 250, z: 1 } },
+        { k: 4, st: 1, box: [11, 496, 206, 140], poly: [[0, 0], [206, 0], [186, 140], [0, 140]], cam: { x: 220, y: 330, z: .62 } },
+        { k: 5, st: 3, box: [195, 496, 368, 140], poly: [[22, 0], [368, 0], [368, 140], [2, 140]], cam: { x: 284, y: 380, z: .66 } },
+        { k: 6, st: 1, box: [11, 644, 552, 126], cam: { x: 284, y: 300, z: 1 } },
+      ],
+      words: `<div class="st-pcap" style="left:19px;top:50px">那天晚上・打烊後</div><div class="st-pc" style="left:380px;top:76px;color:#c98a15">${esc(L.hum)}</div>` +
+        `<div class="st-pc" style="left:170px;top:312px;color:#8a6a52">唰唰唰！</div>` +
+        `<div class="st-pc" style="left:300px;top:208px;color:#c98a15">叮鈴～</div><div class="st-pb" style="left:398px;top:296px;width:156px">${esc(P.hold)}</div>` +
+        `<div class="st-pb burstish" style="left:30px;top:372px;width:70px">咚！</div><div class="st-pb" style="left:400px;top:374px;width:150px">${esc(P.nope)}</div>` +
+        `<div class="st-pc" style="left:24px;top:604px;color:#6c6f8e">（第一頁）</div>` +
+        `<div class="st-pb" style="left:396px;top:504px;width:156px">${esc(P.lantern)}</div>` +
+        `<div class="st-pb" style="left:24px;top:654px;width:200px">${esc(P.secret)}</div><div class="st-nar small" style="left:300px;top:742px">${esc(L.nar)}</div>`,
+    };
+    return { shots, page };
+  }
+  const BUILD = { 2: show2, 3: show3 };
 
   // ================= 播放器 =================
   let S = null; // { n, data, root, card, vp, si, step, shot, ready, timers, mode, replay, pageOnly, held, skipped }
@@ -271,7 +390,7 @@
     if (typeof hideTip === 'function') hideTip();
     $('#marker').classList.add('hidden');
     const root = build();
-    S = { n, data: BUILD[n](), root, card: root.querySelector('.st-card'), vp: root.querySelector('.st-vp'), si: -1, step: 0, shot: null, ready: false, timers: [], mode: 'shot', replay, pageOnly, held: [], skipped: false };
+    S = { n, data: BUILD[n](), root, card: root.querySelector('.st-card'), vp: root.querySelector('.st-vp'), si: -1, step: 0, shot: null, ready: false, choosing: false, pick: null, timers: [], mode: 'shot', replay, pageOnly, held: [], skipped: false };
     S.card.querySelector('.st-title').textContent = SU.title(n);
     // 從她身上展開
     const ir = $('#npcImg').getBoundingClientRect(), cr = S.card.getBoundingClientRect();
@@ -330,7 +449,7 @@
   function runStep(k) {
     const def = S.data.shots[S.si];
     const st = def.steps[k];
-    S.step = k; S.ready = false; hint(false);
+    S.step = k; S.ready = false; S.choosing = false; hint(false);
     S.shot.classList.remove('ff');
     applyStep(S.shot, def, k);
     if (st.fx === 'shake') shake();
@@ -338,23 +457,39 @@
     const readyAt = st.ready != null ? st.ready : Math.max(st.ms || 0, pops.length ? Math.max(...pops) + 420 : 0);
     later(() => {
       S.ready = true;
+      if (st.choice) { S.choosing = true; hint(true, '選一個回答 ▲'); return; }
       if (st.auto) later(() => { if (S && S.mode === 'shot' && S.step === k) advance(); }, Math.max(0, st.auto - readyAt));
       else hint(true);
     }, readyAt);
+  }
+  // 二選一：選了就演那個反應（不存檔）
+  function choose(i) {
+    if (!S || !S.choosing) return;
+    const st = S.data.shots[S.si].steps[S.step];
+    const c = st.choice && st.choice[i];
+    if (!c) return;
+    S.choosing = false; S.pick = i; hint(false);
+    S.shot.querySelectorAll('.st-pick').forEach((b) => b.classList.toggle('on', +b.dataset.pick === i));
+    clearTimers();
+    later(() => runStep(c.go), 260);
   }
   function fastForward() {
     clearTimers();
     S.shot.classList.add('ff');
     S.ready = true;
     const st = S.data.shots[S.si].steps[S.step];
+    if (st.choice) { S.choosing = true; hint(true, '選一個回答 ▲'); return; }
     if (st.auto) advance(); else hint(true);
   }
   function advance() {
     if (!S || S.mode === 'closing') return;
     if (S.mode === 'page') { if (S.ready) close(); return; }
     if (!S.ready) { fastForward(); return; }
+    if (S.choosing) { S.shot.classList.remove('nudge'); void S.shot.offsetWidth; S.shot.classList.add('nudge'); return; } // 要先選一個
     const def = S.data.shots[S.si];
-    if (S.step + 1 < def.steps.length) { clearTimers(); runStep(S.step + 1); return; }
+    const st = def.steps[S.step];
+    const nx = st.next != null ? st.next : S.step + 1;
+    if (nx < def.steps.length) { clearTimers(); runStep(nx); return; }
     if (S.si + 1 < S.data.shots.length) { enterShot(S.si + 1); return; }
     toPage(false);
   }
@@ -405,11 +540,17 @@
     }, 380);
   }
 
-  function onCardClick(e) { if (e.target.closest('.st-skip')) return; advance(); }
+  function onCardClick(e) {
+    if (e.target.closest('.st-skip')) return;
+    const pk = e.target.closest('[data-pick]');
+    if (pk) { choose(+pk.dataset.pick); return; }
+    advance();
+  }
   function onKey(e) {
     if (!S) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); skip(); }
     else if ([' ', 'Enter', 'ArrowRight'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); advance(); }
+    else if (S.choosing && ['1', '2'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); choose(+e.key - 1); }
   }
   function skip() { if (!S || S.mode === 'closing') return; if (S.mode !== 'page') S.skipped = true; close(); }
 
@@ -474,7 +615,8 @@
     play, syncMarker, onNpcClick, hold, abort, renderAlbum, albumClick,
     active: () => !!S,
     // 測試用：現在演到哪、能不能點下一步
-    debug: () => (S ? { n: S.n, shot: S.si, step: S.step, mode: S.mode, ready: S.ready, hint: S.card.querySelector('.st-hint').classList.contains('on') } : null),
+    debug: () => (S ? { n: S.n, shot: S.si, step: S.step, mode: S.mode, ready: S.ready, choosing: S.choosing, pick: S.pick, hint: S.card.querySelector('.st-hint').classList.contains('on') } : null),
     click: () => advance(),
+    choose: (i) => choose(i),
   };
 })();

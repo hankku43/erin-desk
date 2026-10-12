@@ -2945,18 +2945,25 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const SU = require('../src/renderer/stageup-script');
   const { Engine } = require('../src/main/engine');
   // 1. 舊存檔：升過的只補演最新的一階，更早的直接收進相簿；新版本多一階動畫也一樣
-  assert.deepStrictEqual(SU.STAGES, [2]);
-  assert.deepStrictEqual(SU.migrate(undefined, 1), { pending: [], seen: {}, known: [2] }, '還在第 1 階：不用演');
-  assert.deepStrictEqual(SU.migrate(undefined, 2).pending, [2], '第 2 階（使用者的存檔）：補演');
-  assert.deepStrictEqual(SU.migrate(undefined, 4).pending, [2], '更高階但只有第 2 階的動畫：演第 2 階');
-  const seen = SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2] }, 3);
+  assert.deepStrictEqual(SU.STAGES, [2, 3]);
+  assert.deepStrictEqual(SU.migrate(undefined, 1), { pending: [], seen: {}, known: [2, 3] }, '還在第 1 階：不用演');
+  assert.deepStrictEqual(SU.migrate(undefined, 2).pending, [2], '第 2 階：補演第 2 階');
+  const m4 = SU.migrate(undefined, 4);
+  assert.deepStrictEqual([m4.pending, !!m4.seen[2].unlocked], [[3], true], '第 4 階：只補演最新的第 3 階，第 2 階直接收進相簿');
+  const up = SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2] }, 3);
+  assert.deepStrictEqual([up.pending, up.known], [[3], [2, 3]], '看過第 2 階、新版本多了第 3 階：補演第 3 階');
+  assert.deepStrictEqual(SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2] }, 2).pending, [], '還沒到第 3 階：不演');
+  const seen = SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2, 3] }, 3);
   assert.deepStrictEqual([seen.pending, seen.seen[2].at], [[], 'x'], '看過的不再演');
   assert.deepStrictEqual(SU.migrate({ pending: [2, 9], seen: {}, known: [2] }, 2).pending, [2], '不認得的階段拿掉');
   assert.strictEqual(SU.next({ pending: [2] }), 2); assert.strictEqual(SU.next({ pending: [] }), 0);
-  assert.deepStrictEqual(SU.album({ seen: { 2: { at: '2026-10-12T00:00:00Z' } } }).map((x) => [x.n, x.title]), [[2, '其之二　常客']]);
+  assert.deepStrictEqual(SU.album({ seen: { 2: { at: '2026-10-12T00:00:00Z' }, 3: { at: null, unlocked: true } } }).map((x) => [x.n, x.title]), [[2, '其之二　常客'], [3, '其之三　熟面孔']]);
   // 2. 口吻：艾琳的台詞自稱用名字、叫對方冒險者；瑪格大姐的才有「你」
   const L = SU.LINES[2];
-  for (const k of ['huh', 'deny', 'star', 'hehe', 'end']) assert.ok(!/[我您]|玩家/.test(L[k]), '艾琳的台詞：' + k);
+  for (const n of SU.STAGES) for (const k of SU.ERIN[n]) assert.ok(SU.LINES[n][k] && !/[我您]|玩家/.test(SU.LINES[n][k]), `第 ${n} 階艾琳的台詞：${k}`);
+  for (const n of SU.STAGES) assert.ok(SU.LINES[n].end && SU.PAGE_LINES[n], `第 ${n} 階：收尾那句、整頁的字`);
+  assert.ok(/艾琳/.test(SU.LINES[3].secret) && /這是秘密喔/.test(SU.LINES[3].secret) && SU.LINES[3].end !== SU.LINES[2].end, '第 3 階：秘密那句（＝stageup_3）、收尾換一句');
+  assert.ok(SU.LINES[3].pickA && SU.LINES[3].pickB, '第 3 階：二選一');
   assert.ok(/艾琳/.test(L.star) && /冒險者/.test(L.star), '星星那句：用名字和冒險者（畫面會換成現在的名字）');
   const { TEMPLATES } = require('../src/main/npc');
   for (const [x] of TEMPLATES.stageup_tease) assert.ok(/\{self\}/.test(x) && /\{call\}/.test(x) && !/[我您]|玩家/.test(x), x);
@@ -2997,9 +3004,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(html.indexOf('src="stageup-script.js"') > html.indexOf('src="renderer.js"') && html.indexOf('src="stageup.js"') > html.indexOf('src="stageup-script.js"') && html.includes('href="stageup.css"'), 'index.html');
   assert.ok(/🎬 回憶相簿/.test(fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8')) && /storyDone/.test(fs.readFileSync(path.join(root, 'src/main/preload.js'), 'utf8')));
   const sjs = fs.readFileSync(path.join(root, 'src/renderer/stageup.js'), 'utf8');
-  const files = [...new Set([...sjs.matchAll(/(?:ART|bgImg|ball)\('([^']+)'/g)].map((m) => m[1]))];
-  assert.ok(files.length >= 10 && files.includes('mini_hide.webp') && files.includes('mini_peek.webp'), files.join(','));
-  for (const f of [...files, SU.SHOWS[2].thumb]) assert.ok(fs.existsSync(path.join(root, 'assets', 'stageup', f)), '圖：' + f);
+  const files = [...new Set([...sjs.matchAll(/(?:ART|bgImg|ball|nb3)\('([^']+)'/g)].map((m) => m[1]))];
+  assert.ok(files.length >= 18 && files.includes('mini_hide.webp') && files.includes('notebook_first_page.jpg') && files.includes('erin_lantern.webp'), files.join(','));
+  for (const f of [...files, ...SU.STAGES.map((n) => SU.SHOWS[n].thumb)]) assert.ok(fs.existsSync(path.join(root, 'assets', 'stageup', f)), '圖：' + f);
+  for (const f of [...sjs.matchAll(/SHOP\('([^']+)'\)/g)].map((m) => m[1])) assert.ok(fs.existsSync(path.join(root, 'assets', 'shop', f)), '雜貨舖的圖：' + f);
   for (const p of [...sjs.matchAll(/pose\('(\w+)'/g)].map((m) => m[1])) assert.ok(fs.existsSync(path.join(root, 'assets', 'character', p + '.png')), '立繪：' + p);
   console.log('好感升階動畫測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
