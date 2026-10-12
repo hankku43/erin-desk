@@ -35,10 +35,10 @@ module.exports = ({ win, engine, app }) => {
       await wait(1800);
       wc.send('view:update', { view: engine.view() }); await wait(300); await flush();
 
-      // 1. 首頁選單：常用四個＋玩法一排六個；還不能交付時沒有交付鈕
+      // 1. 首頁選單：常用四個＋一排七個（📯 團戰＋玩法）；還不能交付時沒有交付鈕
       await home();
       assert((await js(`[...document.querySelectorAll('#choices > .btn:not(.hidden)')].map((b) => b.dataset.act).join()`)) === 'board,daily,chat,report', '常用四個');
-      assert((await js(`[...document.querySelectorAll('#choices .more button')].map((b) => b.dataset.act).join()`)) === 'divine,fortune,notebook,journal,shop,ach', '玩法一排六個');
+      assert((await js(`[...document.querySelectorAll('#choices .more button')].map((b) => b.dataset.act).join()`)) === 'raids,divine,fortune,notebook,journal,shop,ach', '團戰＋玩法一排七個');
       assert(await js(`document.querySelector('#btnSubmit').classList.contains('hidden')`), '還不能交付：沒有交付鈕');
       // 狀態欄：稱號在經驗條上、圖示列只有一行
       assert(await js(`!!document.querySelector('.xpbar #ptitle') && document.querySelector('#ptitle').textContent.length > 1`), '稱號在經驗條上');

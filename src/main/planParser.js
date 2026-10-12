@@ -11,6 +11,8 @@
 //   ## 週二 10/6｜主題           有星期或「日期｜」的標題 → 一天的時間表
 //   - 09:00–10:30 做某事 → 產出   時間表的一格
 //   - ⏰ 17:00 條件 → 應對       提醒（沒寫日期就用所在那一天的日期）
+//   - 14:00–15:00 📯 週會         📯 開頭的時段是「團戰」（會議）：前 15／5 分鐘和開始時提醒、開始時自動專注
+//   - ~~14:00–15:00 📯 週會~~     整格劃掉＝取消（程式裡按「取消」也是這樣寫）
 //   ## 進度紀錄                  程式自動維護，不用自己寫
 // Obsidian Tasks 記號：📅 截止、⏫🔺 必達、🔼 主攻、🔽⏬ 順手、✅ 完成日（勾選時會自動加）
 // 專案（週報分類用）：任務標題或單行任務寫 #專案名；或放在純文字標題底下（## 秋季新品 → ### 任務 ⭐）
@@ -18,6 +20,7 @@
 'use strict';
 
 const path = require('path');
+const RAID = require('./raids');
 
 const TIER_NAME = { main: '必達', major: '主攻', side: '附帶' };
 const WEEKDAY_ZH = ['日', '一', '二', '三', '四', '五', '六'];
@@ -117,6 +120,16 @@ function parseSlot(text) {
   m = text.match(RE_TIME_ONE);
   if (m) return { start: `${pad(m[1])}:${m[2]}`, end: null, slot: `${pad(m[1])}:${m[2]}`, rest: text.slice(m[0].length).trim() };
   return null;
+}
+
+// ~~文字~~（整格劃掉）或結尾寫「（取消）」＝取消
+function splitStrike(text) {
+  const t = String(text || '').trim();
+  let m = t.match(/^~~(.+)~~$/);
+  if (m) return { text: m[1].trim(), canceled: true };
+  m = t.match(/^(.*?)\s*[（(]\s*(?:已)?取消\s*[）)]$/);
+  if (m && m[1]) return { text: m[1].trim(), canceled: true };
+  return { text: t, canceled: false };
 }
 
 function splitOutput(text) {
@@ -247,12 +260,16 @@ function parsePlan(content, sourcePath = '') {
     // 一天的時間表：- 09:00–10:30 做某事 → 產出（也接受 - [ ] 開頭）
     if (ctx && ctx.kind === 'day') {
       const cm = line.match(RE_CHECK); const lm = line.match(RE_LIST);
-      const body = cm ? cm[3] : lm ? lm[2] : null;
+      let body = cm ? cm[3] : lm ? lm[2] : null;
       if (body !== null) {
+        const struck = splitStrike(body); // ~~整格劃掉~~＝取消
+        body = struck.text;
         const slot = parseSlot(body);
         if (slot) {
-          const { text: blk, output } = splitOutput(slot.rest);
-          ctx.obj.rows.push({ id: `${ctx.obj.date}-${ctx.obj.rows.length}`, slot: slot.slot, start: slot.start, end: slot.end, a: blk, b: output, done: cm ? cm[2] !== ' ' : undefined, line: i });
+          const { text: blk0, output } = splitOutput(slot.rest);
+          const raid = RAID.isRaidText(blk0);
+          const blk = raid ? RAID.stripMark(blk0) : blk0;
+          ctx.obj.rows.push({ id: `${ctx.obj.date}-${ctx.obj.rows.length}`, slot: slot.slot, start: slot.start, end: slot.end, a: blk, b: output, done: cm ? cm[2] !== ' ' : undefined, line: i, ...(raid ? { raid: true } : {}), ...(struck.canceled ? { canceled: true } : {}) });
           continue;
         }
       }
@@ -410,17 +427,42 @@ function ensureDay(lines, dateISO) {
   return at + 1;
 }
 
-// 新增時段：- 09:00–10:30 做某事 → 產出（照時間順序插進那一天）
-function addScheduleRow(content, dateISO, { start, end, text, output = '' }) {
+// 時段那一行的文字（不含開頭的「- 」和勾選框）：09:00–10:30 📯 做某事 → 產出
+function rowBody({ start, end, text, output = '', raid = false, canceled = false }) {
+  const t = cleanTitle(raid ? RAID.stripMark(text) : text);
+  const body = `${start}${end ? `–${end}` : ''} ${raid ? `${RAID.MARK} ` : ''}${t}${output ? ` → ${cleanTitle(output)}` : ''}`;
+  return canceled ? `~~${body}~~` : body;
+}
+
+// 新增時段：- 09:00–10:30 做某事 → 產出（照時間順序插進那一天）；raid＝團戰，前面加 📯
+function addScheduleRow(content, dateISO, { start, end, text, output = '', raid = false }) {
   const eol = eolOf(content);
   const lines = splitLines(content);
   let at = ensureDay(lines, dateISO);
   const day = parsePlan(lines.join('\n')).days.find((d) => d.date === dateISO);
   const later = day && day.rows.filter((r) => r.start > start).sort((a, b) => a.line - b.line)[0];
   if (later) at = later.line;
-  const row = `- ${start}${end ? `–${end}` : ''} ${cleanTitle(text)}${output ? ` → ${cleanTitle(output)}` : ''}`;
-  lines.splice(at, 0, row);
+  lines.splice(at, 0, `- ${rowBody({ start, end, text, output, raid })}`);
   return lines.join(eol).replace(/\n{3,}/g, '\n\n');
+}
+
+// 改某一格（同一天）：時間、內容；勾選框、團戰記號、取消的劃線都保留。欄位沒給就沿用原本的
+function editScheduleRow(content, lineNo, fields = {}) {
+  const eol = eolOf(content);
+  const lines = splitLines(content);
+  const row = rowAt(lines, lineNo);
+  const next = { start: fields.start || row.start, end: fields.end !== undefined ? fields.end : row.end, text: fields.text !== undefined ? fields.text : row.a, output: fields.output !== undefined ? fields.output : row.b, raid: fields.raid !== undefined ? fields.raid : !!row.raid, canceled: fields.canceled !== undefined ? fields.canceled : !!row.canceled };
+  const m = lines[lineNo].match(/^(\s*[-*+]\s+)(\[[ xX]\]\s+)?/);
+  lines[lineNo] = `${m[1]}${m[2] || ''}${rowBody(next)}`;
+  return lines.join(eol);
+}
+// 取消／恢復某一格：整格劃掉 ~~…~~
+function setRowCanceled(content, lineNo, canceled) { return editScheduleRow(content, lineNo, { canceled: !!canceled }); }
+function rowAt(lines, lineNo) {
+  const day = parsePlan(lines.join('\n')).days.find((d) => d.rows.some((r) => r.line === lineNo));
+  const row = day && day.rows.find((r) => r.line === lineNo);
+  if (!row) throw new Error('找不到那一格');
+  return row;
 }
 
 // 改某一天標題的主題：## 週二 10/6｜主題（那一天不存在就建立；theme 給空字串就拿掉主題）
@@ -536,4 +578,4 @@ function removeLine(content, lineNo) {
   return lines.join(eol);
 }
 
-module.exports = { tagName, parsePlan, setObjective, setProgress, addQuest, editQuest, deleteQuest, addObjective: addObjectiveLine, deleteObjective, addScheduleRow, setDayTheme, addReminder, setScheduleDone, removeLine, parseQuestTokens, parseDayHeading, shortHash, unescapeMd: cleanTitle };
+module.exports = { tagName, parsePlan, setObjective, setProgress, addQuest, editQuest, deleteQuest, addObjective: addObjectiveLine, deleteObjective, addScheduleRow, editScheduleRow, setRowCanceled, setDayTheme, addReminder, setScheduleDone, removeLine, parseQuestTokens, parseDayHeading, shortHash, unescapeMd: cleanTitle };

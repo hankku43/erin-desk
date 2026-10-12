@@ -64,6 +64,13 @@
     "xp": 15,
     "gold": 3
   },
+  "raids": {
+    "enabled": true,
+    "remind": [15, 5, 0],
+    "autoFocus": true,
+    "xp": 10,
+    "gold": 3
+  },
   "divination": {
     "cost": 10,
     "repeatHours": 24

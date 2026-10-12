@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('api', {
   setSmart: (on) => ipcRenderer.invoke('smart:set', on),
   startFocus: (min) => ipcRenderer.invoke('focus:start', min),
   cancelFocus: () => ipcRenderer.invoke('focus:cancel'),
+  raidAdd: (f) => ipcRenderer.invoke('raids:add', f),
+  raidEdit: (key, f, scope) => ipcRenderer.invoke('raids:edit', key, f, scope),
+  raidCancel: (key, scope) => ipcRenderer.invoke('raids:cancel', key, scope),
+  raidRestore: (key) => ipcRenderer.invoke('raids:restore', key),
   focusPeek: () => ipcRenderer.invoke('focus:peek'),
   drawFortune: () => ipcRenderer.invoke('fortune:draw'),
   divineInfo: () => ipcRenderer.invoke('divine:info'),
@@ -87,7 +91,7 @@ contextBridge.exposeInMainWorld('api', {
   openMenu: () => ipcRenderer.send('win:menu'),
   setMini: (on) => ipcRenderer.send('win:mini', on),
   on: (channel, fn) => {
-    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor', 'opening:done'];
+    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:raid', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor', 'opening:done'];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, payload) => fn(payload));
   },

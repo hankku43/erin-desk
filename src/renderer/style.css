@@ -955,7 +955,7 @@ body.mini #tip { display: none !important; }
 .choices .btn { padding: 6px 4px; }
 .choices .submit-row { grid-column: 1 / -1; justify-content: center; gap: 10px; animation: pop .25s ease-out; }
 .choices .submit-row .sr-gain { font-size: var(--fs-s); font-weight: 800; opacity: .85; display: inline-flex; align-items: center; gap: 2px; }
-.choices .more { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; margin-top: 2px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.choices .more { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-top: 2px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .choices .more button { border: none; background: transparent; border-radius: var(--r-m); padding: 3px 0 2px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-soft); display: flex; flex-direction: column; align-items: center; gap: 0; line-height: 1.3; transition: background .15s, color .15s, transform .08s; }
 .choices .more button span { font-size: 20px; line-height: 1.15; }
 .choices .more button:hover { background: var(--gold-soft); color: var(--ink); transform: translateY(-1px); }
@@ -1141,3 +1141,37 @@ body.mini #tip { display: none !important; }
 .tv-actions.hidden { display: none; }
 .tv-close { position: absolute; right: 6px; top: 6px; z-index: 3; }
 body.mini #twinsVisit, body.mini .dr-stage { display: none; }
+
+/* ---------- 📯 團戰（會議） ---------- */
+.rd-body { padding-top: 4px; }
+.rd-day { font-size: var(--fs-s); font-weight: 800; color: var(--ink-soft); margin: 10px 2px 4px; padding-bottom: 2px; border-bottom: 1px dashed var(--line); }
+.rd-day:first-child { margin-top: 2px; }
+.rd-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; margin: 5px 0; border: 2px solid var(--line); border-radius: var(--r-m); background: var(--surface); }
+.rd-row.soon { border-color: #f1d08a; background: var(--gold-wash); }
+.rd-row.now { border-color: var(--gold); background: var(--gold-soft); box-shadow: 0 0 0 2px var(--gold-soft); }
+.rd-row.past { opacity: .6; }
+.rd-row.canceled { background: var(--paper-2); }
+.rd-row.canceled .rd-title, .rd-row.canceled .rd-time { text-decoration: line-through; color: var(--ink-soft); }
+.rd-time { display: flex; flex-direction: column; align-items: center; min-width: 46px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.rd-time b { font-size: var(--fs-l); }
+.rd-time small { font-size: var(--fs-xs); color: var(--ink-soft); }
+.rd-main { flex: 1; min-width: 0; }
+.rd-title { font-weight: 700; font-size: var(--fs-m); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-sub { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
+.rd-st { font-size: var(--fs-xs); font-weight: 800; color: var(--gold-text); }
+.rd-row.now .rd-st { color: var(--red); }
+.rd-row.canceled .rd-st, .rd-row.past .rd-st { color: var(--ink-soft); }
+.rd-act { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.rd-act.confirm { flex-direction: column; }
+.rd-act .btn { white-space: nowrap; }
+.rd-help { font-size: var(--fs-s); line-height: 1.7; color: var(--ink-soft); background: var(--paper-2); border-radius: var(--r-m); padding: 8px 10px; }
+.rd-help b { color: var(--ink); display: block; margin-bottom: 2px; }
+.rd-scope { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.rd-days { display: flex; flex-wrap: wrap; gap: 4px; margin: -2px 0 6px; }
+.rd-days .tp { padding: 3px 8px; }
+.rd-days .tp input { display: none; }
+.rd-note { margin: 4px 2px 0; }
+.row.raid .rd-tag { margin-right: 3px; }
+.row.canceled .slot, .row.canceled .blk { text-decoration: line-through; color: var(--ink-soft); }
+.row.app { cursor: default; }
+.row.app .rd-ico { width: 18px; text-align: center; flex: none; }

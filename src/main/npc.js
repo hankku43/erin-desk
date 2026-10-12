@@ -311,6 +311,59 @@ const TEMPLATES = {
     ['提醒設好了：{label}。時間到{self}會叫你，包在{self}身上！', 'happy'],
     ['記下了：{label}。時間到{self}會叫你——三號鴿子也會幫忙盯著～', 'happy'],
   ],
+  // 📯 團戰（會議）：都用內建台詞（提醒要準時，不等 AI）
+  raid_soon: [
+    ['📯 {call}，{min} 分鐘後有團戰「{raid}」（{start}）。手上的事先存檔，準備集合囉！', 'thinking'],
+    ['集合號角響了～{start} 的「{raid}」還有 {min} 分鐘。要帶的資料都準備好了嗎？', 'normal'],
+    ['再 {min} 分鐘就是「{raid}」的團戰了。趁現在去裝水、伸個懶腰吧，{self}幫你看著時間～', 'normal'],
+  ],
+  raid_soon_last: [
+    ['{call}！「{raid}」再 {min} 分鐘就開打了，該出發囉！', 'surprised'],
+    ['📯 最後召集：{min} 分鐘後「{raid}」。{self}在櫃台等你凱旋回來！', 'cheer'],
+    ['快到了快到了——「{raid}」還有 {min} 分鐘！檔案開好了嗎？', 'surprised'],
+  ],
+  raid_start: [
+    ['📯 團戰開始！「{raid}」到 {end}。專注模式開好了，{self}先縮成小貓安靜陪你，結束再叫你～', 'cheer'],
+    ['「{raid}」開打了！專注模式開好了，{self}不會吵你的。加油，{call}！', 'cheer'],
+  ],
+  raid_late: [
+    ['「{raid}」已經開始了（到 {end}）！專注模式幫你開好了，快去集合吧～', 'surprised'],
+  ],
+  raid_start_plain: [
+    ['📯 團戰時間到！「{raid}」到 {end}，加油～', 'cheer'],
+  ],
+  raid_done: [
+    ['團戰「{raid}」結束，辛苦啦！星屑 +{xp}、金幣 +{gold}。要把結論記進委託裡嗎？', 'cheer'],
+    ['凱旋歸來！「{raid}」打完了，星屑 +{xp}。喝口水、休息一下再繼續吧～', 'happy'],
+  ],
+  raid_done_early: [
+    ['「{raid}」提早結束了？太好了，多出來的時間是你的！星屑 +{xp}～', 'happy'],
+  ],
+  raid_done_plain: [
+    ['團戰「{raid}」結束，辛苦啦！這格行程已經勾過了，{self}就不重複記囉～', 'happy'],
+  ],
+  raid_peek: [
+    ['噓——「{raid}」還有 {left} 分鐘（到 {end}）。{self}安靜陪著你～', 'normal'],
+    ['團戰中！還剩 {left} 分鐘，{self}幫你看著時間。', 'happy'],
+  ],
+  raid_leave: [
+    ['好，「{raid}」的專注先關掉了。要是團戰改時間，記得跟{self}說一聲～', 'normal'],
+  ],
+  raid_set: [
+    ['📯 團戰登記好了：{when}「{raid}」{repeat}。{leads}{self}會來叫你！', 'happy'],
+    ['收到～「{raid}」排進行程了：{when}{repeat}。{leads}會提醒你～', 'happy'],
+  ],
+  raid_moved: [
+    ['收到，「{raid}」改到 {when}。提醒時間{self}也一起改好了～', 'normal'],
+    ['改好了：「{raid}」→ {when}。{self}會照新的時間叫你。', 'happy'],
+  ],
+  raid_cancel: [
+    ['「{raid}」（{when}）取消了，{self}不會叫你了。多出一段時間呢～', 'normal'],
+    ['好，{when} 的「{raid}」取消。要恢復的話在團戰清單按「恢復」就好。', 'normal'],
+  ],
+  raid_cancel_all: [
+    ['「{raid}」（{repeat}）整個系列都拿掉了。辛苦它了～', 'normal'],
+  ],
   focus_start: [
     ['好～專注 {minutes} 分鐘，開始！{self}先變回貓咪在旁邊陪你，這段時間不吵你喔。', 'cheer'],
     ['🍅 專注 {minutes} 分鐘，開始計時！{self}縮成貓在旁邊，時間到再叫你～', 'cheer'],
@@ -531,7 +584,7 @@ function voice(text, { self = '艾琳', call = '冒險者', protect = [] } = {})
 }
 // 事實裡來自冒險者的文字（任務名、目標、行程、提醒、回報、聊天原句）：口吻校正時不要動
 function protectedTexts(f = {}, userText = '') {
-  return [f.quest, f.block, f.output, f.label, f.action, f.report, f.theme, f.reason, f.question, userText, ...(f.remaining || [])].filter((x) => typeof x === 'string');
+  return [f.quest, f.block, f.output, f.label, f.action, f.report, f.theme, f.reason, f.question, f.raid, userText, ...(f.remaining || [])].filter((x) => typeof x === 'string');
 }
 
 class NPC {

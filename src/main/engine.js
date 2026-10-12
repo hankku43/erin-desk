@@ -33,6 +33,7 @@ const TW = require('./twins'); // 🐰 棉棉和朵朵跑來櫃台：下午茶�
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
 const F = require('./fortune'); // 🔮 今日運勢的文案
+const R = require('./raids'); // 📯 團戰（會議）：提醒、自動專注
 const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建的「艾琳」換成現在的名字
 const OS = require('../renderer/opening-script'); // 🎬 開場：名字規則
 
@@ -87,6 +88,7 @@ class Engine {
       window: { alwaysOnTop: true, idleChatterMinutes: 30 },
       lore: { path: 'lore/艾琳.md', topK: 3, embeddings: 'auto', embedModel: 'qwen3-embedding:0.6b' },
       focus: { minutes: 25, rest: 5, xp: 15, gold: 3 }, // 🍅 專注模式
+      raids: { enabled: true, remind: [15, 5, 0], autoFocus: true, xp: 10, gold: 3 }, // 📯 團戰（會議）：前幾分鐘提醒（0＝開始時）、開始時自動專注、結束的獎勵（其他欄位見 raids.js DEFAULTS）
       divination: { cost: 10, repeatHours: 24 }, // ✨ 占卜魔法：每次花費的金幣、一事不二占的時間
       notebook: { enabled: true }, // 📒 艾琳的小本子（其他欄位見 memory.js DEFAULTS）
       journal: { enabled: true }, // 📖 冒險日誌＋週報（labels、keep 見 journal.js DEFAULTS）
@@ -163,6 +165,7 @@ class Engine {
     if (!this.state.collection) this.state.collection = C.blank();
     if (!this.state.achievements) this.state.achievements = {};
     if (!this.state.streak) this.state.streak = AC.blankStreak();
+    if (!this.state.raids) this.state.raids = R.blank();
     if (!this.state.twins) this.state.twins = TW.blank(G.levelInfo(this.state.player.xp, this.config.rewards.levelStep).level); // 舊存檔：從現在的等級開始算，不補道賀
   }
   bootstrapStats() {
@@ -372,7 +375,7 @@ class Engine {
       const day = this.P.parsePlan(content).days.find((x) => x.date === ev.date);
       const dup = day && day.rows.some((r) => r.start === ev.startHM && (r.a === label || r.a === ev.summary));
       if (seen[key] || dup) { seen[key] = true; skipped++; continue; }
-      content = this.P.addScheduleRow(content, ev.date, { start: ev.startHM, end: sameDay ? ev.endHM : '', text: label, output: '' });
+      content = this.P.addScheduleRow(content, ev.date, { start: ev.startHM, end: sameDay ? ev.endHM : '', text: label, output: '', raid: true }); // 行事曆裡有時間的事件＝團戰（會議）
       seen[key] = true; added.push(`${ev.date} ${ev.startHM} ${ev.summary}`);
     }
     if (content !== this.planText) this.writePlan(content);
@@ -391,6 +394,7 @@ class Engine {
     const plus = (dateISO, hm, min) => { const d = new Date(`${dateISO}T${hm}:00`); return new Date(d.getTime() + min * 60000); };
     for (const d of this.plan.days) {
       for (const r of d.rows) {
+        if (r.canceled) continue; // 取消的團戰不匯出
         items.push({ uid: uid(`row|${d.date}|${r.start}|${r.a}`), summary: (this.ps.dailyDone[r.id] !== undefined ? this.ps.dailyDone[r.id] : r.done) ? `✅ ${r.a}` : r.a, description: r.b ? `產出：${r.b}` : '', start: `${d.date}T${r.start}:00`, end: r.end ? `${d.date}T${r.end}:00` : plus(d.date, r.start, 30) });
       }
     }
@@ -431,11 +435,11 @@ class Engine {
     let current = null, upcoming = null;
     const rows = day.rows.map((r) => {
       const t = parseSlot(r.slot, day.date);
-      const isCur = t && now >= t.start && now < t.end;
+      const isCur = t && !r.canceled && now >= t.start && now < t.end; // 取消的團戰不算「現在這格」
       const fileDone = r.done === true; // 檔案裡寫成 - [x] 的時段
       const row = { ...r, done: this.ps.dailyDone[r.id] !== undefined ? !!this.ps.dailyDone[r.id] : fileDone, current: !!isCur, past: !!(t && now >= t.end) };
       if (isCur) current = row;
-      if (!upcoming && t && now < t.start) upcoming = row;
+      if (!upcoming && t && !r.canceled && now < t.start) upcoming = row;
       return row;
     });
     return { ...day, rows, current, upcoming, chosenBranch: this.ps.branch[day.date] || null };
@@ -463,6 +467,7 @@ class Engine {
       editable: !this.legacy && !!this.planText,
       smart: { on: this.lore.smartOn(), status: this.lore.embedStatus },
       focus: this.focusInfo(),
+      raids: this.raidsView(), // 📯 今天起 7 天的團戰
       divination: this.divineInfo(),
       fortune: this.fortuneToday(),
       affection: { cold: this.isCold(), fond: this.affOn() && this.affStage() >= 4 }, // 好感度本身不給畫面看；fond＝很熟了（待機會冒 ♡）
@@ -659,7 +664,7 @@ class Engine {
     const count = this.state.focusStats && this.state.focusStats.date === today ? this.state.focusStats.count : 0;
     if (!f) return { active: false, todayCount: count, minutes: this.focusCfg().minutes };
     const left = Math.max(0, f.endAt - this.now().getTime());
-    return { active: true, startAt: f.startAt, endAt: f.endAt, minutes: f.minutes, leftMin: Math.ceil(left / 60000), todayCount: count };
+    return { active: true, startAt: f.startAt, endAt: f.endAt, minutes: f.minutes, leftMin: Math.ceil(left / 60000), todayCount: count, raid: f.raid ? { key: f.raid.key, title: f.raid.title, start: f.raid.start, end: f.raid.end } : null };
   }
   focusLine(key, extra = {}) {
     const c = this.focusCfg();
@@ -677,11 +682,13 @@ class Engine {
   focusPeek() {
     const f = this.focusInfo();
     if (!f.active) return { lines: [], focus: f, view: this.view() };
+    if (f.raid) return { lines: [this.raidLine('raid_peek', { raid: f.raid.title, left: f.leftMin, end: f.raid.end })], focus: f, view: this.view() };
     return { lines: [this.focusLine('focus_peek', { left: f.leftMin })], focus: f, view: this.view() };
   }
   cancelFocus() {
     const f = this.state.focus;
     if (!f) return { lines: [], focus: this.focusInfo(), view: this.view() };
+    if (f.raid) return this.leaveRaid(f);
     const done = Math.max(0, Math.floor((this.now().getTime() - f.startAt) / 60000));
     this.state.focus = null;
     this.saveState();
@@ -691,6 +698,7 @@ class Engine {
   completeFocus() {
     const f = this.state.focus;
     if (!f || this.now().getTime() < f.endAt - 1000) return null;
+    if (f.raid) return this.completeRaid(f);
     const c = this.focusCfg();
     const today = G.todayISO(this.now());
     const stats = this.state.focusStats && this.state.focusStats.date === today ? this.state.focusStats : { date: today, count: 0 };
@@ -704,6 +712,209 @@ class Engine {
     const lines = [this.focusLine('focus_done', { minutes: Math.round(f.minutes), count: stats.count })];
     if (reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
     return this.settle({ reward, lines, focus: this.focusInfo(), view: this.view() });
+  }
+
+  // ---- 📯 團戰（會議）：計畫檔裡 📯 的時段＋自己建的（可以重複）；前幾分鐘提醒、開始時自動專注、結束給獎勵 ----
+  raidCfg() {
+    const c = { ...R.DEFAULTS, ...(this.config.raids || {}) };
+    if (!Array.isArray(c.remind)) c.remind = R.DEFAULTS.remind;
+    return c;
+  }
+  raidState() {
+    if (!this.state.raids) this.state.raids = R.blank();
+    const st = this.state.raids;
+    if (!Array.isArray(st.items)) st.items = [];
+    if (!st.fired || typeof st.fired !== 'object') st.fired = {};
+    return st;
+  }
+  raidOccurrences(from, to) { return R.occurrences({ planDays: this.plan.days, items: this.raidState().items, from, to, defaultMinutes: this.raidCfg().defaultMinutes }); }
+  raidsView() {
+    const now = this.now();
+    const today = G.todayISO(now);
+    const c = this.raidCfg();
+    const act = this.state.focus && this.state.focus.raid ? this.state.focus.raid.key : null;
+    const list = this.raidOccurrences(today, R.addDays(today, 6)).map((o) => ({ ...o, status: R.status(o, now), when: R.whenText(o, today), active: o.key === act }));
+    return {
+      enabled: c.enabled !== false, list, remindText: R.remindText(c.remind), autoFocus: c.autoFocus !== false,
+      next: list.find((o) => o.status === 'now' || o.status === 'soon') || null, // 狀態欄：進行中或一小時內的那場
+      planEditable: !this.legacy && !!this.planText,
+    };
+  }
+  raidLine(key, extra = {}) { return { ...this.npc.template(key, extra), event: key }; }
+  findRaid(key) {
+    const date = R.dateOfKey(key);
+    const o = R.validISO(date) ? this.raidOccurrences(date, date).find((x) => x.key === key) : null;
+    if (!o) throw new Error('找不到這場團戰（可能剛被改過，重新打開看看）');
+    return o;
+  }
+  raidItem(id) {
+    const it = this.raidState().items.find((x) => x.id === id);
+    if (!it) throw new Error('找不到這場團戰');
+    return it;
+  }
+  nextRaidOf(pred, from) {
+    const today = G.todayISO(this.now());
+    return this.raidOccurrences(from && from > today ? from : today, R.addDays(from && from > today ? from : today, 13)).find(pred) || null;
+  }
+  newRaidId() { return `r${this.now().getTime().toString(36)}${this.raidState().items.length.toString(36)}`; }
+
+  async addRaid(f = {}) {
+    const c = this.raidCfg();
+    const today = G.todayISO(this.now());
+    const item = R.makeItem(f, { id: this.newRaidId(), today });
+    this.raidState().items.push(item);
+    this.saveState();
+    const o = this.nextRaidOf((x) => x.id === item.id, item.date);
+    const rt = R.repeatText(item);
+    const line = this.raidLine('raid_set', { raid: item.title, when: o ? R.whenText(o, today) : `${item.start}`, repeat: rt ? `（${rt}）` : '', leads: R.remindText(c.remind) });
+    return this.settle({ lines: [line], item, view: this.view() });
+  }
+
+  // 改時間／名稱：計畫檔的直接改那一行（換日期＝搬到那一天）；自己建的看範圍：one＝只改這一次、all＝整個系列
+  async editRaid(key, f = {}, scope = 'one') {
+    const o = this.findRaid(key);
+    const today = G.todayISO(this.now());
+    const title = R.cleanTitle(f.title !== undefined ? f.title : o.title);
+    if (!title) throw new Error('團戰要有名稱');
+    const date = f.date || o.date, start = f.start || o.start;
+    const end = f.end !== undefined ? f.end : o.end;
+    R.checkTimes({ date, start, end });
+    let pick;
+    if (o.source === 'plan') {
+      this.requireEditable();
+      let content = this.planText;
+      if (date !== o.date) {
+        content = this.P.removeLine(content, o.line);
+        content = this.P.addScheduleRow(content, date, { start, end, text: title, output: o.output, raid: true });
+      } else content = this.P.editScheduleRow(content, o.line, { start, end, text: title });
+      this.writePlan(content);
+      pick = (x) => x.source === 'plan' && x.date === date && x.start === start && x.title === title;
+    } else {
+      const it = this.raidItem(o.id);
+      if (scope === 'all' || it.repeat === 'once') {
+        const next = { ...it, title, start, end: end || '' };
+        if (f.repeat !== undefined || f.days !== undefined) Object.assign(next, R.normRepeat({ repeat: f.repeat !== undefined ? f.repeat : it.repeat, days: f.days !== undefined ? f.days : it.days, date: it.repeat === 'once' ? date : (f.date || it.date) }));
+        if (next.repeat === 'once' || f.date) next.date = next.repeat === 'once' ? date : (f.date || it.date);
+        if (next.repeat === 'once' && next.date < today) throw new Error('日期已經過了'); // 先檢查完再改，丟錯時原本的不會被改到一半
+        if (scope === 'all') next.moved = {}; // 整個系列換時間：之前單獨改過的也跟著回到新時間
+        Object.assign(it, next);
+        pick = (x) => x.id === it.id;
+      } else if (date !== o.date) { // 只有這一次、換到別天：這天取消、那天另外加一場
+        it.skip = { ...(it.skip || {}), [o.date]: true };
+        const one = R.makeItem({ title, date, start, end, repeat: 'once' }, { id: this.newRaidId(), today });
+        this.raidState().items.push(one);
+        pick = (x) => x.id === one.id;
+      } else {
+        it.moved = { ...(it.moved || {}), [o.date]: { start, end: end || '', ...(title !== it.title ? { title } : {}) } };
+        pick = (x) => x.id === it.id && x.date === o.date;
+      }
+    }
+    this.syncRaidFocus();
+    this.saveState();
+    const n = this.nextRaidOf(pick, o.source === 'plan' || scope !== 'all' ? date : null);
+    return this.settle({ lines: [this.raidLine('raid_moved', { raid: title, when: n ? R.whenText(n, today) : `${start}` })], view: this.view() });
+  }
+
+  // 取消：one＝只有這一次（之後可以恢復）；all＝整個系列刪掉（自己建的才有）
+  async cancelRaid(key, scope = 'one') {
+    const o = this.findRaid(key);
+    const today = G.todayISO(this.now());
+    if (o.source === 'plan') {
+      this.requireEditable();
+      this.writePlan(this.P.setRowCanceled(this.planText, o.line, true));
+    } else {
+      const st = this.raidState();
+      const it = this.raidItem(o.id);
+      if (scope === 'all' || (it.repeat === 'once' && scope === 'delete')) st.items = st.items.filter((x) => x.id !== it.id);
+      else it.skip = { ...(it.skip || {}), [o.date]: true };
+    }
+    this.syncRaidFocus();
+    this.saveState();
+    const all = scope === 'all' && o.source === 'app' && o.repeat !== 'once';
+    return this.settle({ lines: [this.raidLine(all ? 'raid_cancel_all' : 'raid_cancel', { raid: o.title, when: R.whenText(o, today), repeat: o.repeatText })], view: this.view() });
+  }
+  async restoreRaid(key) {
+    const o = this.findRaid(key);
+    if (o.source === 'plan') { this.requireEditable(); this.writePlan(this.P.setRowCanceled(this.planText, o.line, false)); }
+    else { const it = this.raidItem(o.id); if (it.skip) delete it.skip[o.date]; }
+    delete this.raidState().fired[o.key]; // 恢復了：提醒重新算
+    this.saveState();
+    return { lines: [], view: this.view() };
+  }
+  // 正在團戰中的那場被改了：延長或縮短就跟著改結束時間；取消、換時間、刪掉就結束專注（不給獎勵）
+  syncRaidFocus() {
+    const f = this.state.focus;
+    if (!f || !f.raid) return;
+    const date = f.raid.date;
+    const o = this.raidOccurrences(date, date).find((x) => x.key === f.raid.key);
+    if (!o || o.canceled) { this.state.focus = null; return; }
+    const endAt = new Date(`${o.date}T${o.end}:00`).getTime();
+    if (endAt <= this.now().getTime()) { this.state.focus = null; return; }
+    Object.assign(f, { endAt, minutes: Math.max(1, Math.round((endAt - f.startAt) / 60000)), raid: { ...f.raid, title: o.title, end: o.end } });
+  }
+
+  // 開始：自動進專注（倒數到結束時間）；正在做的 🍅 先停（不算完成、也不扣）
+  startRaid(o, { late = false } = {}) {
+    const c = this.raidCfg();
+    const f = this.state.focus;
+    if (c.autoFocus !== false && !(f && f.raid && f.raid.key === o.key)) {
+      const startAt = this.now().getTime();
+      const endAt = new Date(`${o.date}T${o.end}:00`).getTime();
+      this.state.focus = { startAt, endAt, minutes: Math.max(1, Math.round((endAt - startAt) / 60000)), raid: { key: o.key, title: o.title, date: o.date, start: o.start, end: o.end, source: o.source } };
+      this.raidStarted = true; // main.js：排好結束的計時器、讓貓咪縮起來
+    }
+    return this.raidLine(c.autoFocus === false ? 'raid_start_plain' : late ? 'raid_late' : 'raid_start', { raid: o.title, start: o.start, end: o.end });
+  }
+  completeRaid(f, { early = false } = {}) {
+    const c = this.raidCfg();
+    this.state.focus = null;
+    const st = this.raidState();
+    st.done = (st.done || 0) + 1;
+    // 計畫檔的那一格：還沒勾的話幫忙勾起來（就不再另外給時段的獎勵）；已經自己勾過就不重複給
+    let rowDone = false;
+    if (f.raid.source === 'plan') {
+      const day = this.plan.days.find((d) => d.date === f.raid.date);
+      const row = day && day.rows.find((r) => r.raid && r.start === f.raid.start && r.a === f.raid.title);
+      if (row) {
+        rowDone = this.ps.dailyDone[row.id] !== undefined ? !!this.ps.dailyDone[row.id] : row.done === true;
+        if (!rowDone) {
+          this.ps.dailyDone[row.id] = true;
+          if (!this.legacy && row.line !== undefined) { try { this.writePlan(this.P.setScheduleDone(this.planText, row.line, true)); } catch (_) { /* 寫不進去就只存在遊戲裡 */ } }
+        }
+      }
+    }
+    const reward = rowDone ? null : G.grant(this.state, { xp: c.xp, gold: c.gold }, `團戰結束：${f.raid.title}`, this.config.rewards, this.now());
+    this.workDone = true;
+    this.saveState();
+    const lines = [this.raidLine(reward ? (early ? 'raid_done_early' : 'raid_done') : 'raid_done_plain', { raid: f.raid.title, xp: c.xp, gold: c.gold })];
+    if (reward && reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
+    return this.settle({ reward, lines, focus: this.focusInfo(), view: this.view() });
+  }
+  // 「團戰結束了」（提早）：待了夠久就算打完；剛開始就離開＝只是關掉專注
+  leaveRaid(f) {
+    const mins = Math.floor((this.now().getTime() - f.startAt) / 60000);
+    if (mins >= this.raidCfg().earlyMinutes) return this.completeRaid(f, { early: true });
+    this.state.focus = null;
+    this.saveState();
+    return { lines: [this.raidLine('raid_leave', { raid: f.raid.title })], focus: this.focusInfo(), view: this.view() };
+  }
+  // 每分鐘：提醒（一次只說最新的那一句）、開始時進專注
+  raidTick(now, today) {
+    const c = this.raidCfg();
+    const out = [];
+    if (c.enabled === false) return out;
+    const st = this.raidState();
+    const remind = c.autoFocus !== false ? [...c.remind, 0] : c.remind;
+    let changed = false;
+    for (const o of this.raidOccurrences(today, today)) {
+      const fired = st.fired[o.key] || [];
+      const d = R.dueReminder(o, now, { remind, fired });
+      if (d.mark.length) { st.fired[o.key] = [...fired, ...d.mark]; changed = true; }
+      if (d.kind === 'soon') out.push(this.raidLine(d.lead <= 5 ? 'raid_soon_last' : 'raid_soon', { raid: o.title, start: o.start, end: o.end, min: d.mins }));
+      if (d.kind === 'start') out.push(this.startRaid(o, { late: d.late }));
+    }
+    if (changed) { R.prune(st, today); this.raidDirty = true; }
+    return out;
   }
 
   // ---- 🔮 今日運勢：每天第一次抽有一點獎勵，之後再點就是再看一次 ----
@@ -1087,7 +1298,7 @@ class Engine {
     if (now - since < gap) return null;
     if (lastAt > (this.lastTouch || 0) && now - lastAt < gap * 3) return null; // 上一句還沒人理：先別一直說
     const t = this.todayInfo();
-    if (t.current && p.slot !== `${t.date}|${t.current.id || t.current.slot}`) return 'daily';
+    if (t.current && !t.current.raid && p.slot !== `${t.date}|${t.current.id || t.current.slot}`) return 'daily'; // 團戰那格有自己的提醒
     return 'topic';
   }
   async proactive(opts = {}) {
@@ -1781,6 +1992,7 @@ class Engine {
         out.push(await this.say(event, extra));
       }
     }
+    out.push(...this.raidTick(now, today)); // 📯 團戰
     for (const d of this.plan.decisions) {
       if (this.ps.decisionsShown[d.id]) continue;
       const at = new Date(d.at);
@@ -1799,7 +2011,7 @@ class Engine {
       this.twinsQueue('tea', { until: new Date(`${today}T${m[1].padStart(2, '0')}:${m[2]}:00`).getTime() });
     }
     if (tw) { const n = tw.queue.length; tw.queue = tw.queue.filter((v) => !v.until || v.until > now.getTime()); if (tw.queue.length !== n) { twChanged = true; this.twinsDirty = true; } }
-    if (out.length || twChanged) this.saveState();
+    if (out.length || twChanged || this.raidDirty) { this.raidDirty = false; this.saveState(); }
     return out;
   }
 }

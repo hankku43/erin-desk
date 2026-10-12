@@ -3,7 +3,7 @@
 const $ = (s) => document.querySelector(s);
 const GREET_COOLDOWN = 30 * 60000; // 半小時內再點她，就不重複報告任務，改成閒聊
 const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null, starSeen: {}, flMode: 'auto', flSlotId: null, flFlashUntil: 0, lastActive: null };
-const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename']);
+const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename', 'raidForm']);
 // ✏️ 接待員改名：內建的句子（待機小字、面板台詞、說明小卡）是用「艾琳」寫的，顯示前換成現在的名字（rename.js）
 const npcNameR = () => (state.view && state.view.npc && state.view.npc.name) || '艾琳';
 const nmR = (t) => (typeof Rename !== 'undefined' ? Rename.rename(t, npcNameR()) : t);
@@ -539,15 +539,19 @@ function slotTimes(row, date) {
 }
 function rowText(row, t) {
   if (!row) return '';
+  if (row.raid) return `📯 ${row.a}`;
   return t.branch ? (t.chosenBranch === 'b' ? row.b : t.chosenBranch === 'a' ? row.a : (row.a === row.b ? row.a : `${row.a}／${row.b}`)) : row.a;
 }
 // 用現在的時間重新找「這一格」和「下一格」（面板每 15 秒更新一次，不用等主程式）
 function slotNow() {
   const t = state.view && state.view.today;
-  if (!t || !t.rows || !t.rows.length) return { cur: null, next: null, t };
+  const appRaids = ((state.view && state.view.raids && state.view.raids.list) || []).filter((o) => o.source === 'app' && t && o.date === t.date && !o.canceled)
+    .map((o) => ({ id: o.key, slot: `${o.start}–${o.end}`, start: o.start, end: o.end, a: o.title, raid: true })); // 📯 自己建的團戰也算今天的一格
+  const rows = t && t.rows ? [...t.rows.filter((r) => !r.canceled), ...appRaids].sort((a, b) => a.start.localeCompare(b.start)) : [];
+  if (!rows.length) return { cur: null, next: null, t };
   const now = nowMs();
   let cur = null, next = null;
-  for (const r of t.rows) {
+  for (const r of rows) {
     const tm = slotTimes(r, t.date);
     if (!tm) continue;
     if (tm.e && now >= tm.s && now < tm.e) cur = { row: r, ...tm };
@@ -576,19 +580,22 @@ function dueSub(q) {
 }
 function flMode() {
   const { cur, next } = slotNow();
-  const slotId = cur ? cur.row.id : null;
+  const raidSoon = !!(next && next.row.raid && next.s - nowMs() <= 60 * 60000); // 📯 一小時內有團戰：狀態欄先顯示它
+  const slotId = cur ? cur.row.id : raidSoon ? next.row.id : null;
   if (slotId !== state.flSlotId) { state.flSlotId = slotId; state.flMode = 'auto'; } // 換到下一格就回到自動
   if (state.flFlashUntil && Date.now() < state.flFlashUntil) return 'quest';       // 剛勾完目標：先秀一下星星
   if (state.flMode === 'quest') return 'quest';
   if (state.flMode === 'slot') return cur || next ? 'slot' : 'quest';
-  return cur ? 'slot' : 'quest';
+  return cur || raidSoon ? 'slot' : 'quest';
 }
 function renderTracker() {
   const v = state.view;
   if (!v) return;
   const el = $('#tracker');
   if (state.focusConfirm && v.focus && v.focus.active) {
-    el.innerHTML = `<div class="fl confirm"><span class="fl-ico">🍅</span><div class="fl-main"><div class="fl-text">還剩 ${v.focus.leftMin} 分鐘，要結束專注嗎？</div></div><button class="btn small danger" data-focus-stop>結束</button><button class="btn small ghost" data-focus-keep>繼續</button></div>`;
+    el.innerHTML = v.focus.raid
+      ? `<div class="fl confirm"><span class="fl-ico">📯</span><div class="fl-main"><div class="fl-text">「${esc(shortTitle(v.focus.raid.title, 8))}」提早結束了？</div><div class="fl-sub">還剩 ${v.focus.leftMin} 分鐘</div></div><button class="btn small danger" data-focus-stop>結束了</button><button class="btn small ghost" data-focus-keep>還沒</button></div>`
+      : `<div class="fl confirm"><span class="fl-ico">🍅</span><div class="fl-main"><div class="fl-text">還剩 ${v.focus.leftMin} 分鐘，要結束專注嗎？</div></div><button class="btn small danger" data-focus-stop>結束</button><button class="btn small ghost" data-focus-keep>繼續</button></div>`;
     return;
   }
   const mode = flMode();
@@ -607,8 +614,8 @@ function renderTracker() {
       <span class="fl-side">剩 ${left} 分</span></div>`;
   } else if (mode === 'slot' && next) {
     const mins = Math.max(0, Math.ceil((next.s - nowMs()) / 60000));
-    html = `<div class="fl"><button class="fl-ico" data-flip title="切換成當前任務">🕒</button>
-      <div class="fl-main"><div class="fl-text">${rich(rowText(next.row, t))}</div><div class="fl-sub">下一格・${esc(next.row.slot)}</div></div>
+    html = `<div class="fl ${next.row.raid && mins <= 15 ? 'soon' : ''}"><button class="fl-ico" data-flip title="切換成當前任務">${next.row.raid ? '📯' : '🕒'}</button>
+      <div class="fl-main"><div class="fl-text">${rich(rowText(next.row, t))}</div><div class="fl-sub">${next.row.raid ? '團戰' : '下一格'}・${esc(next.row.slot)}</div></div>
       <span class="fl-side">${mins >= 60 ? `${Math.floor(mins / 60)} 小時後` : `${mins} 分後`}</span></div>`;
   } else if (a) {
     const ready = a.status === 'ready';
@@ -900,18 +907,20 @@ function renderFocus() {
   const on = !!(f && f.active);
   document.body.classList.toggle('focusing', on);
   const b = $('#hudFocus');
+  const ico = on && f.raid ? '📯' : '🍅'; // 📯 團戰中：倒數到團戰結束
   b.classList.toggle('on', on);
-  b.textContent = on ? `🍅${mmss(f.endAt - nowMs())}` : '🍅';
-  b.dataset.tip = on ? '專注中・點一下可以結束' : `專注 ${(f && f.minutes) || 25} 分鐘：${state.view ? state.view.npc.name : ''}變回貓咪陪你，時間到叫你休息`;
+  b.textContent = on ? `${ico}${mmss(f.endAt - nowMs())}` : '🍅';
+  b.dataset.tip = on ? (f.raid ? `團戰「${f.raid.title}」到 ${f.raid.end}・提早結束點這裡` : '專注中・點一下可以結束') : `專注 ${(f && f.minutes) || 25} 分鐘：${state.view ? state.view.npc.name : ''}變回貓咪陪你，時間到叫你休息`;
   $('#hud').classList.toggle('focusing', on); // 專注中：🔮 先收起來，圖示列才不會擠到換行
   $('#focusBadge').classList.toggle('hidden', !on);
   $('#zzz').classList.toggle('hidden', !on);
-  if (on) $('#focusBadge').textContent = `🍅 ${mmss(f.endAt - nowMs())}`;
+  if (on) $('#focusBadge').textContent = `${ico} ${mmss(f.endAt - nowMs())}`;
   clearInterval(state.focusTick);
   if (on) state.focusTick = setInterval(() => {
     const ff = state.view && state.view.focus;
     if (!ff || !ff.active) { clearInterval(state.focusTick); return; }
-    $('#hudFocus').textContent = `🍅${mmss(ff.endAt - nowMs())}`; $('#focusBadge').textContent = `🍅 ${mmss(ff.endAt - nowMs())}`;
+    const ic = ff.raid ? '📯' : '🍅';
+    $('#hudFocus').textContent = `${ic}${mmss(ff.endAt - nowMs())}`; $('#focusBadge').textContent = `${ic} ${mmss(ff.endAt - nowMs())}`;
   }, 1000);
 }
 async function startFocus() {
@@ -964,6 +973,7 @@ $('#choices').addEventListener('click', async (e) => {
   if (act === 'journal') openJournal();
   if (act === 'shop') openShop();
   if (act === 'ach') openAch();
+  if (act === 'raids') openRaids();
 });
 // 聊天裡說「幫我占卜…」「算一卦」就直接打開占卜面板（問「梅花易數是什麼」這種還是聊天）
 const DV_RE = /(占卜|算一卦|卜一卦|卜個卦|起一?卦|算個卦)/;
@@ -1109,18 +1119,24 @@ function renderPanelInner(el, v) {
   if (state.panel === 'daily') {
     const t = v.today;
     let body = `<p class="day-theme">🗓 <b>${esc(t.label)}</b>${t.theme ? `｜${rich(t.theme)}` : ''}</p>`;
-    if (!t.rows.length) body += '<p class="hint">今天沒有排定的行程。</p>';
+    const appRaids = ((v.raids && v.raids.list) || []).filter((o) => o.source === 'app' && o.date === t.date); // 📯 自己建的團戰：跟時段排在一起（不用勾，結束時自動算）
+    if (!t.rows.length && !appRaids.length) body += '<p class="hint">今天沒有排定的行程。</p>';
     if (t.branch) {
       body += `<div class="branch">🔀 路線：<button class="btn small ${t.chosenBranch === 'a' ? 'on' : ''}" data-branch="a">${esc(t.columns[1])}</button><button class="btn small ${t.chosenBranch === 'b' ? 'on' : ''}" data-branch="b">${esc(t.columns[2])}</button></div>`;
     }
+    const rdHtml = (o) => `<div class="row raid app ${o.status === 'now' ? 'current' : ''} ${o.status === 'past' ? 'past' : ''} ${o.canceled ? 'canceled' : ''}"><span class="rd-ico" title="團戰">📯</span><span class="slot">${esc(o.start)}–${esc(o.end)}</span><span><span class="blk">${rich(o.title)}</span>${o.repeatText ? `<span class="out">${esc(o.repeatText)}</span>` : ''}</span><button class="icon-btn" data-rd-edit="${esc(o.key)}" title="改時間或取消">✎</button></div>`;
+    let ai = 0;
     for (const r of t.rows) {
+      while (ai < appRaids.length && appRaids[ai].start < r.start) body += rdHtml(appRaids[ai++]);
       const blk = t.branch ? (t.chosenBranch === 'b' ? r.b : t.chosenBranch === 'a' ? r.a : (r.a === r.b ? r.a : `${r.a}　／　${r.b}`)) : r.a;
       const out = t.branch ? '' : r.b;
       const del = !v.editable ? '' : state.confirmDel === `row:${r.id}`
         ? `<span class="confirm"><button class="btn small danger" data-del-row-yes="${r.id}">刪除</button><button class="btn small ghost" data-del-no>取消</button></span>`
         : `<button class="icon-btn del" data-del-row="${r.id}" title="刪除這一格">✕</button>`;
-      body += `<label class="row ${r.current ? 'current' : ''} ${r.past ? 'past' : ''} ${r.done ? 'done' : ''}"><input type="checkbox" data-row="${r.id}" ${r.done ? 'checked' : ''}><span class="slot">${esc(r.slot)}</span><span><span class="blk">${rich(blk)}</span>${out ? `<span class="out">→ ${rich(out)}</span>` : ''}</span>${del}</label>`;
+      const rdMark = r.raid ? '<span class="rd-tag" title="團戰：開始前提醒、開始時自動專注">📯</span>' : '';
+      body += `<label class="row ${r.current ? 'current' : ''} ${r.past ? 'past' : ''} ${r.done ? 'done' : ''} ${r.raid ? 'raid' : ''} ${r.canceled ? 'canceled' : ''}"><input type="checkbox" data-row="${r.id}" ${r.done ? 'checked' : ''} ${r.canceled ? 'disabled' : ''}><span class="slot">${esc(r.slot)}</span><span>${rdMark}<span class="blk">${rich(blk)}</span>${out ? `<span class="out">→ ${rich(out)}</span>` : ''}${r.canceled ? '<span class="out">已取消</span>' : ''}</span>${del}</label>`;
     }
+    while (ai < appRaids.length) body += rdHtml(appRaids[ai++]);
     if (v.decisions.length) {
       body += '<div class="decisions"><h3>⏰ 提醒與決策點</h3>' + v.decisions.map((d) => {
         const del = !v.editable ? '' : state.confirmDel === `rem:${d.id}`
@@ -1129,7 +1145,7 @@ function renderPanelInner(el, v) {
         return `<div class="dec"><span>${d.shown ? '✔' : '⏳'} <b>${rich(d.label)}</b>${d.action ? ` → ${rich(d.action)}` : ''}</span>${del}</div>`;
       }).join('') + '</div>';
     }
-    const tools = `<div class="tabs">${v.editable ? '<button class="tab add" data-new="row" title="加一格時段">＋ 時段</button><button class="tab add" data-new="rem" title="設一個提醒">⏰ 提醒</button><button class="tab add" data-new="ics-in" title="把 Google／Outlook 匯出的 .ics 檔加進本週行程">📥 匯入</button>' : ''}<button class="tab add" data-new="ics-out" title="把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入">📤 匯出</button></div>`;
+    const tools = `<div class="tabs">${v.editable ? '<button class="tab add" data-new="row" title="加一格時段">＋ 時段</button><button class="tab add" data-new="rem" title="設一個提醒">⏰ 提醒</button><button class="tab add" data-rd-list title="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="tab add" data-new="ics-in" title="把 Google／Outlook 匯出的 .ics 檔加進本週行程">📥 匯入</button>' : ''}<button class="tab add" data-new="ics-out" title="把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入">📤 匯出</button></div>`;
     el.innerHTML = head('📅 今日行程', '每格 +10 XP', tools) + `<div class="panel-body">${body}</div>`;
   }
 
@@ -1197,6 +1213,8 @@ function renderPanelInner(el, v) {
   if (state.panel === 'notebook') renderNotebook(el, v);
   if (state.panel === 'journal') renderJournal(el, v);
   if (state.panel === 'shop') renderShop(el, v);
+  if (state.panel === 'raids') renderRaids(el, v);
+  if (state.panel === 'raidForm') renderRaidForm(el, v);
   if (state.panel === 'ach') renderAch(el, v);
 
   if (state.panel === 'report') {
@@ -1329,6 +1347,7 @@ async function panelClick(e) {
   if (state.panel === 'notebook' && await notebookClick(e)) return;
   if (state.panel === 'journal' && await journalClick(e)) return;
   if (state.panel === 'shop' && await shopClick(e)) return;
+  if (['raids', 'raidForm', 'daily'].includes(state.panel) && await raidsClick(e)) return;
   if (state.panel === 'ach' && await achClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }
@@ -1417,10 +1436,12 @@ $('#panel').addEventListener('keydown', async (e) => {
   else if (t.tagName === 'INPUT' && state.panel === 'rowForm') { e.preventDefault(); await saveRowForm(); }
   else if (t.tagName === 'INPUT' && state.panel === 'remForm') { e.preventDefault(); await saveRemForm(); }
   else if (t.tagName === 'INPUT' && state.panel === 'rename') { e.preventDefault(); await saveRename(t.value); }
+  else if (t.tagName === 'INPUT' && state.panel === 'raidForm' && t.type !== 'checkbox') { e.preventDefault(); await saveRaidForm(); }
 });
 $('#panel').addEventListener('change', async (e) => {
   const t = e.target;
   if (state.panel === 'onboard' && onboardChange(e)) return;
+  if (state.panel === 'raidForm' && raidsChange(e)) return;
   if (t.name === 'dvm' && state.dv) { state.dv.method = t.value; renderPanel(); return; }
   if (t.name === 'qfTier') { document.querySelectorAll('.tp').forEach((l) => l.classList.toggle('on', l.querySelector('input').checked)); return; }
   if (t.dataset.obj) {

@@ -237,8 +237,9 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.deepStrictEqual([imp.added.length, imp.themed.length, imp.skipped, imp.calendar], [4, 2, 0, '工作']);
   assert.ok(imp.lines.length && /4 格行程、2 天主題/.test(imp.label), imp.label);
   let txt = file();
-  assert.ok(/^- 09:30–10:00 站會$/m.test(txt), '時段寫進 9/28');
-  assert.ok(/^- 14:00–16:00 專案週會（3F 會議室）$/m.test(txt), '地點附在後面');
+  assert.ok(/^- 09:30–10:00 📯 站會$/m.test(txt), '時段寫進 9/28（行事曆裡有時間的事件＝團戰）');
+  assert.ok(/^- 14:00–16:00 📯 專案週會（3F 會議室）$/m.test(txt), '地點附在後面');
+  assert.ok(E.plan.days.find((d) => d.date === `${year}-09-28`).rows.some((r) => r.raid && r.a === '站會'), '匯入的是團戰、名稱不含記號');
   assert.ok(/^## 週四 10\/1｜試吃會日、出差台中$/m.test(txt) && /^## 週五 10\/2｜驗證收尾 \+ 週報、出差台中$/m.test(txt), '全天事件接在原本主題後面');
   const d1001 = E.plan.days.find((d) => d.date === `${year}-10-01`);
   assert.deepStrictEqual(d1001.rows.map((r) => r.slot), ['09:00–12:00', '13:30–14:30', '14:00–16:00', '14:30–17:00'], '照時間插進去');
@@ -1982,9 +1983,9 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const th of ['sakura', 'forest', 'latte', 'night', 'frost']) assert.ok(new RegExp(`body\\[data-theme="${th}"\\][^}]*--gold-ink`).test(css), `主題 ${th} 的 --gold-ink`);
   // 面板開著時：面板佔滿上方、對話框變成泡泡
   assert.ok(/body\.panel-open #panel \{ flex: 1 1 auto; \}/.test(css) && /#dialog\.compact \{ position: absolute;/.test(css));
-  // 首頁選單：常用四個＋玩法一排六個，每個都有處理
+  // 首頁選單：常用四個＋一排七個（📯 團戰＋玩法），每個都有處理
   const acts = [...html.matchAll(/data-act="(\w+)"/g)].map((m) => m[1]);
-  assert.deepStrictEqual(acts, ['submit', 'board', 'daily', 'chat', 'report', 'divine', 'fortune', 'notebook', 'journal', 'shop', 'ach']);
+  assert.deepStrictEqual(acts, ['submit', 'board', 'daily', 'chat', 'report', 'raids', 'divine', 'fortune', 'notebook', 'journal', 'shop', 'ach']);
   for (const a of acts) assert.ok(rjs.includes(`act === '${a}'`), '選單 ' + a + ' 有處理');
   // 狀態欄、對話框標題列：用 data-tip（滑過立刻出現），不用要等一秒的 title
   const hud = html.slice(html.indexOf('<div id="hud"'), html.indexOf('<!-- 滑過焦點行'));
@@ -2551,4 +2552,155 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   }
   for (const d of [appDir, userDir]) fs.rmSync(d, { recursive: true, force: true });
   console.log('接待員改名測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 📯 團戰（會議）：計畫檔 📯、自己建（重複／例外）、提醒、自動專注、改時間、取消 ----------
+(async () => {
+  const os = require('os');
+  const R = require('../src/main/raids');
+  const P = require('../src/main/planParser');
+  const { Engine } = require('../src/main/engine');
+  // 規則：哪幾天有、文字
+  const wk = { id: 'w', title: '站會', date: '2026-10-12', start: '10:00', end: '10:30', repeat: 'weekly', days: [1, 3] };
+  assert.deepStrictEqual(['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-19', '2026-10-05'].map((d) => R.occursOn(wk, d)), [true, false, true, true, false], '每週一、三；開始日之前沒有');
+  assert.deepStrictEqual(['2026-10-16', '2026-10-17'].map((d) => R.occursOn({ ...wk, repeat: 'weekdays' }, d)), [true, false], '平日');
+  assert.ok(R.occursOn({ ...wk, repeat: 'daily' }, '2026-10-18') && !R.occursOn({ ...wk, repeat: 'once' }, '2026-10-14'));
+  assert.strictEqual(R.repeatText({ ...wk, days: [3, 1] }), '每週一、三');
+  assert.strictEqual(R.remindText([15, 5, 0]), '前 15、5 分鐘和開始時');
+  assert.strictEqual(R.remindText([10]), '前 10 分鐘');
+  assert.ok(R.isRaidText('📯 週會') && R.isRaidText('⚔ 站會') && R.isRaidText('團戰：讀書會') && !R.isRaidText('寫週報'));
+  assert.throws(() => R.makeItem({ title: 'x', date: '2026-10-12', start: '10:00', end: '09:00' }, { id: 'a' }), /結束時間要在開始之後/);
+  assert.throws(() => R.makeItem({ title: ' ', date: '2026-10-12', start: '10:00' }, { id: 'a' }), /要有名稱/);
+  assert.throws(() => R.makeItem({ title: 'x', date: '2026-10-01', start: '10:00' }, { id: 'a', today: '2026-10-12' }), /已經過了/);
+  assert.deepStrictEqual(R.makeItem({ title: 'x', date: '2026-10-14', start: '10:00', repeat: 'weekly' }, { id: 'a' }).days, [3], '每週沒選星期：用那一天');
+  // 提醒：一次只說最新的一句、錯過的不補、晚開也接得上
+  const o = { key: 'a|w|2026-10-12|10:00', date: '2026-10-12', start: '10:00', end: '10:30', canceled: false };
+  const at = (hm) => new Date(`2026-10-12T${hm}:00`);
+  const due = (hm, fired = []) => R.dueReminder(o, at(hm), { remind: [15, 5, 0], fired });
+  assert.strictEqual(due('09:44').kind, null);
+  assert.deepStrictEqual([due('09:45').kind, due('09:45').mins, due('09:45').mark], ['soon', 15, [15]]);
+  assert.strictEqual(due('09:46', [15]).kind, null, '說過就不再說');
+  assert.deepStrictEqual([due('09:56', [15]).kind, due('09:56', [15]).lead, due('09:56', [15]).mins], ['soon', 5, 4]);
+  assert.deepStrictEqual([due('09:57').kind, due('09:57').lead, due('09:57').mark.sort((a, b) => a - b)], ['soon', 5, [5, 15]], '晚開：只說 5 分鐘那句，15 分鐘那句也算說過');
+  assert.deepStrictEqual([due('10:00', [15, 5]).kind, due('10:00', [15, 5]).late], ['start', false]);
+  assert.deepStrictEqual([due('10:12').kind, due('10:12').late], ['start', true], '團戰中才打開：直接接上');
+  assert.strictEqual(due('10:30').kind, null, '結束了就不說');
+  assert.strictEqual(R.dueReminder({ ...o, canceled: true }, at('10:00')).kind, null, '取消的不提醒');
+  // 計畫檔：📯（⚔、團戰：也算）、~~劃掉~~＝取消、名稱不含記號
+  const plan = P.parsePlan('# 2026 測試週\n\n## 週一 10/12\n- 09:00–10:00 寫報告\n- [ ] 14:00–15:00 📯 週會 → 決議\n- ~~16:00–16:30 ⚔ 客戶電話~~\n- 17:00 團戰：讀書會（取消）\n');
+  assert.deepStrictEqual(plan.days[0].rows.map((r) => [r.a, !!r.raid, !!r.canceled]), [['寫報告', false, false], ['週會', true, false], ['客戶電話', true, true], ['讀書會', true, true]]);
+  const occ = R.occurrences({ planDays: plan.days, items: [wk], from: '2026-10-12', to: '2026-10-14' });
+  assert.deepStrictEqual(occ.map((x) => `${x.date.slice(8)} ${x.start}–${x.end} ${x.title}${x.canceled ? '✕' : ''}`), ['12 10:00–10:30 站會', '12 14:00–15:00 週會', '12 16:00–16:30 客戶電話✕', '12 17:00–18:00 讀書會✕', '14 10:00–10:30 站會'], '只有開始時間的算一小時');
+
+  // ---- 引擎 ----
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-raid-'));
+  fs.writeFileSync(path.join(dir, 'plan.md'), '# 2026 團戰測試週\n\n## 寫完週報 🔧 📅 10/16\n- [ ] 收資料\n\n## 週一 10/12\n- 09:00–10:00 寫報告\n- 14:00–15:00 📯 週會 → 決議\n\n## 週三 10/14\n- 09:00–12:00 試做\n');
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, achievements: { enabled: false }, streak: { enabled: false }, llm: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] } }));
+  let t = new Date('2026-10-12T09:00:00').getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  const set = (hm, d = '2026-10-12') => { t = new Date(`${d}T${hm}:00`).getTime(); };
+  const file = () => fs.readFileSync(path.join(dir, 'plan.md'), 'utf8');
+  const ev = (lines) => lines.map((l) => l.event);
+  let v = E.view();
+  assert.deepStrictEqual(v.raids.list.map((x) => [x.source, x.title, x.start]), [['plan', '週會', '14:00']], '計畫檔的團戰');
+  // 自己建：每週一、三的站會
+  const add = await E.addRaid({ title: '專案站會', date: '2026-10-12', start: '10:00', end: '10:30', repeat: 'weekly', days: [1, 3] });
+  assert.ok(ev(add.lines)[0] === 'raid_set' && /前 15、5 分鐘和開始時/.test(add.lines[0].text) && /每週一、三/.test(add.lines[0].text), add.lines[0].text);
+  v = E.view();
+  assert.deepStrictEqual(v.raids.list.map((x) => `${x.date.slice(8)} ${x.start} ${x.title}`), ['12 10:00 專案站會', '12 14:00 週會', '14 10:00 專案站會']);
+  await assert.rejects(E.addRaid({ title: '', date: '2026-10-12', start: '10:00' }), /要有名稱/);
+  // 提醒：前 15、前 5、開始時自動專注
+  set('09:45'); assert.deepStrictEqual(ev(await E.tick()), ['raid_soon']);
+  set('09:46'); assert.deepStrictEqual(ev(await E.tick()), [], '同一句不重複');
+  set('09:55'); let ls = await E.tick();
+  assert.ok(ev(ls)[0] === 'raid_soon_last' && /5 分鐘/.test(ls[0].text), ls[0].text);
+  set('10:00'); ls = await E.tick();
+  assert.deepStrictEqual(ev(ls), ['raid_start']);
+  assert.ok(E.raidStarted && E.state.focus && E.state.focus.raid.title === '專案站會', '開始時自動專注');
+  assert.ok(E.focusInfo().raid && E.focusInfo().leftMin === 30 && E.view().raids.list[0].active, '倒數到結束時間');
+  assert.strictEqual(E.proactiveDue({ idleSec: 0 }), null, '團戰中不主動聊天');
+  set('10:30'); const gold0 = E.state.player.gold;
+  let r = E.completeFocus();
+  assert.ok(ev(r.lines)[0] === 'raid_done' && r.reward.xp === 10 && E.state.player.gold === gold0 + 3 && !E.state.focus, '結束：星屑和金幣');
+  // 只改這一次：週三那場改到 11:00–11:45；週一的不受影響
+  const wed = E.view().raids.list.find((x) => x.date === '2026-10-14');
+  r = await E.editRaid(wed.key, { start: '11:00', end: '11:45' }, 'one');
+  assert.strictEqual(ev(r.lines)[0], 'raid_moved');
+  let list = E.view().raids.list;
+  assert.deepStrictEqual(list.filter((x) => x.source === 'app').map((x) => `${x.date.slice(8)} ${x.start}–${x.end}${x.moved ? '*' : ''}`), ['12 10:00–10:30', '14 11:00–11:45*']);
+  // 只改這一次、換到別天：那天取消、另外加一場
+  r = await E.editRaid(list.find((x) => x.date === '2026-10-14').key, { date: '2026-10-15', start: '09:30', end: '10:00' }, 'one');
+  list = E.view().raids.list.filter((x) => x.source === 'app');
+  assert.deepStrictEqual(list.map((x) => `${x.date.slice(8)} ${x.start}${x.canceled ? '✕' : ''}${x.repeat === 'once' ? '(一次)' : ''}`), ['12 10:00', '14 11:00✕', '15 09:30(一次)']);
+  // 整個系列：改到 10:15，單獨改過的也回到新時間
+  r = await E.editRaid(list[0].key, { start: '10:15', end: '10:45' }, 'all');
+  list = E.view().raids.list.filter((x) => x.source === 'app' && x.repeat === 'weekly');
+  assert.deepStrictEqual(list.map((x) => `${x.date.slice(8)} ${x.start}–${x.end}${x.canceled ? '✕' : ''}`), ['12 10:15–10:45', '14 10:15–10:45✕']);
+  // 恢復這一次、取消這一次、整個系列刪掉
+  await E.restoreRaid(list[1].key);
+  assert.ok(!E.view().raids.list.find((x) => x.date === '2026-10-14' && x.repeat === 'weekly').canceled, '恢復');
+  r = await E.cancelRaid(E.view().raids.list.find((x) => x.date === '2026-10-14' && x.repeat === 'weekly').key, 'one');
+  assert.ok(ev(r.lines)[0] === 'raid_cancel' && E.view().raids.list.find((x) => x.date === '2026-10-14' && x.repeat === 'weekly').canceled);
+  r = await E.cancelRaid(E.view().raids.list.find((x) => x.repeat === 'weekly').key, 'all');
+  assert.ok(ev(r.lines)[0] === 'raid_cancel_all' && !E.view().raids.list.some((x) => x.repeat === 'weekly'), '整個系列刪掉');
+  // 計畫檔的團戰：改時間寫回檔案、取消＝劃掉、恢復
+  const wk1 = E.view().raids.list.find((x) => x.source === 'plan');
+  await E.editRaid(wk1.key, { start: '14:30', end: '15:30' });
+  assert.ok(/^- 14:30–15:30 📯 週會 → 決議$/m.test(file()), '改時間寫回計畫檔');
+  const wk2 = E.view().raids.list.find((x) => x.source === 'plan');
+  await E.cancelRaid(wk2.key);
+  assert.ok(/^- ~~14:30–15:30 📯 週會 → 決議~~$/m.test(file()) && E.view().raids.list.find((x) => x.source === 'plan').canceled, '取消＝整格劃掉');
+  set('14:15'); assert.deepStrictEqual(ev(await E.tick()), [], '取消了不提醒');
+  await E.restoreRaid(E.view().raids.list.find((x) => x.source === 'plan').key);
+  assert.ok(/^- 14:30–15:30 📯 週會 → 決議$/m.test(file()), '恢復');
+  assert.ok(!E.todayInfo().rows.find((x) => x.raid).canceled);
+  // 🍅 專注中遇到團戰：🍅 先停，換成團戰的專注
+  set('14:20'); E.startFocus(25);
+  set('14:30'); ls = await E.tick();
+  assert.ok(ev(ls).includes('raid_start') && E.state.focus.raid && E.state.focus.raid.title === '週會', '團戰蓋過番茄鐘');
+  assert.strictEqual(E.proactiveDue({ idleSec: 0 }), null);
+  // 進行中改結束時間：倒數跟著改；剛開始就「結束了」不給獎勵
+  await E.editRaid(E.view().raids.list.find((x) => x.source === 'plan').key, { end: '16:00' });
+  assert.ok(E.state.focus && E.focusInfo().leftMin === 90, '延長：倒數到新的結束時間');
+  set('14:35'); r = E.cancelFocus();
+  assert.ok(ev(r.lines)[0] === 'raid_leave' && !r.reward && !E.state.focus, '剛開始就關掉：不算打完');
+  // 重開程式在團戰中：直接接上（提醒紀錄清掉模擬第一次看到）
+  E.state.raids.fired = {}; set('14:50'); ls = await E.tick();
+  assert.deepStrictEqual(ev(ls), ['raid_late']);
+  set('15:05'); r = E.cancelFocus();
+  assert.ok(ev(r.lines)[0] === 'raid_done_early' && r.reward && r.reward.xp === 10, '待了 15 分鐘就提早結束：算打完');
+  assert.ok(/^- \[x\] 14:30–16:00 📯 週會 → 決議$/m.test(file()), '計畫檔那一格自動勾起來');
+  // 那一格已經勾過：團戰結束不重複給
+  E.state.raids.fired = {}; set('15:10'); await E.tick();
+  set('16:00'); r = E.completeFocus();
+  assert.ok(ev(r.lines)[0] === 'raid_done_plain' && !r.reward, '已經勾過：不重複給獎勵');
+  // 取消正在進行的那場：專注跟著結束
+  await E.addRaid({ title: '臨時會', date: '2026-10-12', start: '16:10', end: '16:40' });
+  set('16:10'); await E.tick();
+  assert.ok(E.state.focus && E.state.focus.raid.title === '臨時會');
+  await E.cancelRaid(E.view().raids.list.find((x) => x.title === '臨時會').key);
+  assert.ok(!E.state.focus, '取消進行中的團戰：專注結束');
+  // 改成過去的日期：丟錯，原本的不會被改到一半
+  const lin = E.view().raids.list.find((x) => x.title === '臨時會');
+  await assert.rejects(E.editRaid(lin.key, { date: '2026-10-01', start: '09:00', end: '09:30' }), /已經過了/);
+  assert.ok(E.state.raids.items.find((x) => x.title === '臨時會').start === '16:10', '丟錯時沒改到');
+  // 不要自動專注：開始時只提醒
+  E.config.raids = { ...E.config.raids, autoFocus: false };
+  await E.addRaid({ title: '輕鬆聊', date: '2026-10-12', start: '16:50', end: '17:00' });
+  set('16:50'); ls = await E.tick();
+  assert.ok(ev(ls).includes('raid_start_plain') && !E.state.focus, '不自動專注：只說時間到');
+  E.config.raids.autoFocus = true;
+  // 存檔再讀回來還在；過期的資料會清掉
+  await E.addRaid({ title: '每日站會', date: '2026-10-12', start: '17:00', end: '17:15', repeat: 'daily' });
+  const E2 = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date('2026-10-20T09:00:00') });
+  assert.ok(E2.view().raids.list.filter((x) => x.title === '每日站會').length === 7, '每天：接下來 7 天都有');
+  const st = { items: [{ id: 'x', title: '舊', date: '2026-09-01', start: '10:00', repeat: 'once', skip: {}, moved: {} }, { id: 'y', title: '新', date: '2026-09-01', start: '10:00', repeat: 'daily', skip: { '2026-09-02': true, '2026-10-19': true }, moved: {} }], fired: { 'a|y|2026-09-02|10:00': [0], 'a|y|2026-10-20|10:00': [15] } };
+  R.prune(st, '2026-10-20');
+  assert.deepStrictEqual([st.items.map((x) => x.id), Object.keys(st.items[0].skip), Object.keys(st.fired)], [['y'], ['2026-10-19'], ['a|y|2026-10-20|10:00']]);
+  // 行事曆匯出不含取消的
+  await E.cancelRaid(E.view().raids.list.find((x) => x.source === 'plan').key);
+  assert.ok(!/週會/.test(E.exportICS().text), '取消的團戰不匯出');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('團戰測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });

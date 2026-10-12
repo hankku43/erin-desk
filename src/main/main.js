@@ -534,7 +534,7 @@ function menuTemplate() {
     { label: '📅 今日行程', click: open('daily') },
     { label: '📝 下班回報', click: open('report') },
     engine.state.focus
-      ? { label: `🍅 結束專注（還剩 ${engine.focusInfo().leftMin} 分鐘）`, click: stopFocus }
+      ? { label: engine.state.focus.raid ? `📯 團戰「${engine.state.focus.raid.title}」結束了（還剩 ${engine.focusInfo().leftMin} 分鐘）` : `🍅 結束專注（還剩 ${engine.focusInfo().leftMin} 分鐘）`, click: stopFocus }
       : { label: `🍅 專注 ${engine.focusCfg().minutes} 分鐘`, click: () => { if (mini) setMini(false); push('ui:focus'); } },
     { label: '✨ 更多玩法', submenu: [
       { label: f ? `🔮 今日運勢：${f.rank}` : '🔮 抽今日運勢', click: () => { if (mini) setMini(false); push('ui:fortune'); } },
@@ -547,7 +547,9 @@ function menuTemplate() {
     ] },
     { type: 'separator' },
     ...(engine.config.window.hud === false && !mini ? [{ label: '📊 顯示狀態欄', click: () => { const r = engine.setHud(true); push('view:update', { view: r.view }); } }] : []), // 狀態欄收起來時：第一層就找得到
-    { label: '📂 週計畫', submenu: [
+    { label: '📂 週計畫・團戰', submenu: [
+      { label: '📯 團戰（會議）：新增、改時間、取消…', click: open('raids') },
+      { type: 'separator' },
       { label: '選擇週計畫檔…', click: () => choosePlan() },
       { label: '開啟計畫檔', click: () => shell.openPath(engine.planFile()) },
       { label: '重新載入計畫檔', click: () => reloadPlan('已重新載入') },
@@ -660,6 +662,7 @@ function stopFocus() {
   const r = engine.cancelFocus();
   push('view:update', { view: r.view });
   push('npc:lines', r.lines);
+  if (r.reward) setTimeout(() => push('fx:reward', r.reward), 1400); // 📯 團戰提早結束也算打完
   if (isMini()) setMini(false);
 }
 
@@ -756,6 +759,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('smart:set', wrap((on) => setSmart(!!on)));
   ipcMain.handle('focus:start', wrap((min) => { const r = engine.startFocus(min); scheduleFocus(); return r; }));
   ipcMain.handle('focus:cancel', wrap(() => { clearTimeout(focusTimer); return engine.cancelFocus(); }));
+  // 📯 團戰：改了時間可能影響正在進行的那場，計時器重排
+  const raidWrap = (fn) => wrap(async (...a) => { const r = await fn(...a); scheduleFocus(); return r; });
+  ipcMain.handle('raids:add', raidWrap((f) => engine.addRaid(f || {})));
+  ipcMain.handle('raids:edit', raidWrap((key, f, scope) => engine.editRaid(key, f || {}, scope)));
+  ipcMain.handle('raids:cancel', raidWrap((key, scope) => engine.cancelRaid(key, scope)));
+  ipcMain.handle('raids:restore', raidWrap((key) => engine.restoreRaid(key)));
   ipcMain.handle('focus:peek', wrap(() => engine.focusPeek()));
   ipcMain.handle('fortune:draw', wrap(() => engine.drawFortune()));
   ipcMain.handle('divine:info', wrap(() => ({ info: engine.divineInfo() })));
@@ -832,7 +841,9 @@ app.whenReady().then(async () => {
 
   // 提醒對齊整分鐘（12:00 就在 12:00 說，不會晚 59 秒）；啟動後先跑一次，補上寬限時間內的提醒
   const runTick = async () => {
-    const lines = await engine.tick(); if (lines.length) push('npc:lines', lines);
+    const lines = await engine.tick();
+    if (engine.raidStarted) { engine.raidStarted = false; scheduleFocus(); push('view:update', { view: engine.view() }); setTimeout(() => push('ui:raid', 'start'), 300); } // 📯 團戰開始：自動專注
+    if (lines.length) push('npc:lines', lines);
     if (engine.twinsDirty) { engine.twinsDirty = false; push('view:update', { view: engine.view() }); } // 🐰 下午茶外送排好了：讓畫面知道
   };
   setTimeout(runTick, 4000);
@@ -842,7 +853,7 @@ app.whenReady().then(async () => {
   scheduleFocus(4000); // 上次關程式時還在專注：時間到了就補結算（等畫面載好）
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
-  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, updater, opening: { start: startOpening, win: () => openingWin } });
+  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, runTick, updater, opening: { start: startOpening, win: () => openingWin } });
 });
 
 app.on('second-instance', () => { if (openingWin && !openingWin.isDestroyed()) { openingWin.focus(); return; } if (win) { win.restore(); win.focus(); } });

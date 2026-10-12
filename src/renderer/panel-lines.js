@@ -5,7 +5,7 @@
   else root.PanelLines = factory();
 }(typeof self !== 'undefined' ? self : this, () => {
   // 面板裡自己有人說話（雙胞胎、健康檢查的小對話），或開了之後艾琳本來就會講話（日誌、小本子、今日行程）：泡泡先收起來
-  const QUIET = new Set(['shop', 'health', 'onboard', 'log', 'journal', 'notebook', 'daily', 'divine', 'questForm', 'rowForm', 'remForm']);
+  const QUIET = new Set(['shop', 'health', 'onboard', 'log', 'journal', 'notebook', 'daily', 'divine', 'questForm', 'rowForm', 'remForm', 'raidForm']);
   const short = (s, n = 14) => { const t = String(s || '').replace(/`/g, ''); return t.length > n ? t.slice(0, n) + '…' : t; };
 
   function board(v) {
@@ -30,6 +30,14 @@
     if (kind === 'submit') {
       const q = (v.quests || []).find((x) => x.id === extra.questId);
       return { text: q ? `報酬都準備好了～確認一下就可以交付「${short(q.title)}」囉！` : '報酬都準備好了～', emotion: 'cheer' };
+    }
+    if (kind === 'raids') { // 📯 團戰清單
+      const r = v.raids || {};
+      const n = r.next;
+      if (n && n.status === 'now') return { text: `「${short(n.title)}」進行中，艾琳安靜陪著你～`, emotion: 'normal' };
+      if (n) return { text: `下一場團戰是 ${n.start} 的「${short(n.title)}」，時間到之前艾琳會先叫你！`, emotion: 'happy' };
+      if ((r.list || []).some((o) => !o.canceled && o.status !== 'past')) return { text: '這幾天的團戰都在這裡，要改時間或取消，按旁邊的按鈕就好。', emotion: 'normal' };
+      return { text: '最近沒有團戰～有會要開，就按「＋ 新團戰」登記吧！', emotion: 'normal' };
     }
     if (kind === 'ach') {
       const n = Number(v.streak) || 0;
