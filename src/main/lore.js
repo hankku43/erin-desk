@@ -254,6 +254,7 @@ class Lore {
     if (this.vectors) {
       try {
         const [qv] = await this.embed([query], 8000);
+        this.lastQuery = { text: query, vec: qv }; // 聊天判斷「像不像在講某個目標」時重複用，不用再算一次
         sem = this.entries.map((e) => cosine(qv, this.vectors.get(e.id) || []));
       } catch (_) { sem = null; }
     }

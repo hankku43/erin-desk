@@ -812,7 +812,7 @@ class NPC {
   // opts.extraSystem：額外規則；opts.extraProps：JSON 輸出額外欄位（例如 actions）；opts.extraUser：附加在狀態後的資料
   // opts.mood：engine 決定好的情緒（shy／disdain／cold），會加一段說話指示並固定表情
   // 鄙視只能由 mood 指定；聊天時開放給模型選（配合 attitude 判斷，engine 會再檢查）
-  async say(event, facts, { userText, history, extraSystem, extraProps, extraUser, maxTokens, maxChars, mood } = {}) {
+  async say(event, facts, { userText, history, extraSystem, extraProps, extraUser, maxTokens, maxChars, mood, logNote } = {}) {
     if (mood && !MOODS[mood]) mood = null;
     if (mood) facts = { ...facts, mood }; // 用內建台詞時也挑同一種表情的句子
     if (!this.llm.enabled) return this.template(event, { ...facts, why: WHY.off });
@@ -889,7 +889,7 @@ class NPC {
       }, this.timeoutFor(event));
       // Ollama 把提示切成一半時，讀到的剛好是 (num_ctx − 4) / 2 + 4 個 token
       const cut = r.prompt_eval_count && r.prompt_eval_count === Math.floor((this.numCtx() - 4) / 2) + 4 && size(messages) > this.numCtx() / 2 + 64 ? '⚠ 提示可能被 Ollama 截斷' : '';
-      this.logCall(event, t0, r, null, [trimNote, cut].filter(Boolean).join('；'));
+      this.logCall(event, t0, r, null, [logNote, trimNote, cut].filter(Boolean).join('；'));
       const out = this.parseReply(r.message && r.message.content, maxChars);
       out.text = out.text.replace(RE_FALLBACK, '').trim(); // 模型照抄了舊的備援句子
       if (!out.text) throw new Error('空白回覆');

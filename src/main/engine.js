@@ -18,6 +18,7 @@ function parseAny(text, file) {
 const G = require('./game');
 const { NPC } = require('./npc');
 const I = require('./intent');
+const CS = require('./chatScope');
 const { Lore } = require('./lore');
 const ICS = require('./ics');
 const MH = require('./meihua');
@@ -520,6 +521,7 @@ class Engine {
   }
 
   async say(event, extra = {}, opts = {}) {
+    if (CS.WORK_EVENTS.test(event)) this.lastWorkAt = this.now().getTime(); // 💬 艾琳剛講過工作：冒險者接著回的話要附任務清單
     this.npc.relation = this.relationInfo();
     const line = await this.npc.say(event, this.facts(extra), opts);
     return { ...line, event };
@@ -530,6 +532,7 @@ class Engine {
   // opts.coalesce：同一類的話還沒開始說就被新的取代（連勾三個目標只說最新的那句）
   async act(event, extra = {}, opts = {}) {
     if (!this.deferSpeech) return this.say(event, extra, opts);
+    if (CS.WORK_EVENTS.test(event)) this.lastWorkAt = this.now().getTime();
     const { coalesce, ...rest } = opts;
     const job = { event, facts: this.facts(extra), opts: rest, relation: this.relationInfo(), coalesce: coalesce || null };
     if (job.coalesce) for (const j of this.speechQueue) if (j.coalesce === job.coalesce) j.dropped = true;
@@ -1382,6 +1385,20 @@ class Engine {
     return this.settle({ reward, lines, writeError, journal: wk ? wk.key : null, view: this.view() });
   }
 
+  // 💬（聰明艾琳）這句話在語意上像不像某個還沒做完的目標：沿用 lore 剛算好的這句話的向量；目標的向量算一次就記著
+  async workSimilar(text, cat) {
+    const L = this.lore;
+    if (!L || !L.vectors || !L.smartOn()) return 0;
+    const items = [...cat.objectives.filter((o) => !o.done && !o.questDone).map((o) => o.text), ...cat.quests.filter((q) => q.status !== 'done').map((q) => q.title)].filter(Boolean).slice(0, 60);
+    if (!items.length) return 0;
+    try {
+      const qv = L.lastQuery && L.lastQuery.text === text ? L.lastQuery.vec : (await L.embed([text], 8000))[0];
+      this.objVec = this.objVec || new Map();
+      const miss = items.filter((t) => !this.objVec.has(t));
+      if (miss.length) { const vs = await L.embed(miss, 15000); miss.forEach((t, i) => this.objVec.set(t, vs[i])); }
+      return Math.max(...items.map((t) => CS.cosine(qv, this.objVec.get(t) || [])));
+    } catch (_) { return 0; }
+  }
   async chat(text) {
     const now = this.now();
     const at = now.getTime();
@@ -1428,7 +1445,11 @@ class Engine {
     const canApologize = aOn && (this.isCold() || recentOffense) && a.apologyDay !== today;
     const apologizing = kw === 'apology' && canApologize;
     const relationQ = aOn && A.RELATION.test(text);
-    const extra = [RN.rename(I.ACTION_RULES, self)]; // 例句「要艾琳幫你…」也用現在的名字
+    // 💬 這句要不要附任務清單（chatScope.js）：跟工作有關才附，閒聊不附 → 提示短一半、回得快
+    const scope = CS.needCatalog({ text, workItems, plan: CS.planTerms(cat), lastWorkAt: this.lastWorkAt || 0, lastChat: lastSaid, now: at });
+    if (!scope.need) { const sim = await this.workSimilar(text, cat); if (sim >= 0.6) Object.assign(scope, { need: true, why: `語意像某個目標（${sim.toFixed(2)}）` }); }
+    const extra = scope.need ? [RN.rename(I.ACTION_RULES, self)] // 例句「要艾琳幫你…」也用現在的名字
+      : [`【任務】這次是閒聊，沒有附任務清單：不要自己猜要勾哪個目標；${call}如果提到工作做完了，請他說是哪一項。`];
     if (aOn) extra.push(A.attitudeRules(call, self));
     if (apologizing) extra.push(`【道歉】${call}在為剛才的失禮道歉：接受道歉，可以小小抱怨一句，最後原諒他。`);
     if (relationQ) extra.push(`【關係問題】${call}在問你們現在是什麼關係：照【關係】的親近程度，用角色口吻回答一兩句。`);
@@ -1453,9 +1474,10 @@ class Engine {
       userText: text,
       history: recent, // npc 會再濾掉備援台詞那幾輪，取最後 4 句
       extraSystem: extra.join('\n'),
-      extraProps: { ...I.ACTION_SCHEMA, ...(aOn ? { attitude: { type: 'string', enum: A.ATTITUDES } } : {}), ...(nbOn ? M.SCHEMA : {}) },
-      extraUser: [I.catalogText(cat), this.lore.contextText(hits), nbCtx].filter(Boolean).join('\n\n'),
+      extraProps: { ...(scope.need ? I.ACTION_SCHEMA : {}), ...(aOn ? { attitude: { type: 'string', enum: A.ATTITUDES } } : {}), ...(nbOn ? M.SCHEMA : {}) },
+      extraUser: [scope.need ? I.catalogText(cat, { showDone: I.RE_UNDO.test(text) }) : '', this.lore.contextText(hits), nbCtx].filter(Boolean).join('\n\n'),
       maxTokens: 320,
+      logNote: scope.need ? `附清單：${scope.why}` : '沒附清單（閒聊）',
     });
     if (line.source === 'llm') line.text = I.decodeKeys(line.text, cat); // 台詞裡的 q4-0 換回名字
     const llmAtt = line.source === 'llm' && line.data ? line.data.attitude : null;

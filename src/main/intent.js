@@ -69,17 +69,26 @@ function buildCatalog(plan, ps, todayInfo, now) {
   return { objectives, quests, daily, hasReportRow: true };
 }
 
-function catalogText(cat) {
+// 給 AI 看的清單，盡量短（提示越長，CPU 讀越久，超過 num_ctx 還會被 Ollama 切掉）：
+//   已勾掉的目標、已完成的行程只留數量（冒險者說要取消勾選時 showDone 才列出來）；
+//   任務名、目標說明超過 clip 個字就截短——AI 只要認得出是哪一項，代號會對回完整的目標
+const clipText = (t, n) => { const s = String(t || ''); return n && s.length > n ? `${s.slice(0, n)}…` : s; };
+function catalogText(cat, { showDone = false, clip = 40 } = {}) {
   const L = ['【可操作項目】'];
   for (const q of cat.quests) {
     const st = q.status === 'done' ? '已交付' : q.status === 'ready' ? '目標全完成，可交付' : q.active ? '當前任務' : '未完成';
-    L.push(`任務 ${q.key}：${q.title}（${st}，${q.doneCount}/${q.total}）`);
+    L.push(`任務 ${q.key}：${clipText(q.title, clip)}（${st}，${q.doneCount}/${q.total}）`);
     if (q.status === 'done') continue;
-    for (const o of cat.objectives.filter((x) => x.questId === q.id)) L.push(`  ${o.key} [${o.done ? 'x' : ' '}] ${o.text}`);
+    const objs = cat.objectives.filter((x) => x.questId === q.id);
+    for (const o of objs) if (showDone || !o.done) L.push(`  ${o.key} [${o.done ? 'x' : ' '}] ${clipText(o.text, clip)}`);
+    const done = objs.filter((o) => o.done).length;
+    if (!showDone && done) L.push(`  （已完成 ${done} 項）`);
   }
   if (cat.daily.length) {
     L.push('今日行程：');
-    for (const d of cat.daily) L.push(`  ${d.key} [${d.done ? 'x' : ' '}] ${d.slot} ${d.label}`);
+    for (const d of cat.daily) if (showDone || !d.done) L.push(`  ${d.key} [${d.done ? 'x' : ' '}] ${d.slot} ${clipText(d.label, clip)}`);
+    const done = cat.daily.filter((d) => d.done).length;
+    if (!showDone && done) L.push(`  （已完成 ${done} 格）`);
   }
   return L.join('\n');
 }
@@ -220,4 +229,4 @@ function explainNoop(msg, cat) {
   return null;
 }
 
-module.exports = { ACTION_SCHEMA, ACTION_RULES, buildCatalog, catalogText, validate, ruleParse, explainNoop, decodeKeys };
+module.exports = { ACTION_SCHEMA, ACTION_RULES, RE_UNDO, RE_DONE, RE_SUBMIT, RE_SWITCH, buildCatalog, catalogText, validate, ruleParse, explainNoop, decodeKeys };

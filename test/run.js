@@ -2871,3 +2871,66 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('提示長度與壞掉的回覆測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 💬 閒聊不附任務清單：本機先判斷這句話可能跟工作有關嗎（附了才讓 AI 勾選）；清單本身也瘦身 ----------
+(async () => {
+  const os = require('os');
+  const I = require('../src/main/intent');
+  const CS = require('../src/main/chatScope');
+  const { Engine } = require('../src/main/engine');
+  // 清單瘦身：已勾掉的只留數量、太長的截短；說要取消勾選時才列出已完成的
+  const long = '從菜單草稿整理出每一道新品的甜度、份量、價格與過敏原標示，再對照供應商報價確認成本與毛利';
+  const cat0 = {
+    quests: [{ key: 'q1', id: 'a', title: '秋季新品上市準備（含菜單、試吃、標示、上架申請、第一週的社群宣傳活動與門市人員教育訓練）', status: 'progress', active: true, doneCount: 2, total: 3 },
+      { key: 'q2', id: 'b', title: '月底盤點', status: 'done', active: false, doneCount: 1, total: 1 }],
+    objectives: [{ key: 'q1-0', questId: 'a', text: '試吃紀錄送出', done: true }, { key: 'q1-1', questId: 'a', text: '標示定稿', done: true }, { key: 'q1-2', questId: 'a', text: long, done: false },
+      { key: 'q2-0', questId: 'b', text: '盤點表', done: true, questDone: true }],
+    daily: [{ key: 'd0', slot: '09:00–10:00', label: '晨會', done: true }, { key: 'd1', slot: '14:00–15:00', label: '試吃會', done: false }],
+  };
+  const c1 = I.catalogText(cat0);
+  assert.ok(!/試吃紀錄送出|標示定稿|晨會/.test(c1) && /（已完成 2 項）/.test(c1) && /（已完成 1 格）/.test(c1), c1);
+  assert.ok(c1.includes(`q1-2 [ ] ${long.slice(0, 40)}…`) && c1.includes('任務 q1：秋季新品上市準備（含菜單、試吃、標示、上架申請、第一週的社群宣傳活動與門市人員教…（當前任務，2/3）') && /任務 q2：月底盤點（已交付/.test(c1), '長的截短、已交付只留名字');
+  const c2 = I.catalogText(cat0, { showDone: true });
+  assert.ok(/q1-0 \[x\] 試吃紀錄送出/.test(c2) && /d0 \[x\] 09:00–10:00 晨會/.test(c2) && !/已完成 2 項/.test(c2), '要取消勾選時列出已完成的');
+  assert.ok(c1.length < I.catalogText(cat0, { showDone: true, clip: 0 }).length * 0.85, '瘦了');
+  // 判斷：回報進度的各種說法都要附清單
+  const plan = CS.planTerms(cat0);
+  const need = (text, extra = {}) => CS.needCatalog({ text, plan, now: 1e9, ...extra });
+  for (const t of ['試吃紀錄送出了', '那件事搞定了', '標示好了', '先做上架申請', '剛剛開完會', '取消剛剛那個勾', '要交付這個任務', 'PDF 存好了',
+    '供應商報價還在等', '過敏原那邊卡住了', '明天要去試吃會', '今天的進度有點落後', '菜單草稿寫一半', '下班回報一下', '這週的週報']) assert.ok(need(t).need, `「${t}」要附清單（${need(t).why}）`);
+  // 閒聊不附
+  for (const t of ['週五 準備狂歡', '他是薪水小偷', '你還好嗎?我有點擔心你', '對不起 不要生氣', '今天天氣好熱', '梟長又睡過頭了嗎', '你最喜歡什麼顏色', '哈哈哈好可愛']) assert.ok(!need(t).need, `「${t}」是閒聊，不用附（${need(t).why}）`);
+  // 前後文：艾琳 10 分鐘內剛講過工作、或上一句聊天在問進度 → 附；艾琳開的閒聊話題 → 不算
+  assert.ok(need('嗯嗯', { lastWorkAt: 1e9 - 5 * 60000 }).need && !need('嗯嗯', { lastWorkAt: 1e9 - 15 * 60000 }).need);
+  assert.ok(need('還好啦', { lastChat: { role: 'assistant', content: JSON.stringify({ line: '冒險者，今天的進度怎麼樣了？' }), at: 1e9 - 60000 } }).need);
+  assert.ok(!need('還好啦', { lastChat: { role: 'assistant', content: JSON.stringify({ line: '你最喜歡什麼甜點？' }), at: 1e9 - 60000, topic: '甜點' } }).need);
+  // 引擎：閒聊時提示沒有清單、回覆格式沒有動作欄位；講工作時照舊；llm.log 記附／沒附
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-scope-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, affection: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  let t = new Date(`${new Date().getFullYear()}-09-30T10:00:00`).getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.npc.status.online = true;
+  let sent = null;
+  E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '好喔～', emotion: 'happy', actions: [] }) }, prompt_eval_count: 900 }; };
+  const usr = () => sent.messages.at(-1).content;
+  const lastLog = () => fs.readFileSync(path.join(dir, 'data', 'llm.log'), 'utf8').trim().split('\n').pop();
+  await E.chat('今天天氣好熱');
+  assert.ok(!/【可操作項目】/.test(usr()) && !('actions' in sent.format.properties) && /這次是閒聊，沒有附任務清單/.test(sent.messages[0].content), '閒聊：沒有清單、不能勾選');
+  assert.ok(/【狀態】/.test(usr()) && /沒附清單（閒聊）/.test(lastLog()), lastLog());
+  const short = JSON.stringify(sent.messages).length;
+  t += 15 * 60000;
+  const q = E.plan.quests.find((x) => x.objectives.some((o) => !o.done));
+  const obj = q.objectives.find((o) => !o.done);
+  await E.chat(`${obj.text}做完了`);
+  assert.ok(/【可操作項目】/.test(usr()) && 'actions' in sent.format.properties && /【改進度規則】/.test(sent.messages[0].content), '講工作：附清單、可以勾選');
+  assert.ok(/附清單：/.test(lastLog()), lastLog());
+  assert.ok(JSON.stringify(sent.messages).length > short, '附清單的提示比較長');
+  // 艾琳剛提醒過行程（工作事件）→ 接著回的話就算很短也附
+  t += 15 * 60000;
+  E.lastWorkAt = t - 2 * 60000;
+  await E.chat('嗯嗯');
+  assert.ok(/【可操作項目】/.test(usr()) && /艾琳剛講過工作/.test(lastLog()));
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('閒聊不附清單測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
