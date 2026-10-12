@@ -2401,7 +2401,14 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(OA.regBook({ name: '<阿明>' }).includes('&lt;阿明&gt;') && !OA.regBook({ name: '<阿明>' }).includes('<阿明>'));
   assert.ok(/先空著/.test(OA.regBook({ blank: true })) && /受理/.test(OA.regBook({ blank: true })) && !/受理/.test(OA.regBook({})));
   // 7. 檔案：圖都在、打包會帶上、主視窗收得到 opening:done、開場頁載入三支腳本
-  for (const f of ['forest.jpg', 'guild.jpg', 'fire_tea.jpg', 'kitten_wet.png', 'kitten_cloak.png', 'cloak_empty.png', 'mini_sleep.png', 'mini_startled.png']) {
+  // 去背圖的寬高比要跟 opening-art.js 的 RATIO 一樣（換圖時忘了改會變形）；空斗篷、小鐵杯是 10/12 換上的正式圖
+  const pngSize = (f) => { const b = fs.readFileSync(path.join(root, 'assets', 'opening', f)); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
+  for (const [f, k] of [['kitten_wet.png', 'kitten_wet'], ['kitten_cloak.png', 'kitten_cloak'], ['cloak_empty.png', 'cloak_empty'], ['mini_sleep.png', 'mini_sleep'], ['mini_startled.png', 'mini_startled'], ['tin_tea.png', 'tin'], ['tin_empty.png', 'tin']]) {
+    const [w, h] = pngSize(f);
+    assert.ok(Math.abs(w / h - OA.RATIO[k]) < 0.02, `${f} 的寬高比 ${(w / h).toFixed(3)}，RATIO.${k}＝${OA.RATIO[k].toFixed(3)}`);
+  }
+  assert.ok(/tin_tea\.png/.test(OA.prop('tinWarm')) && /op-steam/.test(OA.prop('tinWarm')) && /tin_empty\.png/.test(OA.prop('tinEmpty')) && !/op-steam/.test(OA.prop('tinEmpty')), '小鐵杯用圖、熱氣用程式畫');
+  for (const f of ['forest.jpg', 'guild.jpg', 'fire_tea.jpg', 'kitten_wet.png', 'kitten_cloak.png', 'cloak_empty.png', 'mini_sleep.png', 'mini_startled.png', 'tin_tea.png', 'tin_empty.png']) {
     assert.ok(fs.statSync(path.join(root, 'assets', 'opening', f)).size > 1000, '開場圖 ' + f);
   }
   const ojs = fs.readFileSync(path.join(root, 'src/renderer/opening.js'), 'utf8');

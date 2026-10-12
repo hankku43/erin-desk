@@ -12,10 +12,13 @@
     ERIN: { s: 0.33, x: 310, y: 11 }, ERIN_RIGHT: { s: 0.33, x: 520, y: 11 }, // 立繪 1093×1200 縮 0.33，腰對齊櫃台
     HOLLOW: { x: 646, y: 372 },                 // 森林：樹洞底部中心
     KITTEN_H: 77, CLOAK_H: 130, CAT_H: 180,     // 縮成一團的小貓 ≈17cm、裹斗篷 ≈29cm、櫃台上的白貓 ≈27cm
+    CLOAK_EMPTY_H: 112,                         // 空斗篷塌了一半：寬度跟裹著小貓時差不多（≈31cm）
+    TIN: { x: 726, y: 390, h: 40 },             // 地上的小鐵杯 ≈9cm（底部中心）
     CAT_X: 480,
   };
   // 去背圖的寬高比（assets/opening/）
-  const RATIO = { kitten_wet: 276 / 360, kitten_cloak: 1, cloak_empty: 1, mini_sleep: 449 / 480, mini_startled: 495 / 480 };
+  const RATIO = { kitten_wet: 276 / 360, kitten_cloak: 1, cloak_empty: 480 / 388, mini_sleep: 449 / 480, mini_startled: 495 / 480, tin: 240 / 183 };
+  const IMG = '../../assets/opening/'; // opening.html 在 src/renderer/
 
   const sparkle = (x, y, r, c = '#ffd66b', o = 1) => `<path transform="translate(${x} ${y})" d="M0,${-r} C${r * .14},${-r * .14} ${r * .14},${-r * .14} ${r},0 C${r * .14},${r * .14} ${r * .14},${r * .14} 0,${r} C${-r * .14},${r * .14} ${-r * .14},${r * .14} ${-r},0 C${-r * .14},${-r * .14} ${-r * .14},${-r * .14} 0,${-r} Z" fill="${c}" opacity="${o}"/>`;
   const drop = (x, y, s) => `<path transform="translate(${x} ${y}) scale(${s})" d="M0,-12 C5,-4 8,0 8,4 A8,8 0 0 1 -8,4 C-8,0 -5,-4 0,-12 Z" fill="#9fd3ff" stroke="#fff" stroke-width="1.6"/>`;
@@ -42,14 +45,14 @@
     <text x="903" y="331" text-anchor="middle" font-size="11" font-weight="800" fill="#fdf1d6">三號</text>
     <text x="903" y="346" text-anchor="middle" font-size="11" font-weight="800" fill="#fdf1d6">櫃台</text>
   </g>`;
-  // 地上的小鐵杯（≈9cm）
-  const tin = ({ steam = false, empty = false } = {}) => `<g transform="translate(726 388) scale(1.4)">
-    <ellipse cx="0" cy="0" rx="20" ry="5" fill="#000" opacity=".3"/>
-    <path d="M-16,-22 L16,-22 L13,-2 Q12,2 8,2 L-8,2 Q-12,2 -13,-2 Z" fill="#9aa3bd" stroke="#4b5270" stroke-width="2"/>
-    <path d="M15,-18 q10,2 8,10 q-2,6 -10,5" fill="none" stroke="#4b5270" stroke-width="2.5"/>
-    <ellipse cx="0" cy="-22" rx="16" ry="4.5" fill="${empty ? '#5d6584' : '#d9b289'}" stroke="#4b5270" stroke-width="2"/>
-    ${steam ? '<g class="op-steam" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".85"><path d="M-6,-30 q-6,-8 0,-16 q6,-8 0,-16"/><path d="M7,-32 q-6,-8 0,-16 q6,-8 0,-14"/></g>' : ''}
-  </g>`;
+  // 地上的小鐵杯（≈9cm）：使用者生的圖（tin_tea／tin_empty，10/12），跟序章的小貓一樣壓暗、褪色；熱氣用程式畫（會動）
+  const tin = ({ steam = false, empty = false } = {}) => {
+    const { x, y, h } = L.TIN, w = Math.round(h * RATIO.tin);
+    const img = `<image href="${IMG}${empty ? 'tin_empty' : 'tin_tea'}.png" x="${x - w / 2}" y="${y - h}" width="${w}" height="${h}" style="filter:brightness(.78) saturate(.7) sepia(.08)"/>`;
+    const shadow = `<ellipse cx="${x + 4}" cy="${y - 1}" rx="${w * 0.42}" ry="4" fill="#000" opacity=".35"/>`;
+    const st = steam ? `<g class="op-steam" transform="translate(${x + 6} ${y - h - 2})" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".85"><path d="M-7,0 q-6,-8 0,-16 q6,-8 0,-16"/><path d="M7,-2 q-6,-8 0,-16 q6,-8 0,-14"/></g>` : '';
+    return shadow + img + st;
+  };
   // 黑暗裡的一雙藍眼睛（小貓的眼距 ≈3cm → 20px，光暈另外放大）
   const eyes = (x = 150, y = 336) => `<defs><radialGradient id="opEg" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#8fd0ff" stop-opacity=".55"/><stop offset="1" stop-color="#8fd0ff" stop-opacity="0"/></radialGradient></defs>
     <g class="op-eyes"><ellipse cx="${x + 10}" cy="${y}" rx="46" ry="26" fill="url(#opEg)"/>
@@ -108,5 +111,5 @@
     }
   }
 
-  return { L, RATIO, BOOK, prop, regBook, sparkle, mug, book, sign3, tin, eyes, esc };
+  return { L, RATIO, IMG, BOOK, prop, regBook, sparkle, mug, book, sign3, tin, eyes, esc };
 }));

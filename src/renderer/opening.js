@@ -52,7 +52,7 @@
   const CATS = {
     kitten: () => catImg('kitten_wet.png', L.HOLLOW.x, L.HOLLOW.y + 2, L.KITTEN_H, A.RATIO.kitten_wet, 'night'),
     cloak: () => catImg('kitten_cloak.png', L.HOLLOW.x, L.HOLLOW.y + 8, L.CLOAK_H, A.RATIO.kitten_cloak, 'night'),
-    cloakEmpty: () => catImg('cloak_empty.png', L.HOLLOW.x, L.HOLLOW.y + 8, L.CLOAK_H, A.RATIO.cloak_empty, 'night'),
+    cloakEmpty: () => catImg('cloak_empty.png', L.HOLLOW.x, L.HOLLOW.y + 8, L.CLOAK_EMPTY_H, A.RATIO.cloak_empty, 'night'),
     catSleep: () => catImg('mini_sleep.png', L.CAT_X, L.ITEM_Y, L.CAT_H, A.RATIO.mini_sleep),
     catStartled: () => catImg('mini_startled.png', L.CAT_X, L.ITEM_Y, L.CAT_H, A.RATIO.mini_startled, 'cat-jump'),
   };
