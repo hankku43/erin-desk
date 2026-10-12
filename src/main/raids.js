@@ -54,14 +54,17 @@ function repeatText(item) {
 
 // 某一段日期內的每一場（計畫檔的＋自己建的），照時間排好
 // planDays：plan.days（每一格 row 有 raid、canceled）；items：state.raids.items
-function occurrences({ planDays = [], items = [], from, to, defaultMinutes = DEFAULTS.defaultMinutes }) {
+// offDay(iso)：calendar.dayInfo。平日／每週重複的遇到國定假日自動跳過（holiday＝假日名稱，可以「恢復」＝keep）；請假那天每一場都靜音（muted，不提醒、不專注）
+function occurrences({ planDays = [], items = [], from, to, defaultMinutes = DEFAULTS.defaultMinutes, offDay = null }) {
   const out = [];
+  const offOf = (iso) => (offDay ? offDay(iso) : null) || {};
   for (const d of planDays) {
     if (d.date < from || d.date > to) continue;
     for (const r of d.rows || []) {
       if (!r.raid) continue;
       const end = r.end || plusMinutes(r.start, defaultMinutes);
-      out.push({ key: `p|${hash(r.a)}|${d.date}|${r.start}`, source: 'plan', rowId: r.id, line: r.line, date: d.date, start: r.start, end, title: r.a, output: r.b || '', canceled: !!r.canceled, repeat: 'once', repeatText: '', done: r.done === true });
+      const off = offOf(d.date);
+      out.push({ key: `p|${hash(r.a)}|${d.date}|${r.start}`, source: 'plan', rowId: r.id, line: r.line, date: d.date, start: r.start, end, title: r.a, output: r.b || '', canceled: !!r.canceled, repeat: 'once', repeatText: '', done: r.done === true, ...(off.kind === 'leave' ? { muted: true, leave: off.name } : {}) });
     }
   }
   for (const it of items) {
@@ -71,7 +74,9 @@ function occurrences({ planDays = [], items = [], from, to, defaultMinutes = DEF
       const start = mv.start || it.start;
       const end = mv.end || it.end || plusMinutes(start, defaultMinutes);
       const title = mv.title || it.title;
-      out.push({ key: `a|${it.id}|${iso}|${start}`, source: 'app', id: it.id, date: iso, start, end, title, output: '', canceled: !!(it.skip || {})[iso], repeat: it.repeat || 'once', repeatText: repeatText(it), moved: !!(it.moved || {})[iso] });
+      const off = offOf(iso);
+      const holiday = off.kind === 'holiday' && (it.repeat === 'weekdays' || it.repeat === 'weekly') && !(it.keep || {})[iso] ? off.name : '';
+      out.push({ key: `a|${it.id}|${iso}|${start}`, source: 'app', id: it.id, date: iso, start, end, title, output: '', canceled: !!(it.skip || {})[iso] || !!holiday, repeat: it.repeat || 'once', repeatText: repeatText(it), moved: !!(it.moved || {})[iso], ...(holiday ? { holiday } : {}), ...(off.kind === 'leave' ? { muted: true, leave: off.name } : {}) });
     }
   }
   return out.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || a.title.localeCompare(b.title));
@@ -83,6 +88,7 @@ function status(o, now) {
   const t = now.getTime();
   if (o.canceled) return 'canceled';
   if (t >= e) return 'past';
+  if (o.muted) return 'leave';
   if (t >= s) return 'now';
   if (s - t <= 60 * 60000) return 'soon';
   return 'later';
@@ -91,7 +97,7 @@ function status(o, now) {
 // 該說哪一句提醒：fired＝這一場已經處理過的提醒（分鐘數）。一次只說最新的那一句，錯過的就算了（晚開程式不會一次倒出來）
 // 回傳 { kind: 'soon'|'start'|null, lead, mins, mark: [要記成已處理的分鐘數] }
 function dueReminder(o, now, { remind = DEFAULTS.remind, fired = [] } = {}) {
-  if (o.canceled) return { kind: null, mark: [] };
+  if (o.canceled || o.muted) return { kind: null, mark: [] }; // 取消的、請假那天的不提醒
   const s = new Date(`${o.date}T${o.start}:00`).getTime(), e = new Date(`${o.date}T${o.end}:00`).getTime();
   const t = now.getTime();
   const leads = [...new Set(remind.map(Number).filter((x) => x >= 0))].sort((a, b) => a - b);
@@ -154,6 +160,7 @@ function prune(st, today) {
   for (const it of st.items) {
     for (const k of Object.keys(it.skip || {})) if (k < old) delete it.skip[k];
     for (const k of Object.keys(it.moved || {})) if (k < old) delete it.moved[k];
+    for (const k of Object.keys(it.keep || {})) if (k < old) delete it.keep[k];
   }
   for (const k of Object.keys(st.fired || {})) { const d = dateOfKey(k); if (!d || d < addDays(today, -1)) delete st.fired[k]; }
   return st;

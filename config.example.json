@@ -64,6 +64,11 @@
     "xp": 15,
     "gold": 3
   },
+  "calendar": {
+    "region": "TW",
+    "holidays": {},
+    "workdays": {}
+  },
   "raids": {
     "enabled": true,
     "remind": [15, 5, 0],

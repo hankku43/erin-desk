@@ -34,6 +34,7 @@ const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 
 const F = require('./fortune'); // 🔮 今日運勢的文案
 const R = require('./raids'); // 📯 團戰（會議）：提醒、自動專注
+const CAL = require('./calendar'); // 📆 週末、台灣國定假日、請假
 const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建的「艾琳」換成現在的名字
 const OS = require('../renderer/opening-script'); // 🎬 開場：名字規則
 
@@ -94,6 +95,7 @@ class Engine {
       journal: { enabled: true }, // 📖 冒險日誌＋週報（labels、keep 見 journal.js DEFAULTS）
       achievements: { enabled: true }, // 🏅 成就徽章牆
       streak: { enabled: true }, // 🔥 連續上工（restDays、base、cap、milestones 見 achievements.js STREAK）
+      calendar: { region: 'TW', holidays: {}, workdays: {} }, // 📆 國定假日（region 'TW'＝台灣人事總處的辦公日曆；其他＝只看週末）、自己加的放假日／上班日 {"2026-10-30": "公司週年"}
       update: { auto: true }, // 🔄 自動檢查更新（打包版才有；updater.js）
       opening: { enabled: true }, // 🎬 第一次打開時演開場「雨夜的小白貓」（false＝直接進新手教學）
       reminders: {
@@ -166,6 +168,7 @@ class Engine {
     if (!this.state.achievements) this.state.achievements = {};
     if (!this.state.streak) this.state.streak = AC.blankStreak();
     if (!this.state.raids) this.state.raids = R.blank();
+    if (!this.state.leave || typeof this.state.leave !== 'object') this.state.leave = {}; // 🌴 自己請假的日子 {日期: 說明}
     if (!this.state.twins) this.state.twins = TW.blank(G.levelInfo(this.state.player.xp, this.config.rewards.levelStep).level); // 舊存檔：從現在的等級開始算，不補道賀
   }
   bootstrapStats() {
@@ -468,6 +471,7 @@ class Engine {
       smart: { on: this.lore.smartOn(), status: this.lore.embedStatus },
       focus: this.focusInfo(),
       raids: this.raidsView(), // 📯 今天起 7 天的團戰
+      calendar: this.calendarView(), // 📆 今天放不放假、接下來的國定假日、請假
       divination: this.divineInfo(),
       fortune: this.fortuneToday(),
       affection: { cold: this.isCold(), fond: this.affOn() && this.affStage() >= 4 }, // 好感度本身不給畫面看；fond＝很熟了（待機會冒 ♡）
@@ -727,7 +731,7 @@ class Engine {
     if (!st.fired || typeof st.fired !== 'object') st.fired = {};
     return st;
   }
-  raidOccurrences(from, to) { return R.occurrences({ planDays: this.plan.days, items: this.raidState().items, from, to, defaultMinutes: this.raidCfg().defaultMinutes }); }
+  raidOccurrences(from, to) { return R.occurrences({ planDays: this.plan.days, items: this.raidState().items, from, to, defaultMinutes: this.raidCfg().defaultMinutes, offDay: (iso) => this.dayOff(iso) }); }
   raidsView() {
     const now = this.now();
     const today = G.todayISO(now);
@@ -836,7 +840,11 @@ class Engine {
   async restoreRaid(key) {
     const o = this.findRaid(key);
     if (o.source === 'plan') { this.requireEditable(); this.writePlan(this.P.setRowCanceled(this.planText, o.line, false)); }
-    else { const it = this.raidItem(o.id); if (it.skip) delete it.skip[o.date]; }
+    else {
+      const it = this.raidItem(o.id);
+      if (it.skip) delete it.skip[o.date];
+      if (o.holiday) it.keep = { ...(it.keep || {}), [o.date]: true }; // 國定假日自動跳過的：這天照開
+    }
     delete this.raidState().fired[o.key]; // 恢復了：提醒重新算
     this.saveState();
     return { lines: [], view: this.view() };
@@ -847,7 +855,7 @@ class Engine {
     if (!f || !f.raid) return;
     const date = f.raid.date;
     const o = this.raidOccurrences(date, date).find((x) => x.key === f.raid.key);
-    if (!o || o.canceled) { this.state.focus = null; return; }
+    if (!o || o.canceled || o.muted) { this.state.focus = null; return; }
     const endAt = new Date(`${o.date}T${o.end}:00`).getTime();
     if (endAt <= this.now().getTime()) { this.state.focus = null; return; }
     Object.assign(f, { endAt, minutes: Math.max(1, Math.round((endAt - f.startAt) / 60000)), raid: { ...f.raid, title: o.title, end: o.end } });
@@ -1298,7 +1306,7 @@ class Engine {
     if (now - since < gap) return null;
     if (lastAt > (this.lastTouch || 0) && now - lastAt < gap * 3) return null; // 上一句還沒人理：先別一直說
     const t = this.todayInfo();
-    if (t.current && !t.current.raid && p.slot !== `${t.date}|${t.current.id || t.current.slot}`) return 'daily'; // 團戰那格有自己的提醒
+    if (t.current && !t.current.raid && !this.dayOff(t.date).off && p.slot !== `${t.date}|${t.current.id || t.current.slot}`) return 'daily'; // 團戰那格有自己的提醒；放假那天不催行程
     return 'topic';
   }
   async proactive(opts = {}) {
@@ -1608,7 +1616,38 @@ class Engine {
 
   // ---- 🔥 連續上工、🏅 成就 ----
   streakOn() { return (this.config.streak || {}).enabled !== false; }
-  streakOpts() { const c = { ...(this.config.streak || {}) }; delete c.enabled; return { ...c, plan: this.plan }; }
+  streakOpts() { const c = { ...(this.config.streak || {}) }; delete c.enabled; return { ...c, plan: this.plan, calendar: this.calOpts() }; }
+
+  // ---- 📆 週末、國定假日、請假 ----
+  calOpts() {
+    const c = { ...CAL.DEFAULTS, ...(this.config.calendar || {}) };
+    return { region: c.region, holidays: c.holidays, workdays: c.workdays, leave: this.state.leave || {} };
+  }
+  dayOff(iso) { return CAL.dayInfo(iso, { ...this.calOpts(), restDays: (this.config.streak || {}).restDays || CAL.DEFAULTS.restDays }); }
+  calendarView() {
+    const today = G.todayISO(this.now());
+    const opts = { ...this.calOpts(), restDays: (this.config.streak || {}).restDays || CAL.DEFAULTS.restDays };
+    return {
+      today: { date: today, ...this.dayOff(today) },
+      upcoming: CAL.upcoming(today, 21, opts), // 三週內的國定假日和請假
+      leave: Object.entries(this.state.leave || {}).filter(([d]) => d >= today).sort(([a], [b]) => a.localeCompare(b)).map(([date, name]) => ({ date, name: name || '請假' })),
+      hasData: CAL.hasData(today, opts.region), // 今年有沒有國定假日資料（沒有＝只看週末）
+    };
+  }
+  // 標記／取消請假：那天連續上工不會斷、平日提醒和團戰都不叫你
+  async setLeave(date, on = true, note = '') {
+    if (!CAL.validISO(date)) throw new Error('日期格式不對');
+    const today = G.todayISO(this.now());
+    if (on && date < today) throw new Error('日期已經過了');
+    const label = date === today ? '今天' : `${+date.slice(5, 7)}/${+date.slice(8, 10)}`;
+    if (on) {
+      this.state.leave = { ...(this.state.leave || {}), [date]: String(note || '').trim().slice(0, 20) || '請假' };
+      if (date === today && this.state.focus && this.state.focus.raid) this.state.focus = null; // 正在團戰中就請假：專注一起關
+    } else if (this.state.leave) delete this.state.leave[date];
+    for (const d of Object.keys(this.state.leave || {})) if (d < R.addDays(today, -60)) delete this.state.leave[d]; // 兩個月前的不留
+    this.saveState();
+    return this.settle({ lines: [this.raidLine(on ? 'leave_set' : 'leave_unset', { when: label, note: (this.state.leave || {})[date] || '' })], view: this.view() });
+  }
   lineOf(key, f, event) { const l = { ...this.npc.template(key, f), event }; delete l.tpl; return l; }
   // 成就要看的數字
   achCtx() {
@@ -1968,8 +2007,8 @@ class Engine {
     const out = [];
     const cfg = this.config.reminders || {};
     const today = G.todayISO(now);
-    const weekday = now.getDay() >= 1 && now.getDay() <= 5;
-    if (Array.isArray(cfg.items) && (!cfg.weekdaysOnly || weekday)) {
+    const off = this.dayOff(today); // 請假那天都不叫；「只在平日」的話週末和國定假日也不叫（補行上班的週末會叫）
+    if (Array.isArray(cfg.items) && off.kind !== 'leave' && (!cfg.weekdaysOnly || !off.off)) {
       this.state.reminded = { [today]: (this.state.reminded || {})[today] || {} }; // 只留今天的紀錄
       const fired = this.state.reminded[today];
       const grace = (Number(cfg.graceMinutes) || 15) * 60000;

@@ -3,7 +3,7 @@
 const $ = (s) => document.querySelector(s);
 const GREET_COOLDOWN = 30 * 60000; // 半小時內再點她，就不重複報告任務，改成閒聊
 const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null, starSeen: {}, flMode: 'auto', flSlotId: null, flFlashUntil: 0, lastActive: null };
-const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename', 'raidForm']);
+const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename', 'raidForm', 'leave']);
 // ✏️ 接待員改名：內建的句子（待機小字、面板台詞、說明小卡）是用「艾琳」寫的，顯示前換成現在的名字（rename.js）
 const npcNameR = () => (state.view && state.view.npc && state.view.npc.name) || '艾琳';
 const nmR = (t) => (typeof Rename !== 'undefined' ? Rename.rename(t, npcNameR()) : t);
@@ -1119,6 +1119,9 @@ function renderPanelInner(el, v) {
   if (state.panel === 'daily') {
     const t = v.today;
     let body = `<p class="day-theme">🗓 <b>${esc(t.label)}</b>${t.theme ? `｜${rich(t.theme)}` : ''}</p>`;
+    const off = v.calendar && v.calendar.today; // 📆 今天放假／請假：上面提醒一下
+    if (off && off.kind === 'leave') body += `<div class="lv-today leave">🌴 今天${esc(off.name)}：不提醒、團戰不吵你<button class="btn small ghost" data-lv-off="${esc(off.date)}">取消請假</button></div>`;
+    else if (off && off.kind === 'holiday') body += `<div class="lv-today holiday">🏖 今天是${esc(off.name)}，放假！連續上工不會斷</div>`;
     const appRaids = ((v.raids && v.raids.list) || []).filter((o) => o.source === 'app' && o.date === t.date); // 📯 自己建的團戰：跟時段排在一起（不用勾，結束時自動算）
     if (!t.rows.length && !appRaids.length) body += '<p class="hint">今天沒有排定的行程。</p>';
     if (t.branch) {
@@ -1145,7 +1148,7 @@ function renderPanelInner(el, v) {
         return `<div class="dec"><span>${d.shown ? '✔' : '⏳'} <b>${rich(d.label)}</b>${d.action ? ` → ${rich(d.action)}` : ''}</span>${del}</div>`;
       }).join('') + '</div>';
     }
-    const tools = `<div class="tabs">${v.editable ? '<button class="tab add" data-new="row" title="加一格時段">＋ 時段</button><button class="tab add" data-new="rem" title="設一個提醒">⏰ 提醒</button><button class="tab add" data-rd-list title="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="tab add" data-new="ics-in" title="把 Google／Outlook 匯出的 .ics 檔加進本週行程">📥 匯入</button>' : ''}<button class="tab add" data-new="ics-out" title="把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入">📤 匯出</button></div>`;
+    const tools = `<div class="tabs">${v.editable ? '<button class="tab add" data-new="row" title="加一格時段">＋ 時段</button><button class="tab add" data-new="rem" title="設一個提醒">⏰ 提醒</button><button class="tab add" data-rd-list title="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="tab add" data-lv-open title="請假、看接下來的國定假日">🌴 請假</button><button class="tab add ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="tab add ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
     el.innerHTML = head('📅 今日行程', '每格 +10 XP', tools) + `<div class="panel-body">${body}</div>`;
   }
 
@@ -1215,6 +1218,7 @@ function renderPanelInner(el, v) {
   if (state.panel === 'shop') renderShop(el, v);
   if (state.panel === 'raids') renderRaids(el, v);
   if (state.panel === 'raidForm') renderRaidForm(el, v);
+  if (state.panel === 'leave') renderLeave(el, v);
   if (state.panel === 'ach') renderAch(el, v);
 
   if (state.panel === 'report') {
@@ -1348,6 +1352,7 @@ async function panelClick(e) {
   if (state.panel === 'journal' && await journalClick(e)) return;
   if (state.panel === 'shop' && await shopClick(e)) return;
   if (['raids', 'raidForm', 'daily'].includes(state.panel) && await raidsClick(e)) return;
+  if (['leave', 'daily'].includes(state.panel) && await leaveClick(e)) return;
   if (state.panel === 'ach' && await achClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }

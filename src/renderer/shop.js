@@ -117,7 +117,7 @@ function renderAch(el) {
   const st = col.streak;
   const got = col.achievements.filter((a) => a.got).length;
   const list = [...col.achievements].sort((a, b) => (b.got ? 1 : 0) - (a.got ? 1 : 0));
-  const body = `<div class="co-streak"><span class="fire">🔥</span><div><b>連續上工 ${st.cur} 天<span class="sp-tag">最長 ${st.best}・共 ${st.days} 天</span></b><small>一天第一次完成事情就算；週末和沒排的日子不會斷</small></div></div>
+  const body = `<div class="co-streak"><span class="fire">🔥</span><div><b>連續上工 ${st.cur} 天<span class="sp-tag">最長 ${st.best}・共 ${st.days} 天</span></b><small>一天第一次完成事情就算；週末、國定假日、請假和計畫沒排的日子不會斷</small></div></div>
     <div class="co-ach">${list.map((a) => `
     <div class="co-a ${a.got ? 'got' : ''} ${a.hidden && !a.got ? 'secret' : ''}"><span class="co-medal">${a.icon}</span>
       <div><b>${esc(a.name)}</b><small>${esc(a.desc)}</small>${a.progress && !a.got ? `<div class="co-progrow"><div class="co-prog"><i style="width:${Math.round((a.progress.n / a.progress.of) * 100)}%"></i></div><span>${a.progress.n}/${a.progress.of}</span></div>` : ''}</div>

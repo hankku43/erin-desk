@@ -5,7 +5,7 @@
   else root.PanelLines = factory();
 }(typeof self !== 'undefined' ? self : this, () => {
   // 面板裡自己有人說話（雙胞胎、健康檢查的小對話），或開了之後艾琳本來就會講話（日誌、小本子、今日行程）：泡泡先收起來
-  const QUIET = new Set(['shop', 'health', 'onboard', 'log', 'journal', 'notebook', 'daily', 'divine', 'questForm', 'rowForm', 'remForm', 'raidForm']);
+  const QUIET = new Set(['shop', 'health', 'onboard', 'log', 'journal', 'notebook', 'daily', 'divine', 'questForm', 'rowForm', 'remForm', 'raidForm', 'leave']);
   const short = (s, n = 14) => { const t = String(s || '').replace(/`/g, ''); return t.length > n ? t.slice(0, n) + '…' : t; };
 
   function board(v) {

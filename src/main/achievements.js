@@ -3,6 +3,8 @@
 // 連續上工：一天第一次完成事情（目標、交付、行程、回報、專注）就「上工打卡」；週末和計畫裡沒排的平日不算斷
 'use strict';
 
+const CAL = require('./calendar');
+
 const ACH = [
   // 委託與目標
   { id: 'obj1', icon: '☑', name: '第一步', desc: '完成第一個目標', gold: 10, test: (c) => c.objectives >= 1 },
@@ -75,10 +77,10 @@ const STREAK = {
 const DAY = 86400000;
 const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 function blankStreak() { return { cur: 0, best: 0, last: '', days: 0 }; }
-// 這一天要不要上工：週末不用；計畫檔有排那一週、平日卻沒排（放假）也不用
-function isRest(iso, { restDays = STREAK.restDays, plan = null } = {}) {
-  const d = new Date(`${iso}T00:00:00`);
-  if (restDays.includes(d.getDay())) return true;
+// 這一天要不要上工：週末、國定假日（含補假）、自己請假不用（calendar.js；補行上班的週末要）；計畫檔有排那一週、平日卻沒排也不用
+// calendar：{ region, holidays, workdays, leave }（engine.calOpts()）
+function isRest(iso, { restDays = STREAK.restDays, plan = null, calendar = null } = {}) {
+  if (CAL.dayInfo(iso, { ...(calendar || {}), restDays }).off) return true;
   if (plan && plan.days && plan.days.length && plan.weekStart && plan.weekEnd && iso >= plan.weekStart && iso <= plan.weekEnd) return !plan.days.some((x) => x.date === iso);
   return false;
 }

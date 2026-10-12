@@ -13,7 +13,9 @@ function rdDayLabel(iso) {
   return iso === today ? `今天 ${md}` : iso === tmr ? `明天 ${md}` : md;
 }
 function rdStatusText(o) {
+  if (o.holiday && o.canceled) return `放假（${o.holiday}）`;
   if (o.status === 'canceled') return '已取消';
+  if (o.status === 'leave') return `你${o.leave || '請假'}，不提醒`;
   if (o.status === 'past') return '已結束';
   if (o.status === 'now') return o.active ? '進行中・專注中' : '進行中';
   const mins = Math.ceil((new Date(`${o.date}T${o.start}:00`).getTime() - Date.parse(state.view.now)) / 60000);
@@ -43,7 +45,7 @@ function renderRaids(el, v) {
         act = o.source === 'app' && o.repeat !== 'once'
           ? `<button class="btn small danger" data-rd-cancel-yes="${esc(o.key)}" data-scope="one">只取消這次</button><button class="btn small danger" data-rd-cancel-yes="${esc(o.key)}" data-scope="all">整個系列刪掉</button><button class="btn small ghost" data-rd-no>不用</button>`
           : `<button class="btn small danger" data-rd-cancel-yes="${esc(o.key)}" data-scope="one">取消這場</button><button class="btn small ghost" data-rd-no>不用</button>`;
-      } else if (o.canceled) act = `<button class="btn small" data-rd-restore="${esc(o.key)}">↺ 恢復</button>`;
+      } else if (o.canceled) act = `<button class="btn small" data-rd-restore="${esc(o.key)}" ${o.holiday ? 'title="國定假日自動跳過；這天還是要開就按這裡"' : ''}>${o.holiday ? '↺ 照開' : '↺ 恢復'}</button>`;
       else if (o.status === 'past') act = '';
       else act = `<button class="btn small" data-rd-edit="${esc(o.key)}">✎ 改時間</button><button class="btn small ghost" data-rd-cancel="${esc(o.key)}">取消</button>`;
       const lock = o.source === 'plan' && !R.planEditable;
@@ -119,6 +121,7 @@ async function raidsClick(e) {
   const t = e.target;
   if (t.closest('[data-rd-new]')) { state.rdRepeat = null; state.rdDays = null; openRaidForm(null, state.panel === 'daily' ? 'daily' : 'raids'); return true; }
   if (t.closest('[data-rd-list]')) { openRaids(); return true; }
+  if (t.closest('[data-lv-open]')) { state.panelBack = state.panel === 'daily' ? 'daily' : null; openPanel('leave'); return true; }
   const ed = t.closest('[data-rd-edit]'); if (ed) { state.rdRepeat = null; state.rdDays = null; openRaidForm(ed.dataset.rdEdit, state.panel === 'daily' ? 'daily' : 'raids'); return true; }
   const sc = t.closest('[data-rd-scope]'); if (sc) { state.rdScope = sc.dataset.rdScope; state.rdRepeat = null; state.rdDays = null; renderPanel(); return true; }
   if (t.closest('[data-rd-save]')) { await saveRaidForm(); return true; }
@@ -169,3 +172,44 @@ api.on('ui:raid', (what) => {
   };
   setTimeout(later, 1200);
 });
+
+
+// ---------- 🌴 請假與國定假日：請假那天不提醒、團戰不吵、連續上工不斷 ----------
+const LV_KINDS = ['特休', '事假', '病假', '補休', '公假', '家庭照顧假'];
+function rdMd(iso) { return `${isoToLabel(iso)}（${RD_WEEK[rdDow(iso)]}）`; }
+function renderLeave(el, v) {
+  const c = v.calendar || { upcoming: [], leave: [], today: {} };
+  const t = c.today || {};
+  const todayLine = t.kind === 'leave' ? `<div class="lv-today leave">🌴 今天${esc(t.name)}：不提醒、團戰不吵你，連續上工不會斷<button class="btn small ghost" data-lv-off="${esc(t.date)}">取消請假</button></div>`
+    : t.kind === 'holiday' ? `<div class="lv-today holiday">🏖 今天是${esc(t.name)}，放假！連續上工不會斷</div>`
+      : t.kind === 'weekend' ? '<div class="lv-today holiday">🏖 今天週末，好好休息～</div>'
+        : `<div class="lv-today">今天是上班日<button class="btn small" data-lv-today>🌴 今天請假</button></div>`;
+  const rows = (c.upcoming || []).map((d) => `<div class="lv-row ${d.kind}"><span class="lv-date">${esc(rdMd(d.date))}</span><span class="lv-name">${d.kind === 'leave' ? '🌴' : '🏖'} ${esc(d.name)}</span>${d.kind === 'leave' ? `<button class="icon-btn del" data-lv-off="${esc(d.date)}" title="取消這天的請假">✕</button>` : '<span class="chip">國定假日</span>'}</div>`).join('');
+  const later = (c.leave || []).filter((d) => !(c.upcoming || []).some((u) => u.date === d.date));
+  const laterRows = later.map((d) => `<div class="lv-row leave"><span class="lv-date">${esc(rdMd(d.date))}</span><span class="lv-name">🌴 ${esc(d.name)}</span><button class="icon-btn del" data-lv-off="${esc(d.date)}" title="取消這天的請假">✕</button></div>`).join('');
+  el.innerHTML = head('🌴 請假與國定假日', '放假的日子連續上工不會斷', '', '國定假日照人事總處的辦公日曆（含補假、補行上班）。公司另外放的假或補班，可以寫在 config.json 的 calendar.holidays／calendar.workdays。') + `<div class="panel-body form">
+      ${todayLine}
+      ${c.hasData === false ? '<p class="hint">⚠ 今年還沒有國定假日資料，先只算週末（新版會補上）</p>' : ''}
+      <div class="field-row">
+        <div class="field">📅 哪一天<input type="date" id="lvDate" value="${todayISO()}" min="${todayISO()}"></div>
+        <div class="field">🏷 假別<input id="lvNote" list="lvKinds" placeholder="特休" maxlength="20"><datalist id="lvKinds">${LV_KINDS.map((k) => `<option value="${k}">`).join('')}</datalist></div>
+      </div>
+      <button class="btn gold lv-add" data-lv-add>🌴 標記請假</button>
+      <div class="lv-list"><b>接下來三週</b>${rows || '<p class="hint">三週內沒有國定假日或請假。</p>'}${laterRows ? `<b>更後面的請假</b>${laterRows}` : ''}</div>
+    </div>`;
+}
+async function leaveClick(e) {
+  const t = e.target;
+  const redraw = () => { if (state.panel === 'leave' || state.panel === 'daily') renderPanel(); }; // 請假面板是表單，畫面更新不會自己重畫
+  if (t.closest('[data-lv-today]')) { await run(() => api.setLeave(todayISO(), true, ''), { thinking: false }); redraw(); return true; }
+  if (t.closest('[data-lv-add]')) {
+    const date = $('#lvDate').value, note = $('#lvNote').value.trim();
+    if (!date) { toast('⚠ 請選日期'); return true; }
+    if (date < todayISO()) { toast('⚠ 日期已經過了'); return true; }
+    const r = await run(() => api.setLeave(date, true, note), { thinking: false });
+    if (r && r.ok) { toast(`🌴 ${date === todayISO() ? '今天' : isoToLabel(date)} 記成${note || '請假'}了`); redraw(); }
+    return true;
+  }
+  const off = t.closest('[data-lv-off]'); if (off) { await run(() => api.setLeave(off.dataset.lvOff, false), { thinking: false }); redraw(); return true; }
+  return false;
+}

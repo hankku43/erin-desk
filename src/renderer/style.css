@@ -1175,3 +1175,19 @@ body.mini #twinsVisit, body.mini .dr-stage { display: none; }
 .row.canceled .slot, .row.canceled .blk { text-decoration: line-through; color: var(--ink-soft); }
 .row.app { cursor: default; }
 .row.app .rd-ico { width: 18px; text-align: center; flex: none; }
+
+/* ---------- 🌴 請假與國定假日 ---------- */
+.lv-today { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-s); font-weight: 700; padding: 7px 10px; margin: 2px 0 8px; border-radius: var(--r-m); border: 2px solid var(--line); background: var(--surface); }
+.lv-today .btn { margin-left: auto; }
+.lv-today.leave { border-color: #9bd8b9; background: var(--green-soft); color: var(--green); }
+.lv-today.holiday { border-color: #f1d08a; background: var(--gold-soft); color: var(--gold-text); }
+.lv-add { align-self: flex-start; margin: 2px 0 8px; }
+.lv-list { display: flex; flex-direction: column; gap: 4px; }
+.lv-list > b { font-size: var(--fs-s); color: var(--ink-soft); margin: 6px 2px 0; }
+.lv-row { display: flex; align-items: center; gap: 10px; padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--surface); font-size: var(--fs-s); }
+.lv-row.leave { background: var(--green-soft); border-color: #9bd8b9; }
+.lv-date { min-width: 76px; font-variant-numeric: tabular-nums; color: var(--ink-soft); font-weight: 700; }
+.lv-name { flex: 1; font-weight: 700; }
+.lv-row .del { opacity: 1; }
+.rd-row.leave { opacity: .75; }
+.tab.add.ico { padding-left: 7px; padding-right: 7px; } /* 今日行程標題列：匯入／匯出只放圖示（滑過有說明） */

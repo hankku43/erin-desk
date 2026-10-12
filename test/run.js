@@ -2704,3 +2704,97 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('團戰測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 📆 週末、國定假日、請假：連續上工不斷、平日提醒不叫、重複團戰跳過 ----------
+(async () => {
+  const os = require('os');
+  const CAL = require('../src/main/calendar');
+  const AC = require('../src/main/achievements');
+  const { Engine } = require('../src/main/engine');
+  // 人事總處辦公日曆：補假、週末的節日、補行上班
+  const k = (d, o) => { const x = CAL.dayInfo(d, o); return `${x.off ? 'off' : 'on'}:${x.kind || ''}:${x.name}`; };
+  assert.strictEqual(k('2026-10-09'), 'off:holiday:國慶日補假');
+  assert.strictEqual(k('2026-10-10'), 'off:holiday:國慶日', '落在週六的節日也叫得出名字');
+  assert.strictEqual(k('2026-10-12'), 'on::');
+  assert.strictEqual(k('2026-10-17'), 'off:weekend:週末');
+  assert.strictEqual(k('2025-02-08'), 'on:work:補行上班', '補行上班的週六要上工');
+  assert.ok(['2026-02-16', '2026-02-20', '2026-05-01', '2026-06-19', '2026-09-25', '2026-09-28', '2026-10-26', '2026-12-25', '2027-02-10', '2027-04-30', '2027-12-31'].every((d) => CAL.isOff(d)), '2026、2027 的假日');
+  for (const y of CAL.YEARS) for (const md of Object.keys(CAL.TW[y].off)) assert.ok(CAL.validISO(`${y}-${md}`), `日期寫錯：${y}-${md}`);
+  assert.strictEqual(k('2026-10-09', { region: 'none' }), 'on::', '不是台灣：只看週末');
+  assert.strictEqual(k('2026-10-30', { holidays: { '2026-10-30': '公司週年' } }), 'off:holiday:公司週年', '自己加的放假日');
+  assert.strictEqual(k('2026-10-09', { workdays: ['2026-10-09'] }), 'on:work:上班日', '自己加的上班日');
+  assert.strictEqual(k('2026-10-13', { leave: { '2026-10-13': '特休' } }), 'off:leave:特休');
+  assert.ok(!CAL.hasData('2031-01-01') && CAL.hasData('2026-05-01'));
+  assert.deepStrictEqual(CAL.upcoming('2026-10-05', 22, { leave: { '2026-10-13': '特休' } }).map((d) => `${d.date.slice(5)} ${d.name}`), ['10-09 國慶日補假', '10-10 國慶日', '10-13 特休', '10-25 光復節', '10-26 光復節補假']);
+  // 連續上工：國慶連假（10/9 五～10/11 日）不斷；請假不斷；補行上班的週六沒上工會斷
+  const st = AC.blankStreak();
+  AC.checkIn(st, '2026-10-08');
+  assert.ok(AC.checkIn(st, '2026-10-12').kept && st.cur === 2, '國慶連假不算斷');
+  assert.ok(!AC.checkIn(AC.blankStreak(), '2026-10-12').kept);
+  const s2 = { ...AC.blankStreak() }; AC.checkIn(s2, '2026-10-12');
+  assert.ok(!AC.checkIn(s2, '2026-10-14').kept, '10/13 沒請假：斷了');
+  const s3 = { ...AC.blankStreak() }; AC.checkIn(s3, '2026-10-12');
+  assert.ok(AC.checkIn(s3, '2026-10-14', { calendar: { leave: { '2026-10-13': '特休' } } }).kept, '10/13 請假：不斷');
+  const s4 = { ...AC.blankStreak() }; AC.checkIn(s4, '2025-02-07');
+  assert.ok(!AC.checkIn(s4, '2025-02-10').kept, '2/8 補行上班沒上工：斷了');
+  assert.strictEqual(AC.current({ cur: 5, best: 5, last: '2026-10-08', days: 5 }, '2026-10-12'), 5, '畫面：連假後還是 5 天');
+
+  // ---- 引擎 ----
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-cal-'));
+  fs.writeFileSync(path.join(dir, 'plan.md'), '# 2026 假日測試週\n\n## 週五 10/9\n- 10:00–11:00 📯 計畫檔裡的會\n\n## 週一 10/12\n- 09:00–10:00 寫報告\n');
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, achievements: { enabled: false }, llm: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { weekdaysOnly: true, items: [{ time: '12:00', event: 'lunch' }] } }));
+  let t = new Date('2026-10-08T09:00:00').getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  const set = (iso, hm) => { t = new Date(`${iso}T${hm}:00`).getTime(); };
+  const ev = (ls) => ls.map((l) => l.event);
+  // 平日提醒：國定假日不叫、平常的平日照叫
+  set('2026-10-09', '12:00'); assert.ok(!ev(await E.tick()).includes('lunch'), '國慶日補假：不提醒午餐');
+  set('2026-10-08', '12:00'); assert.ok(ev(await E.tick()).includes('lunch'), '平常的平日照叫');
+  // 重複的團戰：平日／每週遇到國定假日跳過（可以照開）；計畫檔寫死那天的照樣有
+  await E.addRaid({ title: '每日早會', date: '2026-10-08', start: '09:30', end: '09:45', repeat: 'weekdays' });
+  await E.addRaid({ title: '週五回顧', date: '2026-10-09', start: '16:00', end: '16:30', repeat: 'weekly', days: [5] });
+  await E.addRaid({ title: '天天打卡', date: '2026-10-08', start: '08:55', end: '09:00', repeat: 'daily' });
+  set('2026-10-08', '18:00');
+  let fri = E.raidOccurrences('2026-10-09', '2026-10-09');
+  assert.deepStrictEqual(fri.map((o) => `${o.title}${o.canceled ? `✕${o.holiday || ''}` : ''}`), ['天天打卡', '每日早會✕國慶日補假', '計畫檔裡的會', '週五回顧✕國慶日補假'], '平日／每週遇到國定假日跳過；每天、計畫檔的不跳');
+  E.state.raids.fired = {}; // 前面跳到 10/9 中午測過午餐：時間倒回來，提醒紀錄清掉
+  set('2026-10-09', '09:30'); assert.ok(!ev(await E.tick()).includes('raid_start') && !E.state.focus, '放假跳過的不提醒、不開專注');
+  set('2026-10-09', '09:45'); assert.deepStrictEqual(ev(await E.tick()), ['raid_soon'], '計畫檔寫死那天的照樣提醒');
+  E.state.focus = null;
+  const keep = fri.find((o) => o.title === '週五回顧');
+  await E.restoreRaid(keep.key);
+  assert.ok(!E.raidOccurrences('2026-10-09', '2026-10-09').find((o) => o.title === '週五回顧').canceled, '「照開」之後這天有');
+  assert.ok(E.raidOccurrences('2026-10-16', '2026-10-16').some((o) => o.title === '週五回顧' && !o.canceled), '下週照常');
+  // 請假：那天不提醒、團戰靜音、連續上工不斷；不能請過去的假
+  set('2026-10-12', '08:00');
+  let r = await E.setLeave('2026-10-13', true, '特休');
+  assert.ok(ev(r.lines)[0] === 'leave_set' && /特休/.test(r.lines[0].text) && E.view().calendar.leave[0].date === '2026-10-13');
+  await assert.rejects(E.setLeave('2026-10-01', true), /已經過了/);
+  set('2026-10-13', '09:15'); let ls = await E.tick();
+  assert.ok(!ev(ls).some((e) => /^raid/.test(e)), '請假那天團戰不提醒');
+  set('2026-10-13', '09:30'); ls = await E.tick();
+  assert.ok(!ls.length && !E.state.focus, '請假那天不開團戰專注');
+  assert.strictEqual(E.raidOccurrences('2026-10-13', '2026-10-13').find((o) => o.title === '每日早會').muted, true);
+  set('2026-10-13', '12:00'); assert.ok(!ev(await E.tick()).includes('lunch'), '請假不提醒午餐');
+  assert.strictEqual(E.view().calendar.today.kind, 'leave');
+  // 連續上工：10/8 打卡 → 10/9～10/11 放假、10/12 打卡 → 10/13 請假 → 10/14 打卡，連續 3 天
+  E.state.streak = { cur: 1, best: 1, last: '2026-10-08', days: 1 };
+  set('2026-10-12', '10:00'); assert.strictEqual(AC.checkIn(E.state.streak, '2026-10-12', E.streakOpts()).cur, 2);
+  assert.strictEqual(AC.checkIn(E.state.streak, '2026-10-14', E.streakOpts()).cur, 3, '請假那天不算斷');
+  // 取消請假
+  set('2026-10-13', '08:00');
+  r = await E.setLeave('2026-10-13', false);
+  assert.ok(ev(r.lines)[0] === 'leave_unset' && !E.state.leave['2026-10-13'] && E.view().calendar.today.kind === null);
+  // 正在團戰中請假：專注一起關
+  E.state.raids.fired = {}; set('2026-10-13', '09:30'); await E.tick();
+  assert.ok(E.state.focus && E.state.focus.raid, '團戰開始');
+  await E.setLeave('2026-10-13', true);
+  assert.ok(!E.state.focus, '請假：團戰專注關掉');
+  // 放假那天不主動催行程
+  set('2026-10-09', '10:30');
+  E.config.window.idleChatterMinutes = 1; E.lastTouch = 0; E.state.focus = null;
+  assert.notStrictEqual(E.proactiveDue({ idleSec: 0 }), 'daily', '國定假日不說「現在這格」');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('假日與請假測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

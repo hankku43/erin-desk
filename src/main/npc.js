@@ -364,6 +364,14 @@ const TEMPLATES = {
   raid_cancel_all: [
     ['「{raid}」（{repeat}）整個系列都拿掉了。辛苦它了～', 'normal'],
   ],
+  // 🌴 請假
+  leave_set: [
+    ['🌴 好～{when}請假（{note}），{self}記下來了。那天不叫你、團戰也不吵你，連續上工也不會斷，好好休息！', 'happy'],
+    ['收到，{when}是{note}。{self}幫你把那天的提醒都收起來了，放心去玩吧～', 'happy'],
+  ],
+  leave_unset: [
+    ['{when}的請假取消了，{self}照常幫你看著行程和團戰。', 'normal'],
+  ],
   focus_start: [
     ['好～專注 {minutes} 分鐘，開始！{self}先變回貓咪在旁邊陪你，這段時間不吵你喔。', 'cheer'],
     ['🍅 專注 {minutes} 分鐘，開始計時！{self}縮成貓在旁邊，時間到再叫你～', 'cheer'],

@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('api', {
   raidEdit: (key, f, scope) => ipcRenderer.invoke('raids:edit', key, f, scope),
   raidCancel: (key, scope) => ipcRenderer.invoke('raids:cancel', key, scope),
   raidRestore: (key) => ipcRenderer.invoke('raids:restore', key),
+  setLeave: (date, on, note) => ipcRenderer.invoke('calendar:leave', date, on, note),
   focusPeek: () => ipcRenderer.invoke('focus:peek'),
   drawFortune: () => ipcRenderer.invoke('fortune:draw'),
   divineInfo: () => ipcRenderer.invoke('divine:info'),

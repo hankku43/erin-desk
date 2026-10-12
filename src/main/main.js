@@ -549,6 +549,10 @@ function menuTemplate() {
     ...(engine.config.window.hud === false && !mini ? [{ label: '📊 顯示狀態欄', click: () => { const r = engine.setHud(true); push('view:update', { view: r.view }); } }] : []), // 狀態欄收起來時：第一層就找得到
     { label: '📂 週計畫・團戰', submenu: [
       { label: '📯 團戰（會議）：新增、改時間、取消…', click: open('raids') },
+      engine.dayOff(engine.calendarView().today.date).kind === 'leave'
+        ? { label: '🌴 取消今天的請假', click: menuSafe(() => engine.setLeave(engine.calendarView().today.date, false)) }
+        : { label: '🌴 今天請假（不提醒、連續上工不斷）', click: menuSafe(() => engine.setLeave(engine.calendarView().today.date, true)) },
+      { label: '🌴 請假與國定假日…', click: open('leave') },
       { type: 'separator' },
       { label: '選擇週計畫檔…', click: () => choosePlan() },
       { label: '開啟計畫檔', click: () => shell.openPath(engine.planFile()) },
@@ -765,6 +769,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('raids:edit', raidWrap((key, f, scope) => engine.editRaid(key, f || {}, scope)));
   ipcMain.handle('raids:cancel', raidWrap((key, scope) => engine.cancelRaid(key, scope)));
   ipcMain.handle('raids:restore', raidWrap((key) => engine.restoreRaid(key)));
+  ipcMain.handle('calendar:leave', raidWrap((date, on, note) => engine.setLeave(date, on !== false, note)));
   ipcMain.handle('focus:peek', wrap(() => engine.focusPeek()));
   ipcMain.handle('fortune:draw', wrap(() => engine.drawFortune()));
   ipcMain.handle('divine:info', wrap(() => ({ info: engine.divineInfo() })));
