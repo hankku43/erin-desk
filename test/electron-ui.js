@@ -79,6 +79,17 @@ module.exports = ({ win, engine, app }) => {
       assert(await js(`!document.querySelector('#dialog').classList.contains('hidden') && !document.querySelector('#dialog').classList.contains('compact')`), '關掉面板回到選單');
       assert(!/還差 \d+ 個目標/.test(await js(`document.querySelector('#dlgText').textContent`)), '回到選單時換回她上一句真的說的話');
 
+      // 3b. 今日行程：標題列只有標題，按鈕在下面的工具列；字寬多 15%（Windows 的字比較寬）也不會把按鈕拆成兩行
+      await click('[data-act=daily]'); await wait(600); await flush();
+      assert(await js(`!document.querySelector('#panel .panel-head [data-new]') && document.querySelectorAll('#panel .panel-tools [data-new], #panel .panel-tools [data-rd-list], #panel .panel-tools [data-lv-open]').length >= 5`), '按鈕都在工具列');
+      const wide = await wc.insertCSS('.panel-head *, .panel-tools * { letter-spacing: .15em !important; }');
+      await wait(200);
+      const hd = await js(`(() => { const h = document.querySelector('#panel .panel-head'); const bs = [...document.querySelectorAll('#panel .panel-head button, #panel .panel-tools button, #panel .panel-head h2')]; return { h: h.getBoundingClientRect().height, tall: bs.filter((b) => b.getBoundingClientRect().height > 36).map((b) => b.textContent.trim()) }; })()`);
+      assert(hd.h < 46 && !hd.tall.length, '標題列一行、按鈕不拆兩行：' + JSON.stringify(hd));
+      await wc.removeInsertedCSS(wide);
+      await shot('u03b_daily');
+      await home();
+
       // 4. 雜貨舖：雙胞胎說話時艾琳不出聲；只剩三個分頁；星座卡拿到的大張、沒拿到的小張
       await click('[data-act=shop]'); await wait(900);
       assert(await js(`document.querySelector('#dialog').classList.contains('hidden')`), '雜貨舖：泡泡收起來');

@@ -1191,3 +1191,16 @@ body.mini #twinsVisit, body.mini .dr-stage { display: none; }
 .lv-row .del { opacity: 1; }
 .rd-row.leave { opacity: .75; }
 .tab.add.ico { padding-left: 7px; padding-right: 7px; } /* 今日行程標題列：匯入／匯出只放圖示（滑過有說明） */
+
+/* ---------- 10/12 標題列不換行：標題、分頁鈕永遠一行；放不下時先把副標題縮成「…」 ---------- */
+.panel-head { min-width: 0; }
+.panel-head h2 { white-space: nowrap; flex: none; }
+.panel-head .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.panel-head .tabs { flex: none; }
+.tab, .btn { white-space: nowrap; }
+/* 面板的工具列：標題列下面一列（不跟著內容捲動）；放不下就整顆換到下一行，不會把按鈕裡的字拆開 */
+.panel-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 7px 12px; background: var(--paper-2); border-bottom: 1px solid var(--line); flex: none; }
+.panel-tools .spacer { flex: 1; }
+.panel-tools .tool-sep { width: 1px; align-self: stretch; margin: 3px 2px; background: var(--line); }
+.panel-tools .btn.small { box-shadow: 0 1px 0 var(--navy-2); }
+.panel-tools .btn.ico { min-width: 34px; padding: 3px 6px; font-size: var(--fs-m); }

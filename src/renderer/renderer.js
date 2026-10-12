@@ -1148,8 +1148,9 @@ function renderPanelInner(el, v) {
         return `<div class="dec"><span>${d.shown ? '✔' : '⏳'} <b>${rich(d.label)}</b>${d.action ? ` → ${rich(d.action)}` : ''}</span>${del}</div>`;
       }).join('') + '</div>';
     }
-    const tools = `<div class="tabs">${v.editable ? '<button class="tab add" data-new="row" title="加一格時段">＋ 時段</button><button class="tab add" data-new="rem" title="設一個提醒">⏰ 提醒</button><button class="tab add" data-rd-list title="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="tab add" data-lv-open title="請假、看接下來的國定假日">🌴 請假</button><button class="tab add ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="tab add ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
-    el.innerHTML = head('📅 今日行程', '每格 +10 XP', tools) + `<div class="panel-body">${body}</div>`;
+    // 標題列只放標題；新增、團戰、請假、匯入匯出放到下面一列工具列（以前全部擠在標題列，Windows 的字比較寬，按鈕會斷成兩行）
+    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><span class="tool-sep" aria-hidden="true"></span><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="btn small tool" data-lv-open data-tip="請假、看接下來的國定假日">🌴 請假</button>` : ''}<span class="spacer"></span>${v.editable ? '<button class="btn small tool ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="btn small tool ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
+    el.innerHTML = head('📅 今日行程', '', '', '勾完一格 +10 XP。時段是那一天要做的事、提醒是到時候來叫你；團戰（會議）開始時會自動專注；📥📤 可以跟 Google／Outlook 行事曆互通（.ics 檔）') + tools + `<div class="panel-body">${body}</div>`;
   }
 
   if (state.panel === 'questForm') {
