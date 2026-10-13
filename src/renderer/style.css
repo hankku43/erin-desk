@@ -255,7 +255,9 @@ body.panel-open #panel { flex: 1 1 auto; }
   box-shadow: var(--shadow), inset 0 0 0 1px rgba(255, 214, 120, .35); border: 2px solid rgba(240, 178, 58, .75);
 }
 .hud-top { display: flex; align-items: center; gap: 5px; cursor: pointer; }
-.lv { font-weight: 900; font-size: var(--fs-xl); color: var(--hi); text-shadow: 0 1px 0 var(--gold-text); }
+.lv { font-weight: 900; font-size: var(--fs-xl); color: var(--hi); text-shadow: 0 1px 0 var(--gold-text); cursor: pointer; border-radius: var(--r-s); padding: 0 3px; }
+.lv:hover { background: rgba(255, 255, 255, .14); }
+.xpbar { cursor: pointer; }
 .title { font-size: var(--fs-xs); opacity: .9; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gold { font-size: var(--fs-m); font-weight: 800; color: #ffe08c; }
 /* 金幣圖示（取代 emoji：Windows 10 沒有 Emoji 13 的金幣，會變成方塊）。大小跟著字，放在數字前面 */
@@ -824,6 +826,12 @@ body[data-theme="frost"] { --navy: #4a6a92; --navy-2: #34506f; --frame: #6c8fb8;
 /* ---------- 🔥 連續上工（狀態欄） ---------- */
 .streak { font-size: var(--fs-xs); font-weight: 800; color: #ffb38a; background: rgba(255, 120, 60, .2); border-radius: var(--r-s); padding: 0 5px; line-height: 18px; white-space: nowrap; cursor: pointer; }
 .streak:hover { background: rgba(255, 120, 60, .38); }
+/* ✏️ 筆記本還有沒寫進計畫檔的：狀態欄小標（有才出現）、首頁 📓 筆記本右上角的小數字 */
+.draft-tag { font-size: var(--fs-xs); font-weight: 800; color: #ffe9a8; background: rgba(240, 178, 58, .28); border-radius: var(--r-s); padding: 0 5px; line-height: 18px; white-space: nowrap; cursor: pointer; }
+.draft-tag:hover { background: rgba(240, 178, 58, .5); }
+.choices .btn { position: relative; }
+.pd-badge { position: absolute; top: -8px; right: -4px; font-size: var(--fs-xs); font-weight: 800; line-height: 16px; padding: 0 5px; border-radius: 9px; background: var(--gold); color: var(--gold-ink); border: 1.5px solid var(--gold-deep); box-shadow: 0 1px 2px rgba(0, 0, 0, .2); pointer-events: none; }
+.choices .btn.has-draft { border-color: var(--gold-deep); }
 .gold { cursor: pointer; border-radius: var(--r-s); padding: 0 3px; }
 .gold:hover { background: rgba(255, 214, 120, .2); }
 
@@ -902,6 +910,14 @@ body.mini #decor, #npcWrap.transforming #decor, #npcWrap.shrinking #decor { disp
 @keyframes spFlip { 0% { opacity: 0; transform: perspective(400px) rotateY(90deg) translateY(6px); } 100% { opacity: 1; transform: none; } }
 
 /* ---------- 🏅 成就、星座圖鑑（在雜貨舖的分頁裡） ---------- */
+/* 10/13 N：成就面板最上面先放等級、稱號、經驗值（狀態欄的 Lv、稱號列點進來就是看這個） */
+.co-level { display: flex; align-items: center; gap: 10px; padding: 6px 10px; margin-bottom: 6px; border-radius: var(--r-m); background: linear-gradient(135deg, var(--hud-1), var(--hud-2)); color: #fff; border: 1px solid rgba(240, 178, 58, .6); }
+.co-level > div { flex: 1; min-width: 0; }
+.co-level .co-lv { font-size: var(--fs-xl); font-weight: 900; color: var(--hi); text-shadow: 0 1px 0 var(--gold-text); white-space: nowrap; }
+.co-level b { font-size: var(--fs-m); }
+.co-level small { font-size: var(--fs-xs); opacity: .9; }
+.co-level .co-xp { height: 8px; margin: 3px 0 2px; border-radius: 4px; background: rgba(0, 0, 0, .35); overflow: hidden; }
+.co-level .co-xp i { display: block; height: 100%; background: linear-gradient(90deg, #7ee0ff, #4fa8ff); }
 .co-streak { display: flex; align-items: center; gap: 10px; padding: 6px 10px; margin-bottom: 8px; border-radius: var(--r-m); background: linear-gradient(135deg, #fff1e6, #ffe0cc); border: 1px solid #f3b48c; }
 .co-streak > div { flex: 1; min-width: 0; }
 .co-streak .fire { font-size: 22px; }
@@ -963,12 +979,23 @@ body.mini #tip { display: none !important; }
 .choices .more button span { font-size: 20px; line-height: 1.15; }
 .choices .more button:hover { background: var(--gold-soft); color: var(--ink); transform: translateY(-1px); }
 .choices .more button:active { transform: translateY(1px); }
+.choices .more button.on { background: var(--gold-soft); color: var(--ink); }
+/* 10/13 G：魔法、回憶的子選項在原位展開成一列小卡（不另開一層面板） */
+.choices .sub-row { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 2px; animation: pop .18s ease-out; }
+.choices .sub-row[data-kind="magic"] { grid-template-columns: repeat(2, 1fr); }
+.choices .sub-btn { display: flex; align-items: center; gap: 8px; text-align: left; padding: 5px 8px; min-height: 0; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); border-radius: var(--r-m); box-shadow: 0 1px 0 rgba(0, 0, 0, .06); font: inherit; transition: border-color .15s, background .15s, transform .08s; }
+.choices .sub-btn:hover { border-color: var(--gold); background: var(--gold-wash); transform: translateY(-1px); }
+.choices .sub-btn:active { transform: translateY(1px); }
+.choices .sub-btn .sb-ico { font-size: 20px; flex: none; }
+.choices .sub-btn .sb-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.choices .sub-btn b { font-size: var(--fs-s); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.choices .sub-btn small { font-size: var(--fs-xs); color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 狀態欄：圖示列不換行；稱號在經驗條上；縮小／收起是滑過才出現的右上角小圓鈕 */
 .hud-top { flex-wrap: nowrap; white-space: nowrap; min-width: 0; }
 .hud-top .gold { margin-right: auto; }
 .lv { font-size: var(--fs-xl); line-height: 1.1; cursor: default; }
-#hud.focusing .fortune-tag { display: none; } /* 專注倒數比較寬：運勢先收起來 */
+#hud.focusing .fortune-tag, #hud.focusing .draft-tag { display: none; } /* 專注倒數比較寬：運勢、✏️ 先收起來 */
 .hud-corner { position: absolute; top: -11px; right: -9px; display: flex; gap: 4px; opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; pointer-events: none; }
 #hud:hover .hud-corner, .hud-corner:focus-within { opacity: 1; transform: none; pointer-events: auto; }
 .hud-corner .hud-mini { width: 24px; height: 24px; border-radius: 50%; background: var(--hud-2); border: 1.5px solid rgba(240, 178, 58, .75); box-shadow: 0 2px 6px rgba(0, 0, 0, .35); font-size: var(--fs-xs); line-height: 20px; }
@@ -1059,6 +1086,19 @@ body.mini #tip { display: none !important; }
 .st-say b { color: #b9783f; font-size: var(--fs-s); }
 .st-say span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .st-say.fresh { animation: pop .22s ease-out; }
+/* 10/13 L：換過分頁後招牌縮成一行（小頭像＋名字＋一句話），清單多出一截 */
+.sp-stall.compact { height: 46px; margin-bottom: 6px; }
+.sp-stall.compact::before { height: 8px; background-size: 16px 8px; }
+.sp-stall.compact .st-busts { width: 78px; }
+.sp-stall.compact .st-busts .tw-bust { height: 70px; bottom: -16px; }
+.sp-stall.compact .st-busts .tw-bust.on { left: 20px; }
+.sp-stall.compact .st-busts .tw-bust.back { left: -14px; }
+.sp-stall.compact .st-counter { height: 8px; border-top-width: 1.5px; }
+.sp-stall.compact .st-say { left: 88px; right: 8px; top: 7px; bottom: 11px; flex-direction: row; align-items: center; gap: 8px; padding: 2px 10px; font-size: var(--fs-s); border-radius: 10px; }
+.sp-stall.compact .st-say b { white-space: nowrap; font-size: var(--fs-xs); }
+.sp-stall.compact .st-say span { -webkit-line-clamp: 1; min-width: 0; }
+.sp-stall.compact .st-say::before { margin-top: -6px; border-width: 6px; border-right-width: 8px; }
+.sp-stall.compact .st-say::after { margin-top: -5px; border-width: 5px; border-right-width: 6px; }
 
 /* 🔖 許願單：留著的東西還差多少；每一列價錢按鈕旁的書籤 */
 .sp-wishes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 8px; font-size: var(--fs-s); color: var(--ink-soft); }

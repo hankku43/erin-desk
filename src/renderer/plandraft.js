@@ -73,16 +73,20 @@ function render() {
   $('#ttl').textContent = `${S.name}的筆記本`;
   $('#ttlSub').textContent = time ? '時刻簿' : '委託簿';
   $('#ttlIco').textContent = time ? '🕘' : '📓';
-  $('#weeks').innerHTML = (d.weeks || []).map((w) => `<button role="tab" class="${w.start === d.week.start ? 'on' : ''}" data-week="${w.which}" data-tip="${esc(`${w.name}（${w.label}）${w.changes ? `：${w.changes} 處還沒寫進計畫檔` : ''}`)}">${esc(w.name)}<small>${esc(w.label)}</small>${w.changes && w.start !== d.week.start ? `<span class="dot">${w.changes}</span>` : ''}</button>`).join('');
-  $('#sum').textContent = `${d.summary}${d.pending ? `・${S.name}還在整理 ${d.pending} 句` : ''}`;
+  // 摘要（幾個委託、幾格行程）放在這週那顆分頁的說明小卡裡，頂欄就不擠（10/13 H）
+  const sum = `${d.summary}${d.pending ? `・${S.name}還在整理 ${d.pending} 句` : ''}`;
+  $('#weeks').innerHTML = (d.weeks || []).map((w) => `<button role="tab" class="${w.start === d.week.start ? 'on' : ''}" data-week="${w.which}" data-tip="${esc(`${w.name}（${w.label}）${w.start === d.week.start ? `：${sum}` : ''}${w.changes ? `・${w.changes} 處還沒寫進計畫檔` : ''}`)}">${esc(w.name)}<small>${esc(w.label)}</small>${w.changes && w.start !== d.week.start ? `<span class="dot">${w.changes}</span>` : ''}</button>`).join('');
   $('#changes').textContent = d.changes ? `✏️ ${d.changes} 處還沒寫進計畫檔` : '';
+  $('#changes').dataset.tip = '鉛筆的（新加、改過、劃掉的）都還只是草稿，櫃台的週任務板、今日行程看不到；按「✔ 寫進計畫檔」才算數。勾步驟、勾時段、交付不用等，已經寫進去了';
   $('#changes').classList.toggle('hidden', !d.changes);
   $('#bUndo').disabled = !d.canUndo;
   $('#bCommit').disabled = !d.changes;
   $('#bCommit').dataset.tip = d.target ? (d.target.kind === 'new' ? `這一週還沒有計畫檔：寫的時候選要存在哪裡（建議 ${d.target.dir}\\${d.target.name}）` : `寫進「${d.target.name}」（寫之前會先備份）`) : '';
   $('#pageQuests').classList.toggle('hidden', time);
   $('#pageTime').classList.toggle('hidden', !time);
-  $('#sayInput').placeholder = time ? `跟${S.name}說時段（例：週二下午兩點到三點開會／週三 9:00–10:00 回信／提醒我週四四點打給廠商）` : `跟${S.name}說要加什麼、改什麼…（例：週五前寫完週報／這個任務的步驟有先 A 再 B／把週會移到週四）`;
+  // 提示短一點（10/13 M）；完整的例子滑過輸入框就看得到
+  $('#sayInput').placeholder = time ? `跟${S.name}說時段，例：週二下午兩點到三點開會` : `跟${S.name}說要加什麼、改什麼，例：週五前寫完週報`;
+  $('#sayInput').dataset.tip = time ? '可以這樣說：週二下午兩點到三點開會／週三 9:00–10:00 回信／提醒我週四四點打給廠商／週三、週四出差（整段貼上也可以）' : '可以這樣說：週五前寫完週報／這個任務的步驟有先 A 再 B／把週會移到週四／整理月報：收齊數字、寫摘要（整段貼上也可以）';
   renderTabs(); renderWarns(); renderUnsure();
   if (time) renderTime(); else renderQuests();
   renderLog(); renderConfirm();
@@ -100,9 +104,22 @@ function renderTabs() {
   });
 }
 function renderWarns() {
-  const lines = S.d.checks.map((c) => `<div>${esc(c.text)}</div>`);
+  const lines = S.d.checks.map((c, i) => `<button type="button" data-warn="${i}" data-tip="點一下翻到那一格">${esc(c.text)}</button>`);
   $('#warns').innerHTML = lines.join('');
   $('#warns').classList.toggle('hidden', !lines.length);
+}
+// 紅筆警告點一下：翻到那一本（時段→時刻簿那天、委託→委託簿），亮一下、捲到看得到的地方
+function jumpTo(ids) {
+  const items = (ids || []).map((id) => ({ id, it: findIt(id) })).filter((x) => x.it);
+  if (!items.length) return;
+  const row = items.find((x) => S.d.rows.includes(x.it) || S.d.reminders.includes(x.it));
+  const target = row || items[0];
+  const toTime = !!row;
+  const day = toTime && target.it.date && S.d.days.some((x) => x.date === target.it.date) ? target.it.date : undefined;
+  S.hl = new Set(items.map((x) => x.id)); clearTimeout(S.hlT); S.hlT = setTimeout(() => { S.hl = new Set(); render(); }, 4000);
+  setBook(toTime ? 'time' : 'quests', toTime && S.day !== 'week' ? day : undefined);
+  const el = document.querySelector(`.pop:not(.hidden) .hl, #main .hl`);
+  if (el) el.scrollIntoView({ block: 'center', inline: 'nearest' });
 }
 function renderUnsure() {
   const d = S.d;
@@ -130,7 +147,7 @@ function stickyHtml(q, i) {
   const can = d.canPlay && q.key && q.st !== 'del' && !(q.play && q.play.status === 'done');
   const steps = q.steps.map((s) => {
     const fresh = s.done === undefined; // 這次才加的步驟：寫進去之後才能勾
-    const box = can && !fresh ? `<span class="box can" data-check="${esc(q.id)}" data-step="${esc(s.text)}" data-done="${s.done ? 1 : 0}" data-tip="${s.done ? '取消勾選' : '做完了'}">${s.done ? '✓' : ''}</span>` : `<span class="box">${s.done ? '✓' : ''}</span>`;
+    const box = can && !fresh ? `<span class="box can" data-check="${esc(q.id)}" data-step="${esc(s.text)}" data-done="${s.done ? 1 : 0}" data-tip="${s.done ? '取消勾選（立刻寫回計畫檔）' : '做完了（立刻寫進計畫檔、給獎勵）'}">${s.done ? '✓' : ''}</span>` : `<span class="box">${s.done ? '✓' : ''}</span>`;
     return `<li class="${s.done ? 'done' : ''}${fresh && q.key ? ' new' : ''}">${box}<span>${esc(s.text)}</span></li>`;
   }).join('');
   const self = q.implicit && can ? `<ul><li class="${q.doneSelf ? 'done' : ''}"><span class="box can" data-check="${esc(q.id)}" data-step="${esc(q.title)}" data-done="${q.doneSelf ? 1 : 0}">${q.doneSelf ? '✓' : ''}</span><span>做完了</span></li></ul>` : '';
@@ -194,7 +211,7 @@ function blockHtml(r, { ppm, lo, compact = false, ext = false }) {
   if (ext) return `<div class="blk ext raid" style="${pos}" data-tip="${esc(`📯 ${r.start}–${r.end} ${r.title}（自己建的團戰：在今日行程的「📯 團戰」改）`)}"><div class="bx">📯 ${esc(r.title)}</div>${compact ? '' : `<div class="tm">${esc(r.start)}–${esc(r.end)}</div>`}</div>`;
   const L = r.link;
   const can = S.d.canPlay && r.st !== 'new' && r.st !== 'del' && !r.canceled;
-  const box = can ? `<span class="rbox can" data-rowdone="${esc(r.id)}" data-done="${r.done ? 1 : 0}" data-tip="${r.done ? '取消勾選' : L && L.hasStep && !L.stepDone ? `做完了（「${L.quest}」的「${L.step}」也會一起勾）` : '做完了'}">${r.done ? '✓' : ''}</span>` : '';
+  const box = can ? `<span class="rbox can" data-rowdone="${esc(r.id)}" data-done="${r.done ? 1 : 0}" data-tip="${r.done ? '取消勾選（立刻寫回計畫檔）' : L && L.hasStep && !L.stepDone ? `做完了（立刻寫進計畫檔；「${L.quest}」的「${L.step}」也會一起勾）` : '做完了（立刻寫進計畫檔、給獎勵）'}">${r.done ? '✓' : ''}</span>` : '';
   const main = L ? (L.step || L.quest) : r.title;
   const sub = L ? `<div class="bq">📜 ${esc(L.quest)}${L.stepDone ? ' <i class="ok">✓</i>' : ''}</div>` : '';
   const w0 = r.st === 'dirty' && r.was ? [r.was.date !== r.date ? dayLabel(r.was.date) : '', r.was.start !== r.start ? r.was.start : '', r.was.title !== r.title ? `「${r.was.title}」` : ''].filter(Boolean).join(' ') : '';
@@ -581,6 +598,7 @@ document.addEventListener('click', async (e) => {
     return;
   }
   const bk = t.closest('#tabs [data-book]'); if (bk) { setBook(bk.dataset.book); return; }
+  const wn = t.closest('[data-warn]'); if (wn) { const c = S.d.checks[Number(wn.dataset.warn)]; if (c) jumpTo(c.ids); return; }
   const mo = t.closest('[data-more]'); if (mo) { const [date, g] = mo.dataset.more.split('|'); openPop({ kind: 'more', date, g }); return; }
   if (t.closest('#bMore')) { S.menu = !S.menu; $('#moreMenu').classList.toggle('hidden', !S.menu); return; }
   if (t.closest('[data-font]')) { S.menu = false; $('#moreMenu').classList.add('hidden'); const on = S.d.handFont === false; const r = await act(() => window.pd.setFont(on)); if (r) { S.d.handFont = on; render(); say(on ? '換成手寫的字了～' : '換回一般的字。', 'normal'); } return; }

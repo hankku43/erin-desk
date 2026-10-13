@@ -38,14 +38,17 @@
           <button data-act="journal" data-tip="冒險日誌與工作週報"><span>📖</span>日誌</button>
           <button data-act="shop" data-tip="雲朵雜貨舖：買禮物、裝飾、抽星座卡"><span>🛒</span>雜貨舖</button>
         </div>
+        <!-- ✨ 魔法、📒 回憶：點了在原位展開子選項（不另開一層面板） -->
+        <div class="sub-row hidden" id="subRow" role="group"></div>
       </div>
     </section>
   </div>
 
   <div id="hud" data-hit>
     <div class="hud-top" id="hudTop">
-      <span class="lv" id="lv">Lv.1</span>
+      <span class="lv" id="lv" role="button" tabindex="0">Lv.1</span>
       <span class="streak hidden" id="hudStreak" data-tip="連續上工">🔥0</span>
+      <span class="draft-tag hidden" id="hudDraft" role="button" data-tip="筆記本裡有改好還沒寫進計畫檔的">✏️0</span>
       <span class="fortune-tag" id="fortuneTag" data-tip="今日運勢">🔮</span>
       <span class="gold" id="gold" data-tip="金幣"><i class="coin" aria-hidden="true"></i>0</span>
       <button class="hud-btn hud-focus" id="hudFocus" data-tip="專注 25 分鐘">🍅</button>
@@ -55,7 +58,7 @@
       <button class="hud-mini" id="hudMini" data-tip="縮小化：變回貓咪" aria-label="縮小化">▁</button>
       <button class="hud-mini hud-hide" id="hudHide" data-tip="收起狀態欄，只留艾琳（右鍵 →「📊 顯示狀態欄」再打開）" aria-label="收起狀態欄">✕</button>
     </div>
-    <div class="xpbar"><div class="xpfill" id="xpfill"></div><span class="xp-label"><b id="ptitle">見習冒險者</b><i id="xptext">0 / 120 XP</i></span></div>
+    <div class="xpbar" data-tip="稱號和經驗值・點一下看成就"><div class="xpfill" id="xpfill"></div><span class="xp-label"><b id="ptitle">見習冒險者</b><i id="xptext">0 / 120 XP</i></span></div>
     <div class="tracker" id="tracker"></div>
   </div>
   <!-- 滑過焦點行時的細項小卡（不擋滑鼠） -->

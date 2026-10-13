@@ -38,7 +38,10 @@ module.exports = ({ win, engine, pdWin, pdOpen }) => {
       const yOf = (hhmm) => js(`(()=>{ const ln=document.querySelector('.lanes'); const [h,m]=${JSON.stringify(hhmm)}.split(':').map(Number); return ln.getBoundingClientRect().top + ((h*60+m) - 8*60) * 1.25; })()`);
       const center = (sel) => js(`(()=>{ const r=document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return [r.left + r.width/2, r.top + r.height/2]; })()`);
       // 1. 手寫字型
-      assert((await js(`document.body.classList.contains('hand')`)) && (await js(`document.fonts.ready.then(() => document.fonts.check('16px Iansui', '委託簿時刻簿'))`)), '手寫字型載入');
+      assert((await js(`document.body.classList.contains('hand')`)) && (await js(`document.fonts.ready.then(() => document.fonts.check('16px Iansui', '時刻簿'))`)), '手寫字型載入（字型分段：只檢查畫面上有的字）');
+      // 10/13 M：手寫體只用在大字（書名、便利貼標題…），小字用一般字型；說話框的提示短一點、例子在說明小卡
+      assert(/Iansui/.test(await js(`getComputedStyle(document.querySelector('.ttl b')).fontFamily`)) && !/Iansui/.test(await js(`getComputedStyle(document.querySelector('.tray-h small')).fontFamily`)) && !/Iansui/.test(await js(`getComputedStyle(document.querySelector('#sayInput')).fontFamily`)), '手寫只用在大字');
+      assert((await js(`document.querySelector('#sayInput').placeholder.length`)) <= 24 && /週三 9:00/.test(await js(`document.querySelector('#sayInput').dataset.tip`)), '提示短、例子在小卡');
       assert((await js(`document.querySelector('#book').dataset.book`)) === 'time' && /二/.test(await text('#dayTabs .on')), '時刻簿・週二');
       assert(/寫完週報/.test(await text('.tray')) && /寫初稿/.test(await text('.tray .ts')), '右邊委託匣：委託＋還沒做的步驟');
       await shot('tb01_open', bw);
@@ -97,6 +100,7 @@ module.exports = ({ win, engine, pdWin, pdOpen }) => {
       assert(view().themes['2026-10-14'] === '出差' && view().themes['2026-10-15'] === '出差', '週三、週四出差：兩天都記');
       // 10. 一週總覽：委託匣也在、拖進週五
       await js(`document.querySelector('#bWeekView').click(); 0`); await wait(500);
+      await js(`document.querySelector('#timeArea').scrollTop = 0; 0`); await wait(200); // 先捲到最上面再量座標（10/13：版面高度變了，剛好捲得動）
       const fri = await js(`(()=>{ const ln=document.querySelector('.lanes[data-lanes="2026-10-16"]'); const r=ln.getBoundingClientRect(); return [r.left + r.width/2, r.top + (11*60 - 8*60) * 0.8 + 4]; })()`);
       await js(`document.querySelector('#timeArea').scrollTop = 0; 0`); await wait(200);
       const ts = await center('.ts[data-step]');
@@ -111,6 +115,16 @@ module.exports = ({ win, engine, pdWin, pdOpen }) => {
       await js(`document.querySelector('#bMore').click(); 0`); await wait(150);
       await js(`document.querySelector('[data-font]').click(); 0`); await wait(400);
       assert(await js(`document.body.classList.contains('hand')`), '再打開');
+      // 11b. 10/13 H：紅筆警告可以點 → 翻到那天、那格亮起來；摘要在「這週」分頁的說明小卡裡、頂欄沒有摘要字
+      engine.addRaid({ title: '評審會', date: '2026-10-15', start: '15:00', end: '16:00' }); // 跟搬到週四 15:00 的「寫初稿」撞
+      bw.webContents.send('pd:update', { planDraft: engine.pdView() }); await wait(400);
+      assert(/撞時間/.test(await text('#warns')) && (await js(`document.querySelectorAll('#warns button[data-warn]').length`)) >= 1, '紅筆警告是按鈕：' + await text('#warns'));
+      await js(`document.querySelector('#dayTabs [data-day="2026-10-13"]').click(); 0`); await wait(300);
+      await js(`document.querySelector('#warns button[data-warn]').click(); 0`); await wait(500);
+      assert((await js(`document.querySelector('#book').dataset.book`)) === 'time' && /四/.test(await text('#dayTabs .on')) && (await js(`!!document.querySelector('.lanes .blk.hl')`)), '點紅字：翻到週四、那格亮起來');
+      assert(await js(`!document.querySelector('#sum') && /個委託/.test(document.querySelector('#weeks .on').dataset.tip)`), '摘要進了分頁的說明小卡');
+      assert(await js(`[...document.querySelectorAll('.ph .hint')].length === 0 && document.querySelectorAll('h2 .info[data-tip]').length === 2`), '頁首說明收進 ⓘ');
+      await shot('tb07b_warn_jump', bw);
       // 12. 10/13 主視窗藏著的時候，艾琳的提醒也送到筆記本：泡泡＋上面的提醒條；團戰開始 → 倒數
       const noticeOn = () => js(`!document.querySelector('#notice').classList.contains('hidden')`);
       assert(!(await noticeOn()), '一開始沒有提醒條');

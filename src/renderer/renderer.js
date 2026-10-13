@@ -311,7 +311,7 @@ function toggleLog() { if (state.panel === 'log') closePanel(); else openPanel('
 function openDialog() { if (FORM_PANELS.has(state.panel)) return; $('#dialog').classList.remove('hidden'); hideWhisper(); } // 表單開著時先不冒出來，關掉表單再顯示
 // 待機時頭旁的小字跟對話泡泡在同一個位置：對話框一出來就把小字收掉
 function hideWhisper() { const w = document.getElementById('idleWhisper'); if (w) w.classList.add('hidden'); }
-function closeDialog() { showProposal(null); state.shownLogId = null; $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.queue = []; clearInterval(typeTimer); state.typing = false; $('#npcWrap').classList.remove('talking'); setEmotion('normal'); }
+function closeDialog() { hideSub(); showProposal(null); state.shownLogId = null; $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.queue = []; clearInterval(typeTimer); state.typing = false; $('#npcWrap').classList.remove('talking'); setEmotion('normal'); }
 $('#dlgClose').addEventListener('click', () => { closeDialog(); closePanel(); });
 $('#dlgMini').addEventListener('click', goMini);
 $('#dlgLog').addEventListener('click', toggleLog);
@@ -479,9 +479,20 @@ function applyView(v) {
   document.body.classList.toggle('no-hud', noHud);
   const p = v.player;
   $('#lv').textContent = `Lv.${p.level}`;
-  $('#lv').dataset.tip = `${p.title}・下一級還差 ${Math.max(0, p.xpForNext - p.xpInLevel)} XP`;
+  $('#lv').dataset.tip = `${p.title}・下一級還差 ${Math.max(0, p.xpForNext - p.xpInLevel)} XP・點一下看成就`; // 10/13 N：Lv 和稱號列都能點 → 成就
   $('#ptitle').textContent = p.title; // 稱號放在經驗條上（以前擠在圖示列，常被截成「新…」）
   const sk = $('#hudStreak'); sk.textContent = `🔥${v.streak || 0}`; sk.classList.toggle('hidden', !(v.streak >= 2)); // 🔥 連續上工 2 天以上才顯示
+  // ✏️ 筆記本裡改好、還沒寫進計畫檔的（10/13 C）：狀態欄一顆小標、首頁的 📓 筆記本也標數字——不然只有打開筆記本才知道週任務板看到的不是最新的
+  const pdN = (v.planDraft && v.planDraft.changes) || 0;
+  const dt = $('#hudDraft'); dt.textContent = `✏️${pdN}`; dt.classList.toggle('hidden', !pdN);
+  dt.dataset.tip = `筆記本裡有 ${pdN} 處改好、還沒寫進計畫檔（週任務板、今日行程看到的還是舊的）・點一下打開筆記本`;
+  const pdBtn = document.querySelector('#choices [data-act="pd"]');
+  if (pdBtn) {
+    let bd = pdBtn.querySelector('.pd-badge');
+    if (pdN) { if (!bd) { bd = document.createElement('span'); bd.className = 'pd-badge'; pdBtn.appendChild(bd); } bd.textContent = `✏️${pdN}`; }
+    else if (bd) bd.remove();
+    pdBtn.classList.toggle('has-draft', !!pdN);
+  }
   sk.dataset.tip = `連續上工 ${v.streak || 0} 天・點一下看成就`;
   if (typeof applyDecor === 'function') applyDecor(v); // 🛒 主題配色、櫃台吊飾／擺設（shop.js 比較晚載入：還沒載入時由它自己補畫）
   $('#gold').innerHTML = `${COIN}${+p.gold || 0}`;
@@ -723,9 +734,11 @@ $('#hudTop').addEventListener('click', (e) => {
   if (e.target.closest('button')) return;
   hideTip();
   if (e.target.closest('#gold')) { openShop(); return; } // 點金幣：雲朵雜貨舖
-  if (e.target.closest('#hudStreak')) { openAch(); return; }
+  if (e.target.closest('#hudStreak') || e.target.closest('#lv')) { openAch(); return; } // 🔥、Lv：成就（等級、稱號也在裡面）
+  if (e.target.closest('#hudDraft')) { openPdNote(); return; } // ✏️ 還沒寫進計畫檔：打開筆記本
   if (e.target.closest('#fortuneTag')) drawFortune();
 });
+$('.xpbar').addEventListener('click', () => { hideTip(); openAch(); }); // 稱號／經驗條也能點
 
 // ---------- ✨ 占卜魔法（星環占＝梅花易數）----------
 const DV_METHODS = [
@@ -978,9 +991,10 @@ $('#choices').addEventListener('click', async (e) => {
   if (act === 'daily') { openPanel('daily'); run(() => api.daily(), { talk: true }); }
   if (act === 'report') openPanel('report');
   if (act === 'pd') openPdNote(); // 📓 筆記本（另一個大視窗）
-  if (act === 'magic') openPanel('magic'); // ✨ 今日運勢／星環占卜
-  if (act === 'memories') openPanel('memories'); // 📒 小本子／成就／回憶相簿
+  if (act === 'magic' || act === 'memories') { toggleSub(act); return; } // ✨ 魔法、📒 回憶：原位展開子選項（10/13 G：不再多一層面板）
+  hideSub();
   if (act === 'chat') { $('#chatRow').classList.toggle('hidden'); $('#chatInput').focus(); }
+  if (act === 'album') openPanel('album');
   if (act === 'divine') openPanel('divine');
   if (act === 'fortune') drawFortune();
   if (act === 'notebook') openNotebook();
@@ -989,6 +1003,38 @@ $('#choices').addEventListener('click', async (e) => {
   if (act === 'ach') openAch();
   if (act === 'raids') openRaids();
 });
+// ✨ 魔法、📒 回憶的子選項：在首頁那排小按鈕下面展開一列（再點一次或點別的就收起來）
+function subItems(kind) {
+  const v = state.view || {};
+  if (kind === 'magic') {
+    const f = v.fortune, cost = (v.divination || {}).cost || 10;
+    return [
+      { act: 'fortune', ico: '🔮', label: '今日運勢', note: f ? `今天「${f.rank}」・再看一次` : '一天一次，有小獎勵' },
+      { act: 'divine', ico: '🌌', label: '星環占卜', note: `問一件事・${cost} 金幣` },
+    ];
+  }
+  const nb = v.notebook || {}, sh = (v.affection && v.affection.shows) || { album: [] };
+  return [
+    { act: 'notebook', ico: '📒', label: `${npcNameR()}的小本子`, note: nb.enabled === false ? '收起來了' : `${nb.count || 0} 則` },
+    { act: 'ach', ico: '🏅', label: '成就', note: v.streak >= 2 ? `🔥 連續上工 ${v.streak} 天` : '連續上工、成就牆' },
+    { act: 'album', ico: '🎬', label: '回憶相簿', note: `${(sh.album || []).length + 1} 頁` },
+  ];
+}
+function toggleSub(kind) {
+  if (state.subRow === kind) { hideSub(); return; }
+  state.subRow = kind;
+  const row = $('#subRow');
+  row.innerHTML = subItems(kind).map((i) => `<button class="sub-btn" data-act="${i.act}"><span class="sb-ico">${i.ico}</span><span class="sb-txt"><b>${esc(i.label)}</b><small>${esc(i.note)}</small></span></button>`).join('');
+  row.dataset.kind = kind;
+  row.classList.remove('hidden');
+  for (const b of document.querySelectorAll('#choices .more button')) b.classList.toggle('on', b.dataset.act === kind);
+}
+function hideSub() {
+  if (!state.subRow) return;
+  state.subRow = null;
+  $('#subRow').classList.add('hidden'); $('#subRow').innerHTML = '';
+  for (const b of document.querySelectorAll('#choices .more button')) b.classList.remove('on');
+}
 // 聊天裡說「幫我占卜…」「算一卦」就直接打開占卜面板（問「梅花易數是什麼」這種還是聊天）
 const DV_RE = /(占卜|算一卦|卜一卦|卜個卦|起一?卦|算個卦)/;
 function questionFromChat(t) {
@@ -1092,7 +1138,7 @@ function renderPanelInner(el, v) {
     return;
   }
   if (state.panel === 'board') {
-    const addBtn = v.editable && state.boardTab === 'quests' ? `<button class="tab add" data-new="quest" data-tip="登記一筆新任務（會直接寫進計畫檔）">＋ 新任務</button><button class="tab add" data-pd-open data-tip="會開另一個大視窗：${esc(v.npc.name)}的筆記本（委託簿）——用說的加任務、改計畫、勾目標">📓 筆記本<span class="ext" aria-hidden="true">↗</span></button>` : '';
+    const addBtn = v.editable && state.boardTab === 'quests' ? `<button class="tab add" data-new="quest" data-tip="登記一筆新任務（會直接寫進計畫檔）">＋ 新任務</button><button class="tab add" data-pd-open data-tip="會開另一個大視窗：${esc(v.npc.name)}的筆記本（委託簿）——用說的加任務、改計畫（加、改要按「寫進計畫檔」才算）、勾目標（立刻算）">📓 筆記本<span class="ext" aria-hidden="true">↗</span></button>` : '';
     const tabs = `<div class="tabs"><button class="tab ${state.boardTab === 'quests' ? 'on' : ''}" data-tab="quests">任務</button><button class="tab ${state.boardTab === 'hist' ? 'on' : ''}" data-tab="hist">紀錄</button>${addBtn}</div>`;
     let body = '';
     if (state.boardTab === 'quests') {

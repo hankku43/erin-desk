@@ -23,9 +23,10 @@
   --wobble: 255px 12px 225px 12px / 12px 225px 12px 255px; /* 手畫的框 */
   --wobble-2: 12px 225px 12px 255px / 255px 12px 225px 12px;
 }
-/* ✍ 手寫字型（芫荽 Iansui）：字比較細，小字加一點點粗 */
-body.hand { --font: "Iansui", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC", sans-serif; }
-body.hand .blk .tm, body.hand .badge, body.hand .bq, body.hand .pv-note, body.hand .tray-h small { -webkit-text-stroke: .15px currentColor; }
+/* ✍ 手寫字型（芫荽 Iansui）：只用在大字——書名、欄頭、便利貼的標題和步驟、艾琳的泡泡；小字（時間、標籤、說明、表單）維持一般字型才讀得清楚（10/13 M） */
+body.hand { --font-hand: "Iansui", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC", sans-serif; }
+body.hand .ttl b, body.hand h2, body.hand .dh b, body.hand .wk-dh b, body.hand .sticky .t, body.hand .sticky li > span:last-child, body.hand .tq-t, body.hand .bubble, body.hand .dempty, body.hand .empty { font-family: var(--font-hand); }
+body.hand .sticky li > span:last-child { font-size: var(--fs-m); }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
@@ -82,9 +83,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .notice .nt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notice .nx { border: none; background: transparent; padding: 2px 6px; font-weight: 700; color: var(--ink-soft); border-radius: 8px; }
 .notice .nx:hover { background: rgba(44, 47, 76, .1); color: var(--ink); }
-.warns { margin: 8px 14px 0; display: flex; flex-direction: column; gap: 3px; }
-.warns div { font-size: var(--fs-s); color: var(--red); font-weight: 700; }
-.warns div::before { content: '✎ '; }
+/* 10/13 H：紅筆警告每條都能點 → 翻到那本、那天，亮一下那格 */
+.warns { margin: 8px 14px 0; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.warns button { border: none; background: transparent; padding: 1px 6px 1px 4px; border-radius: 6px; text-align: left; font-size: var(--fs-s); color: var(--red); font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
+.warns button::before { content: '✎ '; }
+.warns button::after { content: ' ↗'; font-size: var(--fs-xs); opacity: .7; }
+.warns button:hover { background: rgba(214, 58, 78, .1); }
+/* ⓘ：頁面的固定說明收在標題旁邊，滑過才看 */
+h2 .info { font-style: normal; font-size: var(--fs-s); font-weight: 400; color: var(--ink-soft); margin-left: 6px; cursor: help; background: none; }
+h2 .info:hover { color: var(--ink); }
 
 /* ---- 主畫面：兩本書（委託簿、時刻簿）共用一個框 ---- */
 #main { flex: 1; display: flex; flex-direction: column; padding: 8px 14px 6px; min-height: 0; }
@@ -158,7 +165,10 @@ h2 span { background: linear-gradient(transparent 62%, var(--hl) 62%); padding: 
 .sticky { margin: 0 2px 14px; }
 .sfoot { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 7px; }
 .sfoot:empty { display: none; }
-.split { border: 1.5px dashed var(--pen); background: rgba(255, 255, 255, .7); border-radius: var(--wobble); padding: 1px 8px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink); }
+.split { border: 1.5px dashed var(--pen); background: rgba(255, 255, 255, .7); border-radius: var(--wobble); padding: 1px 8px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink);
+  opacity: 0; transform: translateY(3px); transition: opacity .15s, transform .15s; } /* 10/13 J：滑過（或鍵盤停在）便利貼才出現，整頁不會每張都一顆 */
+.sticky:hover .split, .sticky:focus .split, .sticky:focus-within .split, .split:focus { opacity: 1; transform: none; }
+@media (hover: none) { .split { opacity: 1; transform: none; } }
 .split:hover { background: #fff; box-shadow: 0 0 0 2px var(--hl); }
 .slots { border: 1.5px solid rgba(0, 0, 0, .25); background: var(--qc, #eee); border-radius: 10px; padding: 0 8px; font-size: var(--fs-xs); font-weight: 700; }
 /* 新加的：鉛筆框；改過的：鉛筆角；刪掉的：劃掉 */
@@ -359,7 +369,7 @@ h2 span { background: linear-gradient(transparent 62%, var(--hl) 62%); padding: 
 .tip { position: fixed; z-index: 70; max-width: 300px; background: #2c2f4c; color: #fff; font-size: var(--fs-xs); padding: 5px 9px; border-radius: 8px; pointer-events: none; }
 
 @media (max-width: 1080px) {
-  .sum, .ph .hint { display: none; }
+  .ph .hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .sticky, .sticky:hover { transform: none; transition: none; }

@@ -56,6 +56,11 @@ module.exports = ({ win, engine, menuTemplate, pdWin }) => {
       const dh = await js(`[...document.querySelectorAll('.dcol .dh')].map((h) => ({ t: h.textContent.trim(), h: Math.round(h.getBoundingClientRect().height), over: h.scrollWidth > h.clientWidth + 1 }))`, B);
       assert(dh.some((x) => /週二/.test(x.t)) && dh.every((x) => x.h <= 30 && !x.over), '欄頭一行、不溢出：' + JSON.stringify(dh));
       bw.setSize(w0, h0); await wait(400);
+      // 10/13 J：「🕘 排進時刻簿」平常不顯示，滑過（或鍵盤停在）那張便利貼才出現
+      assert((await js(`getComputedStyle(document.querySelector('.sticky .split')).opacity`, B)) === '0', '平常看不到');
+      await js(`document.querySelector('.sticky').focus(); 0`, B); await wait(300);
+      assert((await js(`getComputedStyle(document.querySelector('.sticky:focus .split')).opacity`, B)) === '1', '停在便利貼上才出現');
+      await js(`document.activeElement.blur(); 0`, B); await wait(250);
       // 2. 說話：新委託＋步驟；移時段 → 時刻簿的書籤 +1
       await say('整理實驗報告');
       await say('這個任務的步驟有要先做文獻整理後寫初稿再接著請主管看');
@@ -177,6 +182,18 @@ module.exports = ({ win, engine, menuTemplate, pdWin }) => {
       await wait(2200);
       assert((await js(`document.querySelector('#book').dataset.book`, bw.webContents)) === 'time' && /二/.test(await text('#dayTabs .on', bw.webContents)), '翻到時刻簿的今天');
       await shot('pd11_from_daily', bw);
+      // 10. 10/13 C：留一處沒寫進去就收起來 → 主視窗的狀態欄 ✏️1、首頁 📓 筆記本右上角 ✏️1；點 ✏️ 又打開筆記本
+      await js(`(()=>{const i=document.querySelector('#sayInput'); i.value='週五前寫完月報'; document.querySelector('#sayForm').requestSubmit();})(); 0`, bw.webContents); await wait(600);
+      assert(view().changes >= 1, '有一處沒寫進去：' + view().changes);
+      await click('#bClose', bw.webContents);
+      for (let i = 0; i < 40 && pdWin(); i++) await wait(150);
+      await wait(900); await flush();
+      const dr = await js(`({ hud: document.querySelector('#hudDraft').classList.contains('hidden') ? '' : document.querySelector('#hudDraft').textContent, badge: (document.querySelector('#choices [data-act="pd"] .pd-badge') || {}).textContent || '' })`);
+      assert(/✏️[1-9]/.test(dr.hud) && /✏️[1-9]/.test(dr.badge), '狀態欄和首頁都標了沒寫進去的：' + JSON.stringify(dr));
+      await js(`openDialog(); 0`); await wait(300); await shot('pd12_draft_badge');
+      await click('#hudDraft');
+      for (let i = 0; i < 40 && !(bw = pdWin()); i++) await wait(150);
+      assert(bw, '點 ✏️ 打開筆記本');
       console.log('PLANDRAFT OK');
       setTimeout(() => process.exit(0), 300);
     } catch (e) {

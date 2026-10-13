@@ -5,7 +5,7 @@
 //   成就是「看自己的紀錄」，不是花錢的地方：搬到自己的面板（首頁的 🏅、狀態欄的 🔥、右鍵選單）
 function openShop(tab) {
   const t = tab || (state.sp && state.sp.tab) || 'gift';
-  state.sp = { data: null, tab: t === 'ach' ? 'gift' : t, draw: null };
+  state.sp = { data: null, tab: t === 'ach' ? 'gift' : t, draw: null, compact: false }; // compact：換過分頁後招牌縮成一行
   openPanel('shop');
   api.shopOpen().then((r) => {
     if (!state.sp) return;
@@ -23,7 +23,7 @@ function renderShop(el) {
   const tabs = `<div class="tabs sp-tabs">${TABS.map(([k, l]) => `<button class="tab ${sp.tab === k ? 'on' : ''}" data-sp-tab="${k}">${l}</button>`).join('')}</div>`;
   if (!d) { el.innerHTML = head('🛒 雲朵雜貨舖', '', tabs) + '<div class="panel-body"><p class="hint">開店中……</p></div>'; return; }
   const tw = d.twins || { who: 'duo', name: '朵朵', text: '歡迎光臨～' };
-  const keeper = typeof Twins !== 'undefined' ? Twins.stall(tw) // 🐰 攤位招牌：半身的棉棉和朵朵
+  const keeper = typeof Twins !== 'undefined' ? Twins.stall(tw, { compact: !!sp.compact }) // 🐰 攤位招牌：半身的棉棉和朵朵；換過分頁就縮成一行
     : `<div class="sp-keeper"><div class="sp-face">${Art.twins(tw.who)}</div><div class="sp-say"><b>${esc(tw.name)}</b>${esc(tw.text)}</div></div>`;
   // 🔖 請朵朵留著的東西：還差多少
   const wishes = (d.wish || []).length && sp.tab !== 'cards' ? `<div class="sp-wishes"><span>🔖 留著：</span>${d.wish.map((w) => { const left = (w.price || 0) - d.gold; return `<span class="wchip ${left <= 0 ? 'ready' : ''}">${esc(w.name || '')}${left > 0 ? `<small>差 ${left}</small>` : '<small>買得起了</small>'}</span>`; }).join('')}</div>` : '';
@@ -80,7 +80,7 @@ async function shopClick(e) {
   const t = e.target;
   const sp = state.sp || (state.sp = { tab: 'gift' });
   if (t.closest('[data-close]')) { closePanel(); return true; }
-  const tab = t.closest('[data-sp-tab]'); if (tab) { sp.tab = tab.dataset.spTab; renderPanel(); const b = document.querySelector('#panel .panel-body'); if (b) b.scrollTop = 0; return true; }
+  const tab = t.closest('[data-sp-tab]'); if (tab) { sp.tab = tab.dataset.spTab; sp.compact = true; renderPanel(); const b = document.querySelector('#panel .panel-body'); if (b) b.scrollTop = 0; return true; }
   const gift = t.closest('[data-sp-gift]'); if (gift) { await shopAct(() => api.shopGift(gift.dataset.spGift), { talk: true }); return true; }
   const buy = t.closest('[data-sp-buy]'); if (buy) { await shopAct(() => api.shopBuy(buy.dataset.spBuy)); return true; }
   const eq = t.closest('[data-sp-equip]'); if (eq) { const [slot, id] = eq.dataset.spEquip.split(':'); await shopAct(() => api.shopEquip(slot, id)); return true; }
@@ -117,7 +117,9 @@ function renderAch(el) {
   const st = col.streak;
   const got = col.achievements.filter((a) => a.got).length;
   const list = [...col.achievements].sort((a, b) => (b.got ? 1 : 0) - (a.got ? 1 : 0));
-  const body = `<div class="co-streak"><span class="fire">🔥</span><div><b>連續上工 ${st.cur} 天<span class="sp-tag">最長 ${st.best}・共 ${st.days} 天</span></b><small>一天第一次完成事情就算；週末、國定假日、請假和計畫沒排的日子不會斷</small></div></div>
+  const p = (state.view && state.view.player) || {};
+  const lvRow = p.level ? `<div class="co-level"><span class="co-lv">Lv.${p.level}</span><div><b>${esc(p.title || '')}</b><div class="co-xp"><i style="width:${Math.min(100, Math.round(((p.xpInLevel || 0) / (p.xpForNext || 1)) * 100))}%"></i></div><small>${p.xpInLevel || 0} / ${p.xpForNext || 0} XP・再 ${Math.max(0, (p.xpForNext || 0) - (p.xpInLevel || 0))} XP 升 Lv.${p.level + 1}</small></div></div>` : '';
+  const body = lvRow + `<div class="co-streak"><span class="fire">🔥</span><div><b>連續上工 ${st.cur} 天<span class="sp-tag">最長 ${st.best}・共 ${st.days} 天</span></b><small>一天第一次完成事情就算；週末、國定假日、請假和計畫沒排的日子不會斷</small></div></div>
     <div class="co-ach">${list.map((a) => `
     <div class="co-a ${a.got ? 'got' : ''} ${a.hidden && !a.got ? 'secret' : ''}"><span class="co-medal">${a.icon}</span>
       <div><b>${esc(a.name)}</b><small>${esc(a.desc)}</small>${a.progress && !a.got ? `<div class="co-progrow"><div class="co-prog"><i style="width:${Math.round((a.progress.n / a.progress.of) * 100)}%"></i></div><span>${a.progress.n}/${a.progress.of}</span></div>` : ''}</div>

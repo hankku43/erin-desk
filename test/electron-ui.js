@@ -9,6 +9,7 @@ module.exports = ({ win, engine, app }) => {
   engine.state.onboarding = { ...(engine.state.onboarding || {}), done: true };
   engine.config.reminders = { ...(engine.config.reminders || {}), items: [] };
   engine.config.window.idleChatterMinutes = 0;
+  engine.config.twins = { ...(engine.config.twins || {}), enabled: false }; // 15:00–17:00 跑測試時雙胞胎的下午茶會插進來：先關掉（10/13）
   engine.config.window.idleAnim = false; // 待機小字會冒在泡泡的位置：測版面時先關掉
   const wc = win.webContents;
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -102,9 +103,13 @@ module.exports = ({ win, engine, app }) => {
       assert(await js(`document.querySelector('#dialog').classList.contains('hidden')`), '雜貨舖：泡泡收起來');
       assert((await js(`[...document.querySelectorAll('[data-sp-tab]')].map((b) => b.dataset.spTab).join()`)) === 'gift,decor,cards', '雜貨舖三個分頁');
       await shot('u04_shop');
+      // 10/13 L：剛開店招牌是大的；換過分頁就縮成一行（小頭像＋一句話），清單多出一截
+      const stall0 = await js(`document.querySelector('.sp-stall').getBoundingClientRect().height`);
       engine.state.collection.dust = 25;
       await click('[data-sp-tab=cards]'); await wait(200);
       await js(`api.shopOpen().then((r) => { state.sp.data = r.shop; renderPanel(); }); 0`); await wait(400);
+      const stall1 = await js(`document.querySelector('.sp-stall.compact') ? document.querySelector('.sp-stall.compact').getBoundingClientRect().height : 0`);
+      assert(stall0 >= 120 && stall1 > 0 && stall1 <= 50 && (await js(`!!document.querySelector('.sp-stall.compact .st-say span') && document.querySelector('.sp-stall.compact .tw-bust.on').getBoundingClientRect().height < 90`)), `招牌縮成一行：${stall0} → ${stall1}`);
       assert((await js(`getComputedStyle(document.querySelector('.co-cards.miss')).gridTemplateColumns.split(' ').length`)) === 8, '沒拿到的一排八張');
       const ex = await js(`[...document.querySelectorAll('[data-co-ex]')].length`), cheap = await js(`state.sp.data.cards.cards.filter((x) => !x.count && x.cost <= 25).length`);
       assert(ex === cheap && ex > 0, `星屑夠的才有「換」：${ex}／${cheap}`);
@@ -117,7 +122,14 @@ module.exports = ({ win, engine, app }) => {
       await click('#panel [data-close]'); await wait(300);
 
       // 5. 成就：自己一個面板；字都不小於 12px
-      await click('[data-act=memories]'); await wait(500); await click('[data-hub=ach]'); await wait(900);
+      // 10/13 G：魔法、回憶點了在原位展開子選項（不另開一層面板），再點一次收起來
+      await click('[data-act=memories]'); await wait(300);
+      assert(await js(`!state.panel && !document.querySelector('#subRow').classList.contains('hidden') && document.querySelectorAll('#subRow [data-act]').length === 3 && document.querySelector('#choices .more [data-act=memories]').classList.contains('on')`), '回憶：原位展開三個子選項');
+      await shot('u05b_sub_memories');
+      await click('[data-act=memories]'); await wait(200);
+      assert(await js(`document.querySelector('#subRow').classList.contains('hidden')`), '再點一次收起來');
+      await click('[data-act=memories]'); await wait(300); await click('#subRow [data-act=ach]'); await wait(900);
+      assert(await js(`document.querySelector('#subRow').classList.contains('hidden') && !!document.querySelector('.co-level .co-lv')`), '子選項點了就收起來；成就最上面有等級'); // 10/13 N
       assert(await js(`state.panel === 'ach' && document.querySelectorAll('.co-a').length > 20 && !!document.querySelector('.co-progrow span')`), '成就面板');
       const small = await js(`[...document.querySelectorAll('#panel *')].filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 12).map((el) => el.className + ':' + el.textContent.slice(0, 8))`);
       assert(!small.length, '成就面板沒有小於 12px 的字：' + small.join('、'));
@@ -126,7 +138,7 @@ module.exports = ({ win, engine, app }) => {
       await home();
 
       // 6. 小本子：每一則剛好在橫線上（26px 一行）
-      await click('[data-act=memories]'); await wait(500); await click('[data-hub=notebook]'); await wait(900); await flush();
+      await click('[data-act=memories]'); await wait(300); await click('#subRow [data-act=notebook]'); await wait(900); await flush();
       const off = await js(`(() => { const p = document.querySelector('.nb-paper').getBoundingClientRect().top; return [...document.querySelectorAll('.nb-item, .nb-sec h3')].map((el) => Math.round(el.getBoundingClientRect().top - p) % 26); })()`);
       assert(off.length >= 6 && off.every((x) => x === 0), '小本子每行對齊橫線：' + off.join());
       await shot('u07_notebook');
@@ -155,7 +167,7 @@ module.exports = ({ win, engine, app }) => {
       await shot('u10_submit_row');
 
       // 9. 運勢：卡片蓋在狀態欄上，不擋選單；沒有另外飄字；成就等卡片翻開才出現
-      await click('[data-act=magic]'); await wait(500); await click('[data-hub=fortune]'); await wait(700);
+      await click('[data-act=magic]'); await wait(300); await click('#subRow [data-act=fortune]'); await wait(700);
       assert(!(await js(`!!document.querySelector('.float-reward')`)), '運勢不另外飄字（卡片上就有獎勵）');
       assert(!(await js(`!!document.querySelector('.ach-pop')`)), '成就還沒出來');
       const fc = await rect('#fortuneCard'), ch = await rect('#choices');

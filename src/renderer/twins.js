@@ -11,13 +11,14 @@
   const other = (who) => (who === 'mian' ? 'duo' : 'mian');
 
   // ---------- 攤位招牌：說話的那個站前面、換人或換句話時跳一下 ----------
+  // compact：換過分頁之後縮成一行（招呼第一次看到就好，不用每個分頁都佔 130px）
   let lastStall = '';
-  function stall(tw) {
+  function stall(tw, { compact = false } = {}) {
     const who = tw && tw.who === 'mian' ? 'mian' : 'duo';
     const key = `${who}|${tw && tw.text}`;
     const hop = key !== lastStall ? ' hop' : '';
     lastStall = key;
-    return `<div class="sp-stall" data-who="${who}">
+    return `<div class="sp-stall${compact ? ' compact' : ''}" data-who="${who}">
       <div class="st-busts">${bust(other(who), 'back')}${bust(who, 'on' + hop)}</div>
       <div class="st-counter"></div>
       <div class="st-say${hop ? ' fresh' : ''}"><b>${esc((tw && tw.name) || NAMES[who])}</b><span>${esc((tw && tw.text) || '')}</span></div>

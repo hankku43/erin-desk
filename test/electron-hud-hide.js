@@ -8,6 +8,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
   engine.state.onboarding = { ...(engine.state.onboarding || {}), done: true };
   engine.config.reminders = { ...(engine.config.reminders || {}), items: [] };
   engine.config.window.idleChatterMinutes = 0;
+  engine.config.twins = { ...(engine.config.twins || {}), enabled: false }; // 15:00–17:00 跑測試時雙胞胎的下午茶會插進來：先關掉（10/13）
   const wc = win.webContents;
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const js = (code) => wc.executeJavaScript(code);
