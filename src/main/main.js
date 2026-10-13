@@ -330,7 +330,7 @@ function openPdWin(lines = []) {
   if (win && !win.isDestroyed() && win.isVisible()) win.hide(); // 艾琳在大視窗裡陪你
   return pdWin;
 }
-function pdOpen(which) { const r = engine.pdOpen(which); openPdWin(r.lines); return r; }
+function pdOpen(which, opts = {}) { const r = engine.pdOpen(which, opts); openPdWin(r.lines); return r; }
 function closePdWin() { if (pdWin && !pdWin.isDestroyed()) pdWin.close(); else if (win && !win.isDestroyed() && !win.isVisible()) win.show(); }
 
 function wrap(fn) {
@@ -816,7 +816,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('raids:restore', raidWrap((key) => engine.restoreRaid(key)));
   ipcMain.handle('calendar:leave', raidWrap((date, on, note) => engine.setLeave(date, on !== false, note)));
   // 📓 艾琳的筆記本（委託）：主視窗只負責打開
-  ipcMain.handle('pd:open', wrap((which) => { pdOpen(which); return {}; }));
+  ipcMain.handle('pd:open', wrap((which, opts) => { pdOpen(which, opts && typeof opts === 'object' ? { book: opts.book, day: opts.day } : {}); return {}; }));
   // 大視窗
   ipcMain.handle('pd:get', wrap(() => {
     const normal = findImage('normal');
@@ -839,6 +839,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('pd:undo', wrap(() => engine.pdUndo()));
   ipcMain.handle('pd:wipe', wrap(() => engine.pdWipe()));
   ipcMain.handle('pd:discard', wrap(() => engine.pdDiscard()));
+  // 📜 委託簿／🕘 時刻簿、委託拆成時段
+  ipcMain.handle('pd:book', wrap((book, day) => engine.pdBook(book, day)));
+  ipcMain.handle('pd:splitPreview', wrap((id, o) => engine.pdSplitPreview(id, o || {})));
+  ipcMain.handle('pd:split', wrap((id, o) => engine.pdSplit(id, o || {})));
+  ipcMain.handle('pd:suggest', wrap((id, o) => engine.pdSuggestSteps(id, o || {})));
   // 完成委託（立刻寫進計畫檔、給獎勵）：主視窗也要更新
   const pdPlay = (fn) => wrap(async (...a) => { const r = await fn(...a); push('view:update', { view: engine.view() }); return r; });
   ipcMain.handle('pd:check', pdPlay((id, step, done) => engine.pdCheck(id, step, done)));

@@ -439,17 +439,20 @@ class Engine {
     const today = G.todayISO(now);
     const day = this.plan.days.find((d) => d.date === today) || null;
     if (!day) return { date: today, label: `${now.getMonth() + 1}/${now.getDate()}（${WEEKDAY[now.getDay()]}）`, rows: [], theme: '', branch: false };
-    let current = null, upcoming = null;
+    let upcoming = null;
+    const currents = []; // 🕘 同一個時段可以不只一件事
     const rows = day.rows.map((r) => {
       const t = parseSlot(r.slot, day.date);
       const isCur = t && !r.canceled && now >= t.start && now < t.end; // 取消的團戰不算「現在這格」
       const fileDone = r.done === true; // 檔案裡寫成 - [x] 的時段
       const row = { ...r, done: this.ps.dailyDone[r.id] !== undefined ? !!this.ps.dailyDone[r.id] : fileDone, current: !!isCur, past: !!(t && now >= t.end) };
-      if (isCur) current = row;
+      if (isCur) currents.push({ row, end: t.end });
       if (!upcoming && t && !r.canceled && now < t.start) upcoming = row;
       return row;
     });
-    return { ...day, rows, current, upcoming, chosenBranch: this.ps.branch[day.date] || null };
+    currents.sort((a, b) => a.end - b.end || (b.row.raid ? 1 : 0) - (a.row.raid ? 1 : 0)); // 最早結束的那件當「這一格」（專注倒數照它）；一樣時團戰優先
+    const current = currents.length ? currents[0].row : null;
+    return { ...day, rows, current, currents: currents.map((c) => c.row), upcoming, chosenBranch: this.ps.branch[day.date] || null };
   }
 
   view() {
@@ -520,6 +523,7 @@ class Engine {
       f.slot = slotRow.slot;
       f.block = t.branch ? (branch === 'b' ? slotRow.b : branch === 'a' ? slotRow.a : `${slotRow.a}／或 ${slotRow.b}`) : slotRow.a;
       f.output = t.branch ? '' : slotRow.b;
+      if (!t.branch && t.currents && t.currents.length > 1) { f.block = t.currents.map((r) => r.a).join('／'); f.output = t.currents.map((r) => r.b).filter(Boolean).join('／'); } // 同時好幾件：都說
     }
     return { ...f, ...extra, questView: undefined };
   }
@@ -1310,6 +1314,18 @@ class Engine {
     if (!this.legacy && row && row.line !== undefined && this.P.setScheduleDone) {
       try { this.writePlan(this.P.setScheduleDone(this.planText, row.line, done)); } catch (_) { /* 寫不進去就只存在遊戲裡 */ }
     }
+    // 🕘 這一格是某個委託的步驟（「寫完週報：收資料」）：做完這格＝那個步驟也做完了（只勾、不會反過來取消）
+    if (done && row && row.questId && row.step && !this.legacy) {
+      const q = this.plan.quests.find((x) => x.id === row.questId);
+      const nm = (s) => String(s || '').replace(/\s+/g, '');
+      const i = q ? q.objectives.findIndex((o) => !o.implicit && nm(o.text) === nm(row.step)) : -1;
+      if (i >= 0 && !q.objectives[i].done) {
+        const r2 = await this.setObjective(q.id, i, true);
+        const a = reward || {}, b = r2.reward || {};
+        const sum = reward || r2.reward ? { ...b, ...a, xp: (a.xp || 0) + (b.xp || 0), gold: (a.gold || 0) + (b.gold || 0), levelUp: a.levelUp || b.levelUp || null } : null;
+        return { ...r2, reward: sum, linked: { quest: q.title, step: q.objectives[i].text }, view: this.view() };
+      }
+    }
     return { reward, lines: [], view: this.view() };
   }
 
@@ -1783,7 +1799,7 @@ class Engine {
     if (!s) return null;
     const d = this.pdEnsure(s);
     const today = this.pdToday();
-    const v = PD.view(d, { offDay: (iso) => this.dayOff(iso), today });
+    const v = PD.view(d, { offDay: (iso) => this.dayOff(iso), today, raids: this.pdAppRaids(d) });
     const f = this.pdFileFor(s);
     const canPlay = !!(f && f.kind === 'current');
     if (canPlay) {
@@ -1791,17 +1807,62 @@ class Engine {
       for (const q of v.quests) { const p = q.key && play.find((x) => x.id === q.key); if (p) q.play = { status: p.status, active: !!p.active, doneCount: p.doneCount, total: p.total }; }
     }
     const weeks = ['this', 'next'].map((which) => { const st = this.pdStartOf(which); const x = this.pdDrafts()[st]; return { which, start: st, label: PD.weekAt(st).label, name: which === 'this' ? '這週' : '下週', changes: x ? PD.changes(x) : 0 }; });
-    // 自己建的團戰（不在計畫檔裡）：只顯示
-    let raids = [];
-    try { raids = R.occurrences({ planDays: [], items: this.state.raids.items, from: d.week.start, to: PD.addDays(d.week.start, 6), offDay: (iso) => this.dayOff(iso) }).filter((x) => !x.canceled).map((x) => ({ date: x.date, start: x.start, end: x.end, title: x.title })); } catch (_) { /* 沒有團戰 */ }
     const hint = f ? null : this.pdNewFileHint(s);
-    return { ...v, today, weeks, canPlay, raids, ai: this.aiOn(), target: f ? { kind: f.kind, name: path.basename(f.file) } : { kind: 'new', name: hint.name, dir: path.basename(hint.dir) } };
+    const now = this.now();
+    return {
+      ...v, today, nowHM: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`, book: this.state.pdBook === 'time' ? 'time' : 'quests', bookDay: this.state.pdBookDay || null,
+      weeks, canPlay, ai: this.aiOn(), target: f ? { kind: f.kind, name: path.basename(f.file) } : { kind: 'new', name: hint.name, dir: path.basename(hint.dir) },
+    };
+  }
+  // 自己建的團戰（不在計畫檔裡）：筆記本只顯示；拆時段時當作忙
+  pdAppRaids(d) {
+    try { return R.occurrences({ planDays: [], items: this.state.raids.items, from: d.week.start, to: PD.addDays(d.week.start, 6), offDay: (iso) => this.dayOff(iso) }).filter((x) => !x.canceled).map((x) => ({ date: x.date, start: x.start, end: x.end, title: x.title })); } catch (_) { return []; }
+  }
+  // 📜 委託簿／🕘 時刻簿：記住上次翻到哪一本、時刻簿看哪一天
+  pdBook(book, day) {
+    this.state.pdBook = book === 'time' ? 'time' : 'quests';
+    if (day !== undefined) this.state.pdBookDay = PD.validISO(day) || day === 'week' ? day : null;
+    this.saveState();
+    return { book: this.state.pdBook, bookDay: this.state.pdBookDay || null };
+  }
+  // 🕘 委託拆成時段：預覽（不改草稿）
+  pdSplitOpts(d, o = {}) {
+    const offDates = [];
+    for (let i = 0; i < 7; i++) { const x = PD.addDays(d.week.start, i); const off = this.dayOff(x); if (off && off.off && off.kind !== 'weekend') offDates.push(x); }
+    return { ...o, steps: Array.isArray(o.steps) ? o.steps : PD.parseStepLines(o.stepsText || ''), busy: this.pdAppRaids(d), offDates };
+  }
+  pdSplitPreview(qid, o = {}) {
+    const d = this.pdNeed();
+    return { preview: PD.splitPlan(d, String(qid), this.pdSplitOpts(d, o)) };
+  }
+  pdSplit(qid, o = {}) {
+    return this.pdChange((d) => {
+      const opts = this.pdSplitOpts(d, o);
+      const res = PD.splitPlan(d, String(qid), opts);
+      const ids = PD.applySplit(d, String(qid), res, opts.steps);
+      const first = res.rows[0];
+      this.state.pdBook = 'time'; this.state.pdBookDay = first.date;
+      const q = PD.findItem(d, String(qid)).item;
+      return { changed: ids, lines: [this.pdLine('pd_split', { quest: q.title, n: res.rows.length, days: [...new Set(res.rows.map((r) => PD.dayLabel(r.date).split(' ')[0]))].join('、') })] };
+    });
+  }
+  // 請 AI 建議步驟（7～30 秒）：結果只給小卡看，冒險者改過才排
+  async pdSuggestSteps(qid, { minutes = 0 } = {}) {
+    const d = this.pdNeed();
+    const hit = PD.findItem(d, String(qid));
+    if (!hit || hit.list !== 'quests') throw new Error('找不到這個委託');
+    if (!this.aiOn()) throw new Error('AI 現在沒開：自己寫步驟也可以');
+    const json = await this.npc.structured('plan_steps', { system: PD.STEPS_SYSTEM, user: PD.stepsUser(hit.item, { minutes }), schema: PD.STEPS_SCHEMA, maxTokens: 300 });
+    const steps = PD.normalizeSteps(json, hit.item);
+    if (!steps.length) throw new Error(`${this.config.npc.name}想不出來……自己寫寫看？`);
+    return { steps };
   }
   // 打開筆記本：沒說哪一週＝週一～三這週、週四以後下週；之前打開過的那週優先
-  pdOpen(which) {
+  pdOpen(which, { book, day } = {}) {
     const prev = this.state.pdWeek, pd = prev && this.pdDrafts()[prev];
     const start = which ? this.pdStartOf(which) : prev && prev >= PD.mondayOf(this.pdToday()) && pd && PD.changes(pd) ? prev : this.pdStartOf(); // 上次那頁還有沒寫進去的：翻回那頁
     this.state.pdWeek = start;
+    if (book) { this.state.pdBook = book === 'time' ? 'time' : 'quests'; if (day) this.state.pdBookDay = day; } // 今日行程的「🕘」：直接翻到時刻簿的今天
     const d = this.pdEnsure(start);
     this.saveState();
     const n = PD.changes(d);

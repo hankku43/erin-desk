@@ -40,7 +40,7 @@ contextBridge.exposeInMainWorld('api', {
   raidCancel: (key, scope) => ipcRenderer.invoke('raids:cancel', key, scope),
   raidRestore: (key) => ipcRenderer.invoke('raids:restore', key),
   setLeave: (date, on, note) => ipcRenderer.invoke('calendar:leave', date, on, note),
-  pdOpen: (which) => ipcRenderer.invoke('pd:open', which), // 📓 打開艾琳的筆記本（委託）
+  pdOpen: (which, opts) => ipcRenderer.invoke('pd:open', which, opts), // 📓 打開艾琳的筆記本（委託）；opts.book＝'time' 直接翻到 🕘 時刻簿
   focusPeek: () => ipcRenderer.invoke('focus:peek'),
   drawFortune: () => ipcRenderer.invoke('fortune:draw'),
   divineInfo: () => ipcRenderer.invoke('divine:info'),

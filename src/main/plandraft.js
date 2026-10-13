@@ -384,6 +384,8 @@ const needsAI = (text, rule) => !isChatter(text) && !isEnough(text) && !ruleConf
 function checkAI(items, text, ctx, rule) {
   if (!items || !items.length) return null;
   const hasDay = !!findDay(text, ctx), hasTime = !!findTime(text);
+  // 「下午三點打電話給供應商」：有時間沒說哪天，規則已經記成不確定（問哪一天）；AI 也不知道是哪天，常常編一天或變成委託 → 用規則的
+  if (hasTime && !hasDay && rule.some((r) => r.kind === 'unsure' && r.question === '是哪一天？')) return null;
   const nt = norm(text).length;
   const out = [];
   for (const it of items) {
@@ -616,7 +618,9 @@ function editItem(d, id, f = {}) {
   const hit = findItem(d, id);
   if (!hit) throw new Error('找不到這一項');
   const x = hit.item;
-  if (f.title !== undefined) { const t = clip(cleanText(f.title) || f.title); if (!t) throw new Error('要有名稱'); x.title = t; }
+  const oldTitle = x.title;
+  if (f.title !== undefined) { const t = hit.list === 'rows' ? clip(String(f.title).replace(/\s+/g, ' ').trim()) : clip(cleanText(f.title) || f.title); if (!t) throw new Error('要有名稱'); x.title = t; } // 時段的「委託：步驟」冒號要留著
+  if (hit.list === 'quests' && x.title !== oldTitle) renameLinked(d, oldTitle, x.title); // 委託改名：排進時刻簿的時段跟著改
   if (hit.list === 'quests') {
     if (f.tier !== undefined && TIERS.includes(f.tier)) { x.tier = f.tier; x.tierSet = true; }
     if (f.due !== undefined) { if (f.due && !validISO(f.due)) throw new Error('日期格式不對'); x.due = f.due || ''; }
@@ -651,6 +655,180 @@ function resolveUnsure(d, id, as = 'quest', f = {}) {
   if (!ids.length) throw new Error(as === 'row' ? '要先選日期和開始時間' : '加不進去');
   d.unsure = d.unsure.filter((x) => x.id !== id);
   return ids;
+}
+
+// ---------- 🕘 時刻簿：時段屬於哪個委託 ----------
+// 計畫檔寫成「- 09:00–10:00 寫完週報：收資料」：冒號前面剛好是某個委託的名稱才算（「10/5 會議：提問清單」這種不會被誤認）
+// 整格就是委託名稱（「- 14:00–16:00 寫完週報」）也算，只是沒有步驟
+const RE_LINK_SEP = /^\s*[：:]\s*/;
+function linkOf(title, quests) {
+  const t = String(title || '').trim();
+  let best = null;
+  for (const q of quests) {
+    const qt = String(q.title || '').trim();
+    if (!qt || qt.length > t.length || (best && qt.length <= best.quest.length)) continue;
+    if (t === qt) { best = { qid: q.id, quest: qt, step: '' }; continue; }
+    if (t.startsWith(qt) && RE_LINK_SEP.test(t.slice(qt.length))) best = { qid: q.id, quest: qt, step: t.slice(qt.length).replace(RE_LINK_SEP, '').trim() };
+  }
+  return best;
+}
+const linkTitle = (quest, step) => (step ? `${quest}：${step}` : quest);
+function renameLinked(d, oldTitle, newTitle) {
+  for (const r of d.rows) {
+    if (r.del) continue;
+    const L = linkOf(r.title, [{ id: 'x', title: oldTitle }]);
+    if (L) { r.title = linkTitle(newTitle, L.step); r.touched = true; }
+  }
+}
+
+// 同一天的方塊怎麼並排（像行事曆 App）：互相重疊的一群分欄，每一個拿 lane（第幾欄）、lanes（這群共幾欄）
+// items：[{ key, start, end }]，沒有結束時間的當作 30 分鐘
+function layoutDay(items) {
+  const xs = items.map((x) => ({ key: x.key, s: toMin(x.start), e: x.end && x.end > x.start ? toMin(x.end) : toMin(x.start) + 30 })).sort((a, b) => a.s - b.s || b.e - a.e);
+  const out = {};
+  let group = [], laneEnd = [], groupEnd = 0;
+  const close = () => { const n = laneEnd.length; for (const g of group) out[g.key] = { lane: g.lane, lanes: n }; group = []; laneEnd = []; };
+  for (const x of xs) {
+    if (group.length && x.s >= groupEnd) close();
+    let lane = laneEnd.findIndex((e) => e <= x.s);
+    if (lane < 0) { lane = laneEnd.length; laneEnd.push(x.e); } else laneEnd[lane] = x.e;
+    group.push({ key: x.key, lane });
+    groupEnd = group.length === 1 ? x.e : Math.max(groupEnd, x.e);
+  }
+  close();
+  return out;
+}
+
+// ---------- 🕘 委託拆成時段 ----------
+// 手動寫的步驟：一行一個，後面可以寫要多久（「收資料 30」「寫初稿 1.5 小時」「整理 45分」）
+function parseStepLines(text) {
+  return String(text || '').split(/\r?\n/).map((line) => {
+    const raw = line.replace(/^\s*(?:[-*+・•]\s*(?:\[[ xX]\]\s*)?|\d{1,2}\s*[.、)）])\s*/, '').trim();
+    if (!raw) return null;
+    const m = raw.match(/^(.*?)[\s，,、（(]*(\d+(?:\.\d+)?)\s*(小時|hr|h|分鐘|分|min|m)?[）)]?\s*$/i);
+    let min = 0, txt = raw;
+    if (m && m[1].trim().length >= 1 && (m[3] || +m[2] >= 5)) { // 只有數字：5 以上才當分鐘（「第2版」的 2 不算）
+      min = /小時|hr|h/i.test(m[3] || '') ? Math.round(+m[2] * 60) : Math.round(+m[2]);
+      txt = m[1].trim();
+    }
+    txt = clip(txt.replace(/[，,、]+$/, ''), 40);
+    return txt ? { text: txt, min: min > 0 ? Math.min(600, min) : 0 } : null;
+  }).filter(Boolean).slice(0, 20);
+}
+const SPLIT_UNITS = [15, 30, 45, 60, 90, 120];
+// 一天的時間窗扣掉忙的時段（📯 團戰）→ 空的區段（分鐘）
+function freeSegments(date, from, to, busy) {
+  let segs = [[from, to]];
+  for (const b of busy.filter((x) => x.date === date)) {
+    const bs = toMin(b.start), be = b.end && b.end > b.start ? toMin(b.end) : bs + 60;
+    segs = segs.flatMap(([s, e]) => (be <= s || bs >= e ? [[s, e]] : [[s, Math.max(s, bs)], [Math.min(e, be), e]].filter(([a, c]) => c - a >= 5)));
+  }
+  return segs;
+}
+const hmOf = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+// 預覽：選的日子、時間、單位、步驟 → 會加哪些時段（不改草稿）
+// o：{ dates, from, to, unit（分鐘或 'est'＝照步驟寫的時間）, steps:[{text,min}], fill:'spread'|'one', overflow:'next'|'stack', skipBusy, busy:[{date,start,end,title}], offDates:[], weekEnd }
+function splitPlan(d, qid, o = {}) {
+  const q = live(d.quests).find((x) => x.id === qid);
+  if (!q) throw new Error('找不到這個委託');
+  if (!validHM(o.from) || !validHM(o.to) || o.to <= o.from) throw new Error('結束時間要在開始之後');
+  const est = o.unit === 'est';
+  const g = est ? 15 : SPLIT_UNITS.includes(+o.unit) ? +o.unit : Math.max(5, Math.min(240, Math.round(+o.unit || 60)));
+  const off = new Set(o.offDates || []);
+  const dates = [...new Set((o.dates || []).filter(validISO))].sort();
+  if (!dates.length) throw new Error('要選哪幾天');
+  const steps = (o.steps || []).map((s) => (typeof s === 'string' ? { text: s, min: 0 } : s)).filter((s) => s && String(s.text || '').trim()).map((s) => ({ text: clip(String(s.text).trim(), 40), min: Math.max(0, Math.round(+s.min || 0)) })).slice(0, 20);
+  const work = steps.length ? steps : [{ text: '', min: 0 }]; // 沒有步驟：整段就是做這個委託
+  const busy = o.skipBusy === false ? [] : [...live(d.rows).filter((r) => r.raid && !r.canceled), ...(o.busy || [])];
+  const F = toMin(o.from), T = toMin(o.to);
+  const unitsOf = (date) => freeSegments(date, F, T, busy).flatMap(([s, e]) => {
+    const u = [];
+    for (let a = s; a < e; a += g) { const b = Math.min(e, a + g); if (b - a >= Math.min(g, 15)) u.push({ date, s: a, e: b }); }
+    return u;
+  });
+  let U = dates.flatMap(unitsOf);
+  // 延到下一天：選的最後一天之後、這一週還沒放假的日子
+  const weekEnd = validISO(o.weekEnd) ? o.weekEnd : addDays(d.week.start, 4);
+  const extDays = [];
+  for (let x = addDays(dates[dates.length - 1], 1); x <= weekEnd; x = addDays(x, 1)) if (!off.has(x) && dowOf(x) !== 0 && dowOf(x) !== 6) extDays.push(x);
+  const need = est ? work.reduce((n, s) => n + Math.max(1, Math.round((s.min || 60) / 15)), 0) : work.length;
+  const extUsed = [];
+  while (o.overflow !== 'stack' && U.length < need && extDays.length) { const x = extDays.shift(); extUsed.push(x); U = U.concat(unitsOf(x)); }
+  if (extUsed.length) U = U.slice(0, need); // 延到下一天只是為了排得下：多出來的格子不用
+  // 分配：每個步驟拿到哪幾格
+  const assign = work.map(() => []);
+  const leftover = [];
+  if (est) {
+    let k = 0;
+    work.forEach((s, i) => { const n = Math.max(1, Math.round((s.min || 60) / 15)); if (k + n > U.length) { leftover.push(s.text); return; } for (let j = 0; j < n; j++) assign[i].push(U[k++]); });
+  } else if (!U.length) work.forEach((s) => leftover.push(s.text));
+  else if (work.length <= U.length) {
+    const N = U.length, S = work.length;
+    work.forEach((s, i) => { if (o.fill === 'one' && steps.length) assign[i].push(U[i]); else for (let j = Math.floor((i * N) / S); j < Math.floor(((i + 1) * N) / S); j++) assign[i].push(U[j]); });
+  } else if (o.overflow !== 'stack') { // 延到下一天也排不下（這週沒有日子了）：排得下的一步一格，剩下的說排不下
+    work.forEach((s, i) => { if (i < U.length) assign[i].push(U[i]); else leftover.push(s.text); });
+  } else { // 步驟比格子多：擠在同一格（同時段好幾件）
+    const N = U.length, S = work.length;
+    work.forEach((s, i) => assign[i].push(U[Math.min(N - 1, Math.floor((i * N) / S))]));
+  }
+  // 連在一起的格子合成一段
+  const rows = [];
+  work.forEach((s, i) => {
+    let cur = null;
+    for (const u of assign[i]) {
+      if (cur && cur.date === u.date && cur.e === u.s) { cur.e = u.e; continue; }
+      if (cur) rows.push(cur);
+      cur = { date: u.date, s: u.s, e: u.e };
+    }
+    if (cur) rows.push(cur);
+    for (const r of rows.filter((x) => x.i === undefined)) { r.i = i; r.step = s.text; }
+  });
+  const out = rows.map((r) => ({ date: r.date, start: hmOf(r.s), end: hmOf(r.e), step: r.step, title: linkTitle(q.title, r.step) })).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || 0);
+  // 給人看的提醒：跟別的時段同時（可以，只是說一聲）、排不下的、跳過的團戰
+  const others = live(d.rows).filter((r) => !r.raid && !r.canceled);
+  const overlap = out.filter((r) => others.some((x) => x.date === r.date && x.start < r.end && r.start < (x.end || plusMin(x.start, 30)))).length;
+  const stacked = out.filter((r, i) => out.some((x, j) => j !== i && x.date === r.date && x.start < r.end && r.start < x.end)).length;
+  const skipped = busy.filter((b) => [...dates, ...extUsed].includes(b.date) && b.start < o.to && (b.end || plusMin(b.start, 60)) > o.from).map((b) => `${dayLabel(b.date)} ${b.start} ${b.title}`);
+  return { rows: out, leftover, extDays: extUsed, overlap, stacked, skipped, unit: est ? 'est' : g };
+}
+// 套用：步驟補進委託、時段加進草稿（之後一樣按「寫進計畫檔」才寫）
+function applySplit(d, qid, res, steps = []) {
+  const q = live(d.quests).find((x) => x.id === qid);
+  if (!q) throw new Error('找不到這個委託');
+  if (!res || !res.rows || !res.rows.length) throw new Error('沒有排到任何時段');
+  for (const s of steps) { const t = typeof s === 'string' ? s : s.text; if (t && !q.steps.some((x) => norm(x.text) === norm(t))) q.steps.push({ id: nextId(d, 's'), text: clip(t, 40) }); }
+  const ids = addItems(d, res.rows.map((r) => ({ kind: 'row', date: r.date, start: r.start, end: r.end, title: r.title, raid: false })), null);
+  for (const id of ids) { const h = findItem(d, id); if (h) h.item.touched = true; }
+  d.lastQ = q.id;
+  return ids;
+}
+
+// 請 AI 建議步驟（委託沒有步驟、或想重新拆）：只回步驟和大概要幾分鐘，冒險者看過、可以改才排
+const STEPS_SCHEMA = {
+  type: 'object',
+  properties: { steps: { type: 'array', minItems: 2, maxItems: 8, items: { type: 'object', properties: { text: { type: 'string' }, minutes: { type: 'integer' } }, required: ['text', 'minutes'] } } },
+  required: ['steps'],
+};
+const STEPS_SYSTEM = [
+  '你是幫忙拆解工作的小幫手。把【委託】拆成 3～6 個照順序做的具體步驟，用 JSON 回答 steps。',
+  'text：每個步驟 2～15 個字，是動作（例如「收集資料」「寫初稿」「請主管看」），不要寫日期和時間、不要重複委託的名稱。minutes：大約要幾分鐘（15 的倍數）。',
+  '有【已經有的步驟】就照它們的意思補完整或拆細，不要寫跟委託無關的事。',
+].join('\n');
+function stepsUser(q, { minutes = 0 } = {}) {
+  const has = (q.steps || []).map((s) => s.text);
+  return `【委託】${q.title}${q.due ? `（${dayLabel(q.due)}前）` : ''}\n${has.length ? `【已經有的步驟】${has.join('、')}\n` : ''}${minutes ? `【可以用的時間】大約 ${minutes} 分鐘\n` : ''}`;
+}
+function normalizeSteps(json, q) {
+  const seen = new Set();
+  const out = [];
+  for (const s of (json && Array.isArray(json.steps) ? json.steps : []).slice(0, 8)) {
+    const text = stepText(s && s.text);
+    if (!text || text.length < 2 || text.length > 30 || norm(text) === norm(q.title) || seen.has(norm(text))) continue;
+    seen.add(norm(text));
+    const min = Math.max(15, Math.min(240, Math.round((+(s && s.minutes) || 60) / 15) * 15));
+    out.push({ text, min });
+  }
+  return out.length >= 2 ? out : [];
 }
 
 // AI（或規則）的修改 → 套進草稿；回傳改到的 id 和給人看的摘要
@@ -890,8 +1068,9 @@ function applyToContent(content, d) {
   return { content: c.replace(/\n{3,}/g, '\n\n'), stats };
 }
 
-// 檢查：時間重疊、排在放假日、日期不在這週
-function checks(d, { offDay = null } = {}) {
+// 檢查：跟團戰撞時間、排在放假日、日期不在這週
+// 同一個時段本來就可以不只一件事（邊等編譯邊回信）；只有跟 📯 團戰（會議）撞到才提醒——開會的時候做不了別的
+function checks(d, { offDay = null, raids = [] } = {}) {
   const out = [];
   const byDay = {};
   for (const r of live(d.rows).filter((x) => !x.canceled)) (byDay[r.date] = byDay[r.date] || []).push(r);
@@ -899,8 +1078,12 @@ function checks(d, { offDay = null } = {}) {
     for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
       const a = rows[i], b = rows[j];
       const ae = a.end || plusMin(a.start, 30), be = b.end || plusMin(b.start, 30);
-      if (a.start < be && b.start < ae && (rowState(a) || rowState(b))) out.push({ ids: [a.id, b.id], text: `${dayLabel(a.date)} ${a.start}「${a.title}」和「${b.title}」時間重疊` }); // 原本就重疊的不再囉嗦
+      if ((a.raid || b.raid) && a.start < be && b.start < ae && (rowState(a) || rowState(b))) out.push({ ids: [a.id, b.id], text: `${dayLabel(a.date)} ${a.start}「${a.title}」和團戰「${(a.raid ? a : b).title}」撞時間` }); // 原本就撞的不再囉嗦
     }
+  }
+  for (const r of live(d.rows).filter((x) => !x.canceled && !x.raid && rowState(x))) { // 自己建的團戰（不在計畫檔裡）
+    const x = raids.find((b) => b.date === r.date && b.start < (r.end || plusMin(r.start, 30)) && r.start < (b.end || plusMin(b.start, 60)));
+    if (x) out.push({ ids: [r.id], text: `${dayLabel(r.date)} ${r.start}「${r.title}」和團戰「${x.title}」撞時間` });
   }
   const qs = live(d.quests);
   const dates = [...new Set([...live(d.rows).map((r) => r.date), ...live(d.reminders).map((m) => m.date), ...qs.map((q) => q.due).filter(Boolean)])];
@@ -915,10 +1098,11 @@ function checks(d, { offDay = null } = {}) {
 }
 
 // 給畫面看的草稿（不含 history）；每一項多一個 st：new／dirty／del／''（原本的、沒改）
-function view(d, { offDay = null, today = null } = {}) {
+// 時段多 link（屬於哪個委託、哪個步驟）和 lane／lanes（時刻簿並排）；raids＝自己建的團戰（只顯示，一起排並排）
+function view(d, { offDay = null, today = null, raids = [] } = {}) {
   if (!d) return null;
   const days = [];
-  const last = [...live(d.rows).map((r) => r.date), ...live(d.reminders).map((m) => m.date)].sort().pop() || '';
+  const last = [...live(d.rows).map((r) => r.date), ...live(d.reminders).map((m) => m.date), ...raids.map((r) => r.date)].filter((x) => x <= addDays(d.week.start, 6)).sort().pop() || '';
   const n = last > addDays(d.week.start, 4) ? Math.min(7, Math.round((new Date(`${last}T00:00:00`) - new Date(`${d.week.start}T00:00:00`)) / 86400000) + 1) : 5;
   for (let i = 0; i < n; i++) {
     const date = addDays(d.week.start, i);
@@ -927,14 +1111,28 @@ function view(d, { offDay = null, today = null } = {}) {
     days.push({ date, label: dayLabel(date), theme, themeSt: theme === (d.themeOrig[date] || '') ? '' : !d.themeOrig[date] ? 'new' : !theme ? 'del' : 'dirty', themeWas: d.themeOrig[date] || '', off: off && off.off && off.kind !== 'weekend' ? off.name : '' });
   }
   const strip = (x) => { const { orig, ...rest } = x; return rest; };
+  const qs = live(d.quests);
+  const rows = d.rows.map((r) => {
+    const L = linkOf(r.title, qs);
+    const q = L && qs.find((x) => x.id === L.qid);
+    const s = q && L.step ? q.steps.find((x) => norm(x.text) === norm(L.step)) : null;
+    return { ...strip(r), st: rowState(r), was: r.orig ? { date: r.orig.date, start: r.orig.start, title: r.orig.title } : null, link: L ? { ...L, stepDone: !!(s && s.done), hasStep: !!s } : null };
+  });
+  const ext = raids.map((x, i) => ({ ...x, id: `x${i}` }));
+  const lanes = {};
+  for (const date of new Set([...rows.map((r) => r.date), ...ext.map((x) => x.date)])) Object.assign(lanes, layoutDay([...rows.filter((r) => r.date === date && r.start), ...ext.filter((x) => x.date === date)].map((x) => ({ key: x.id, start: x.start, end: x.end }))));
+  for (const r of [...rows, ...ext]) Object.assign(r, lanes[r.id] || { lane: 0, lanes: 1 });
+  const quests = d.quests.map((q) => {
+    const mine = rows.filter((r) => !r.del && r.link && r.link.qid === q.id);
+    return { ...strip(q), st: questState(q), was: q.orig ? { title: q.orig.title, due: q.orig.due } : null, reason: q.orig ? q.orig.reason : '', implicit: q.orig ? q.orig.implicit : false, doneSelf: q.orig ? q.orig.done : undefined, key: q.orig ? q.orig.key : null, slots: mine.length, slotDates: [...new Set(mine.map((r) => r.date))].sort() };
+  });
   return {
     week: { ...d.week, name: today ? weekName(d.week.start, today) : d.week.label },
-    quests: d.quests.map((q) => ({ ...strip(q), st: questState(q), was: q.orig ? { title: q.orig.title, due: q.orig.due } : null, reason: q.orig ? q.orig.reason : '', implicit: q.orig ? q.orig.implicit : false, doneSelf: q.orig ? q.orig.done : undefined, key: q.orig ? q.orig.key : null })),
-    rows: d.rows.map((r) => ({ ...strip(r), st: rowState(r), was: r.orig ? { date: r.orig.date, start: r.orig.start, title: r.orig.title } : null })),
+    quests, rows, raids: ext,
     reminders: d.reminders.map((m) => ({ ...strip(m), st: remState(m) })),
     themes: d.themes, unsure: d.unsure,
-    log: d.log.slice(-30).map((l) => ({ id: l.id, said: l.said, at: l.at, by: l.by, pending: l.pending, text: l.text, edit: !!l.edit })),
-    days, summary: summary(d), checks: checks(d, { offDay }), changes: changes(d),
+    log: d.log.slice(-30).map((l) => ({ id: l.id, said: l.said, at: l.at, by: l.by, pending: l.pending, text: l.text, edit: !!l.edit, ids: l.ids || [] })),
+    days, summary: summary(d), checks: checks(d, { offDay, raids }), changes: changes(d),
     canUndo: !!(d.history && d.history.length),
     count: live(d.quests).length + live(d.rows).length + live(d.reminders).length + Object.values(d.themes).filter(Boolean).length + d.unsure.length,
     pending: d.log.filter((l) => l.pending).length,
@@ -947,4 +1145,5 @@ module.exports = {
   EXTRACT_SCHEMA, EXTRACT_SYSTEM, extractUser, normalizeAI, toAIItems, EDIT_SCHEMA, EDIT_SYSTEM, editUser, indexText, applyEdits,
   blank, upgrade, snapshot, undo, addItems, removeLog, removeItem, restoreItem, wipe, editItem, resolveUnsure, findItem, findQuest, itemsText, summary, checks,
   questState, rowState, remState, changes, syncPlan, toMarkdown, applyToContent, view, dayLabel, addDays, validISO, validHM, live,
+  linkOf, linkTitle, layoutDay, parseStepLines, freeSegments, splitPlan, applySplit, SPLIT_UNITS, STEPS_SCHEMA, STEPS_SYSTEM, stepsUser, normalizeSteps,
 };

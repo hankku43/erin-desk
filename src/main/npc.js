@@ -394,6 +394,11 @@ const TEMPLATES = {
   pd_edit_none: [['嗯……{self}不太確定要改哪裡。可以說得更清楚一點嗎？例如「把週報移到週五」「站會改十點」。', 'thinking']],
   pd_edit_off: [['AI 現在沒開，{self}先幫你把新的事加上去：{changes}。要改舊的，可以說「把 X 移到週五」，或直接點那一項改～', 'normal']],
   pd_edit_off_none: [['AI 現在沒開，{self}看不懂要怎麼改。直接點表格裡那一項改就好喔～', 'thinking']],
+  // 🕘 時刻簿：委託拆成時段
+  pd_split: [
+    ['🕘 「{quest}」排進時刻簿了：排在{days}，共 {n} 格。做完一格，委託的那個步驟也會跟著勾起來～', 'happy'],
+    ['排好了～「{quest}」分成 {n} 格放在{days}。照著一格一格做就好！', 'cheer'],
+  ],
   // 🌴 請假
   leave_set: [
     ['🌴 好～{when}請假（{note}），{self}記下來了。那天不叫你、團戰也不吵你，連續上工也不會斷，好好休息！', 'happy'],

@@ -557,15 +557,19 @@ function slotNow() {
   const rows = t && t.rows ? [...t.rows.filter((r) => !r.canceled), ...appRaids].sort((a, b) => a.start.localeCompare(b.start)) : [];
   if (!rows.length) return { cur: null, next: null, t };
   const now = nowMs();
-  let cur = null, next = null;
+  let next = null;
+  const curs = []; // 🕘 同一個時段可以不只一件事
   for (const r of rows) {
     const tm = slotTimes(r, t.date);
     if (!tm) continue;
-    if (tm.e && now >= tm.s && now < tm.e) cur = { row: r, ...tm };
+    if (tm.e && now >= tm.s && now < tm.e) curs.push({ row: r, ...tm });
     else if (!next && now < tm.s) next = { row: r, ...tm };
   }
-  return { cur, next, t };
+  curs.sort((a, b) => a.e - b.e || (b.row.raid ? 1 : 0) - (a.row.raid ? 1 : 0)); // 最早結束的那件當「這一格」（倒數照它）
+  return { cur: curs[0] || null, curs, next, t };
 }
+// 現在這一格的文字：同時好幾件就用「／」接起來
+const curText = (curs, t) => curs.map((c) => rowText(c.row, t)).join('／');
 function starsHtml(q, animate) {
   const n = q.objectives.length;
   if (!n) return '';
@@ -606,7 +610,7 @@ function renderTracker() {
     return;
   }
   const mode = flMode();
-  const { cur, next, t } = slotNow();
+  const { cur, curs, next, t } = slotNow();
   const canSlot = !!(cur || next);
   const a = v.active;
   let html = '';
@@ -616,7 +620,7 @@ function renderTracker() {
     const left = Math.max(0, Math.ceil((cur.e - nowMs()) / 60000));
     const cls = left <= 3 ? 'end' : left <= 10 ? 'soon' : '';
     html = `<div class="fl ${cls}"><button class="fl-ico" data-flip title="切換成當前任務">⏳</button>
-      <div class="fl-main"><div class="fl-text">${rich(rowText(cur.row, t))}</div>
+      <div class="fl-main"><div class="fl-text">${rich(curText(curs, t))}</div>
         <div class="fl-sub fl-barrow"><span>${esc(cur.row.start)}</span><div class="fl-bar"><i style="width:${pct.toFixed(1)}%"></i></div><span>${esc(cur.row.end)}</span></div></div>
       <span class="fl-side">剩 ${left} 分</span></div>`;
   } else if (mode === 'slot' && next) {
@@ -655,7 +659,7 @@ $('#tracker').addEventListener('click', async (e) => {
 // ---------- 滑過去看細項 ----------
 function renderPeek() {
   const v = state.view, a = v && v.active;
-  const { cur, next, t } = slotNow();
+  const { cur, curs, next, t } = slotNow();
   let html = '';
   if (a) {
     html += `<div class="pk-head">${TIER_ICON[a.tier] || '📌'} <b>${rich(a.title)}</b>${dueChip(a)}</div>`;
@@ -665,7 +669,7 @@ function renderPeek() {
   }
   const r = cur || next;
   if (r) {
-    const txt = rowText(r.row, t), out = t.branch ? '' : r.row.b;
+    const txt = cur ? curText(curs, t) : rowText(r.row, t), out = t.branch ? '' : (cur ? curs.map((c) => c.row.b).filter(Boolean).join('／') : r.row.b);
     let meta = '';
     if (cur) { const pct = Math.round(((nowMs() - cur.s) / (cur.e - cur.s)) * 100); meta = `已過 ${pct}%・剩 ${Math.max(0, Math.ceil((cur.e - nowMs()) / 60000))} 分`; }
     else meta = `${next.row.start} 開始`;
@@ -1148,7 +1152,8 @@ function renderPanelInner(el, v) {
         ? `<span class="confirm"><button class="btn small danger" data-del-row-yes="${r.id}">刪除</button><button class="btn small ghost" data-del-no>取消</button></span>`
         : `<button class="icon-btn del" data-del-row="${r.id}" title="刪除這一格">✕</button>`;
       const rdMark = r.raid ? '<span class="rd-tag" title="團戰：開始前提醒、開始時自動專注">📯</span>' : '';
-      body += `<label class="row ${r.current ? 'current' : ''} ${r.past ? 'past' : ''} ${r.done ? 'done' : ''} ${r.raid ? 'raid' : ''} ${r.canceled ? 'canceled' : ''}"><input type="checkbox" data-row="${r.id}" ${r.done ? 'checked' : ''} ${r.canceled ? 'disabled' : ''}><span class="slot">${esc(r.slot)}</span><span>${rdMark}<span class="blk">${rich(blk)}</span>${out ? `<span class="out">→ ${rich(out)}</span>` : ''}${r.canceled ? '<span class="out">已取消</span>' : ''}</span>${del}</label>`;
+      const linked = !t.branch && r.questId && r.step && r.a.endsWith(r.step) ? `<span class="blk"><small class="lq" title="這格是委託「${esc(r.a.slice(0, r.a.length - r.step.length).replace(/[：:]\s*$/, ''))}」的步驟：做完會一起勾">📜 ${rich(r.a.slice(0, r.a.length - r.step.length).replace(/[：:]\s*$/, ''))}：</small>${rich(r.step)}</span>` : ''; // 🕘 時刻簿排的「委託：步驟」
+      body += `<label class="row ${r.current ? 'current' : ''} ${r.past ? 'past' : ''} ${r.done ? 'done' : ''} ${r.raid ? 'raid' : ''} ${r.canceled ? 'canceled' : ''}"><input type="checkbox" data-row="${r.id}" ${r.done ? 'checked' : ''} ${r.canceled ? 'disabled' : ''}><span class="slot">${esc(r.slot)}</span><span>${rdMark}${linked || `<span class="blk">${rich(blk)}</span>`}${out ? `<span class="out">→ ${rich(out)}</span>` : ''}${r.canceled ? '<span class="out">已取消</span>' : ''}</span>${del}</label>`;
     }
     while (ai < appRaids.length) body += rdHtml(appRaids[ai++]);
     if (v.decisions.length) {
@@ -1160,7 +1165,7 @@ function renderPanelInner(el, v) {
       }).join('') + '</div>';
     }
     // 標題列只放標題；新增、團戰、請假、匯入匯出放到下面一列工具列（以前全部擠在標題列，Windows 的字比較寬，按鈕會斷成兩行）
-    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><span class="tool-sep" aria-hidden="true"></span><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="btn small tool" data-lv-open data-tip="請假、看接下來的國定假日">🌴 請假</button><button class="btn small tool ico" data-pd-open data-tip="委託：在${esc(v.npc.name)}的筆記本用說的加、改、勾" aria-label="委託">📓</button><button class="btn small tool ico" data-report-open data-tip="收工：寫今天做了什麼、卡在哪（下班提醒時直接跟${esc(v.npc.name)}說也可以）" aria-label="收工">🌙</button>` : ''}<span class="spacer"></span>${v.editable ? '<button class="btn small tool ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="btn small tool ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
+    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><span class="tool-sep" aria-hidden="true"></span><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="btn small tool" data-lv-open data-tip="請假、看接下來的國定假日">🌴 請假</button><button class="btn small tool ico" data-pd-open data-tip="委託：在${esc(v.npc.name)}的筆記本用說的加、改、勾" aria-label="委託">📓</button><button class="btn small tool ico" data-pd-time data-tip="時刻簿：在${esc(v.npc.name)}的筆記本把今天的時段排一排（同一個時段可以不只一件事）" aria-label="時刻簿">🕘</button><button class="btn small tool ico" data-report-open data-tip="收工：寫今天做了什麼、卡在哪（下班提醒時直接跟${esc(v.npc.name)}說也可以）" aria-label="收工">🌙</button>` : ''}<span class="spacer"></span>${v.editable ? '<button class="btn small tool ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="btn small tool ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
     el.innerHTML = head('📅 今日行程', '', '', '勾完一格 +10 XP。時段是那一天要做的事、提醒是到時候來叫你；團戰（會議）開始時會自動專注；📥📤 可以跟 Google／Outlook 行事曆互通（.ics 檔）') + tools + `<div class="panel-body">${body}</div>`;
   }
 
@@ -1370,6 +1375,7 @@ async function panelClick(e) {
   if (['leave', 'daily'].includes(state.panel) && await leaveClick(e)) return;
   if (['magic', 'memories'].includes(state.panel) && await hubClick(e)) return;
   if (t.closest('[data-pd-open]')) { openPdNote(); return; } // 週任務板、今日行程上的「📓」
+  if (t.closest('[data-pd-time]')) { openPdNote('this', { book: 'time', day: state.view && state.view.today ? state.view.today.date : undefined }); return; } // 今日行程的「🕘」：直接翻到時刻簿的今天
   if (t.closest('[data-report-open]')) { openPanel('report'); return; } // 今日行程的「🌙 收工」
   if (state.panel === 'ach' && await achClick(e)) return;
   if (state.panel === 'album' && await Story.albumClick(e)) return;

@@ -316,6 +316,17 @@ function parsePlan(content, sourcePath = '') {
   plan.weekStart = dates[0] || null; plan.weekEnd = dates[dates.length - 1] || null;
   for (const q of plan.quests) if (!q.deadline && plan.weekEnd) { q.deadline = plan.weekEnd; q.deadlineLabel = '本週內'; }
   for (const d of plan.days) d.rows.sort((a, b) => a.start.localeCompare(b.start));
+  // 🕘 時段屬於哪個委託：「- 09:00–10:00 寫完週報：收資料」（冒號前面剛好是某個委託的名稱才算；整格就是委託名稱也算）
+  for (const d of plan.days) for (const r of d.rows) {
+    let best = null;
+    for (const q of plan.quests) {
+      const t = q.title;
+      if (!t || t.length > r.a.length || (best && t.length <= best.q.title.length)) continue;
+      if (r.a === t) best = { q, step: '' };
+      else if (r.a.startsWith(t) && /^\s*[：:]/.test(r.a.slice(t.length))) best = { q, step: r.a.slice(t.length).replace(/^\s*[：:]\s*/, '').trim() };
+    }
+    if (best) { r.questId = best.q.id; r.step = best.step; }
+  }
   return plan;
 }
 

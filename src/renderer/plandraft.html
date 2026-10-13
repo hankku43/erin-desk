@@ -7,9 +7,9 @@
 <link rel="stylesheet" href="plandraft.css">
 </head>
 <body>
-  <div id="book">
+  <div id="book" data-book="quests">
     <header id="bar">
-      <div class="ttl"><span class="book">📓</span><b id="ttl">筆記本</b><span class="sub">委託</span></div>
+      <div class="ttl"><span class="book" id="ttlIco">📓</span><b id="ttl">筆記本</b><span class="sub" id="ttlSub">委託簿</span></div>
       <div class="weeks" id="weeks" role="tablist"></div>
       <div id="sum" class="sum"></div>
       <span class="grow"></span>
@@ -26,18 +26,29 @@
     </header>
     <div id="confirm" class="confirm hidden"></div>
     <div id="warns" class="warns hidden"></div>
+    <div id="unsureBox" class="unsure-strip hidden"><b class="uh">❓ 不確定</b><div id="unsure" class="uns-list"></div></div>
     <main id="main">
-      <aside id="left">
-        <section>
-          <h2><span>📜 委託</span><button class="add" data-add="quest">＋ 委託</button></h2>
-          <div id="quests"></div>
-        </section>
-        <section class="col-unsure hidden" id="unsureBox">
-          <h2><span>❓ 不確定</span></h2>
-          <div id="unsure"></div>
-        </section>
-      </aside>
-      <section id="week"><div id="days" class="days"></div></section>
+      <!-- 📜 委託簿：依截止日分欄 -->
+      <section id="pageQuests" class="page">
+        <div class="ph">
+          <h2><span>📜 委託簿</span></h2>
+          <span class="hint">依截止日排；步驟可以直接勾，<b>🕘 排進時刻簿</b>把委託拆成一格一格的時段</span>
+          <span class="grow"></span>
+          <button class="add" data-add="quest">＋ 委託</button>
+        </div>
+        <div id="dueCols" class="duecols"></div>
+      </section>
+      <!-- 🕘 時刻簿：一天一頁（可以切一週總覽） -->
+      <section id="pageTime" class="page hidden">
+        <div class="ph">
+          <h2><span>🕘 時刻簿</span></h2>
+          <div id="dayTabs" class="daytabs" role="tablist"></div>
+          <button class="tb small" id="bWeekView" data-tip="五天並排看一週">📅 一週總覽</button>
+          <span class="grow"></span>
+          <label class="unit" data-tip="點時間軸的空白處加一格，對齊到這個單位">點空白加一格：<select id="unitSel"><option value="60">每 1 小時</option><option value="30" selected>每 30 分</option><option value="15">每 15 分</option></select></label>
+        </div>
+        <div id="timeArea" class="time-area"></div>
+      </section>
     </main>
     <footer id="foot">
       <div class="portrait"><img id="face" alt="" draggable="false"></div>
@@ -51,6 +62,11 @@
       </div>
     </footer>
   </div>
+  <!-- 右邊的兩張索引書籤 -->
+  <nav id="tabs" class="bookmarks" role="tablist" aria-label="翻到哪一本">
+    <button role="tab" data-book="quests" class="bm bm-q"><i>📜</i><span>委託</span><em class="bump hidden"></em></button>
+    <button role="tab" data-book="time" class="bm bm-t"><i>🕘</i><span>時刻</span><em class="bump hidden"></em></button>
+  </nav>
   <div id="intro" class="intro hidden"><img id="intro1" alt=""><img id="intro2" alt=""></div>
   <div id="stamp" class="stamp hidden"><img id="stampErin" alt=""><img id="stampSeal" alt=""></div>
   <div id="pop" class="pop hidden" role="dialog" aria-modal="true"></div>

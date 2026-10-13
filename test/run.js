@@ -3141,6 +3141,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.strictEqual(ck('整理月報：收齊數字、寫摘要', [{ kind: 'quest', title: '整理月報', tier: 'major', due: '', steps: [] }]), null, '規則有步驟、AI 沒有：用規則的');
   assert.deepStrictEqual(ck('把需求整理一下然後跟業務對齊', [{ kind: 'quest', title: '整理需求', tier: 'major', due: '', steps: ['整理', '跟業務對齊'] }]).map((x) => x.steps.length), [2], '沒把握的句子：用 AI 拆好的');
   assert.strictEqual(ck('週會', [{ kind: 'row', date: '2026-10-13', start: '14:00', end: '', title: '週會', raid: true }])[0].kind, 'quest', '原話沒說時間：AI 編的時段不算');
+  assert.strictEqual(ck('下午三點打電話給供應商', [{ kind: 'quest', title: '三點打電話給供應商', tier: 'major', due: '', steps: [] }]), null, '有時間沒日子（使用者電腦評分 #10）：留著問哪一天');
   // AI 的格式：至少一項；步驟（kind steps）
   assert.strictEqual(PD.EXTRACT_SCHEMA.properties.items.minItems, 1, '不能回空清單');
   assert.deepStrictEqual(PD.normalizeAI({ items: [{ kind: 'steps', title: '上一個委託', steps: ['收資料', '寫初稿'] }] }, ctx), [{ kind: 'steps', ref: '', steps: ['收資料', '寫初稿'] }]);
@@ -3292,4 +3293,129 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.strictEqual(E.plan.progressLog.find((x) => x.date === '2026-10-16').blocker, '', '沒有卡點');
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('收工測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 📚 兩本書：📜 委託簿＋🕘 時刻簿；委託拆成時段、時段連到委託的步驟、同時段不只一件 ----------
+(async () => {
+  const os = require('os');
+  const PD = require('../src/main/plandraft');
+  const P = require('../src/main/planParser');
+  const { Engine } = require('../src/main/engine');
+  // 1. 計畫檔的寫法：「委託名稱：步驟」冒號前面剛好是委託名稱才算連結
+  const base = '# 2026 時刻簿測試 10/12–10/16\n\n## 寫完週報 🔧 📅 10/16\n- [x] 收資料\n- [ ] 寫初稿\n- [ ] 請主管看\n\n## 週二 10/13\n- 09:00–10:00 寫完週報：寫初稿\n- 09:30–10:30 回信\n- 10:00–11:00 10/5 會議：提問清單\n- 14:00–15:00 📯 週會\n';
+  const plan = P.parsePlan(base);
+  const rows = plan.days[0].rows;
+  assert.deepStrictEqual(rows.map((r) => [r.questId ? 'q' : '', r.step || '']), [['q', '寫初稿'], ['', ''], ['', ''], ['', '']], '計畫檔：時段連到委託');
+  assert.deepStrictEqual([PD.linkOf('寫完週報', [{ id: 'a', title: '寫完週報' }]), PD.linkOf('寫完週報整理', [{ id: 'a', title: '寫完週報' }])].map((x) => x && x.step), ['', null], '整格是委託名稱也算；只有開頭一樣不算');
+  // 2. 草稿：連結、並排、委託改名時段跟著改、重疊只有撞團戰才提醒
+  const ctx = { today: '2026-10-13', week: PD.weekOf('2026-10-13') };
+  const d = PD.blank(ctx.week, '');
+  PD.syncPlan(d, plan);
+  let v = PD.view(d, { today: '2026-10-13', raids: [{ date: '2026-10-13', start: '09:00', end: '09:30', title: '站會' }] });
+  const r0 = v.rows.find((r) => r.title === '寫完週報：寫初稿');
+  assert.ok(r0.link && r0.link.step === '寫初稿' && r0.link.hasStep && !r0.link.stepDone && r0.lanes === 2, '連結＋並排：' + JSON.stringify(r0));
+  assert.deepStrictEqual(PD.layoutDay([{ key: 'a', start: '09:00', end: '10:00' }, { key: 'b', start: '09:30', end: '11:00' }, { key: 'c', start: '10:00', end: '10:30' }, { key: 'd', start: '11:00', end: '12:00' }]), { a: { lane: 0, lanes: 2 }, b: { lane: 1, lanes: 2 }, c: { lane: 0, lanes: 2 }, d: { lane: 0, lanes: 1 } }, '同時段並排');
+  assert.ok(v.quests[0].slots === 1 && v.quests[0].slotDates[0] === '2026-10-13', '委託知道自己排了幾格');
+  PD.addItems(d, [{ kind: 'row', date: '2026-10-13', start: '09:00', end: '10:00', title: '看信', raid: false }]);
+  assert.strictEqual(PD.checks(d).length, 0, '同時段兩件事：不用紅筆');
+  PD.addItems(d, [{ kind: 'row', date: '2026-10-13', start: '14:30', end: '15:30', title: '寫測試', raid: false }]);
+  assert.ok(PD.checks(d).some((c) => /團戰「週會」/.test(c.text)), '撞團戰：要提醒');
+  assert.ok(PD.checks(d, { raids: [{ date: '2026-10-13', start: '09:00', end: '09:30', title: '站會' }] }).some((c) => /站會/.test(c.text)), '撞自己建的團戰也提醒');
+  PD.editItem(d, d.quests[0].id, { title: '寫好週報' });
+  assert.ok(d.rows.some((r) => r.title === '寫好週報：寫初稿'), '委託改名：時段跟著改');
+  const applied = PD.applyToContent(base, d).content;
+  assert.ok(/## 寫好週報/.test(applied) && /09:00–10:00 寫好週報：寫初稿/.test(applied), applied);
+  // 3. 步驟的時間寫法
+  assert.deepStrictEqual(PD.parseStepLines('收資料 30\n寫初稿 1.5 小時\n- 整理 45分\n改第2版\n請主管看'), [{ text: '收資料', min: 30 }, { text: '寫初稿', min: 90 }, { text: '整理', min: 45 }, { text: '改第2版', min: 0 }, { text: '請主管看', min: 0 }]);
+  // 4. 拆時段：平均分、一步一格、跳過團戰、延到下一天、擠在同一格、照步驟的時間
+  const s = PD.blank(ctx.week, '');
+  PD.addItems(s, [{ kind: 'quest', title: '寫完週報', tier: 'major', due: '2026-10-16', steps: ['收資料', '寫初稿', '請主管看'] }, { kind: 'row', date: '2026-10-13', start: '10:00', end: '10:30', title: '站會', raid: true }]);
+  const qid = s.quests[0].id;
+  const fmt = (r) => r.rows.map((x) => `${x.date.slice(8)} ${x.start}-${x.end} ${x.step}`);
+  const steps = ['收資料', '寫初稿', '請主管看'];
+  let sp = PD.splitPlan(s, qid, { dates: ['2026-10-13'], from: '09:00', to: '12:00', unit: 60, steps, fill: 'spread' });
+  assert.deepStrictEqual(fmt(sp), ['13 09:00-10:00 收資料', '13 10:30-11:30 寫初稿', '13 11:30-12:00 請主管看'], '跳過團戰（10:00 站會）');
+  assert.ok(sp.skipped.length === 1 && /站會/.test(sp.skipped[0]));
+  sp = PD.splitPlan(s, qid, { dates: ['2026-10-13'], from: '13:00', to: '19:00', unit: 60, steps, fill: 'spread' });
+  assert.deepStrictEqual(fmt(sp), ['13 13:00-15:00 收資料', '13 15:00-17:00 寫初稿', '13 17:00-19:00 請主管看'], '格子比步驟多：平均分、連在一起的合成一段');
+  sp = PD.splitPlan(s, qid, { dates: ['2026-10-13'], from: '13:00', to: '19:00', unit: 30, steps, fill: 'one' });
+  assert.deepStrictEqual(fmt(sp), ['13 13:00-13:30 收資料', '13 13:30-14:00 寫初稿', '13 14:00-14:30 請主管看'], '一步一格');
+  sp = PD.splitPlan(s, qid, { dates: ['2026-10-14'], from: '09:00', to: '11:00', unit: 60, steps: ['a1', 'a2', 'a3', 'a4', 'a5'], overflow: 'next', offDates: ['2026-10-15'] });
+  assert.deepStrictEqual(fmt(sp), ['14 09:00-10:00 a1', '14 10:00-11:00 a2', '16 09:00-10:00 a3', '16 10:00-11:00 a4'], '延到下一天（跳過放假的週四），週五排完還不夠＝排不下');
+  assert.deepStrictEqual(sp.leftover, ['a5']);
+  sp = PD.splitPlan(s, qid, { dates: ['2026-10-14'], from: '09:00', to: '11:00', unit: 60, steps: ['a1', 'a2', 'a3', 'a4'], overflow: 'stack' });
+  assert.deepStrictEqual(fmt(sp), ['14 09:00-10:00 a1', '14 09:00-10:00 a2', '14 10:00-11:00 a3', '14 10:00-11:00 a4'], '擠在同一格');
+  assert.strictEqual(sp.stacked, 4);
+  sp = PD.splitPlan(s, qid, { dates: ['2026-10-13'], from: '09:00', to: '12:00', unit: 'est', steps: [{ text: '收資料', min: 90 }, { text: '寫初稿', min: 60 }] });
+  assert.deepStrictEqual(fmt(sp), ['13 09:00-10:00 收資料', '13 10:30-11:00 收資料', '13 11:00-12:00 寫初稿'], '照步驟寫的時間（被團戰切開）');
+  sp = PD.splitPlan(s, qid, { dates: ['2026-10-13', '2026-10-14'], from: '14:00', to: '16:00', unit: 60, steps: [] });
+  assert.deepStrictEqual(sp.rows.map((x) => x.title), ['寫完週報', '寫完週報'], '沒有步驟：整段做這個委託');
+  assert.throws(() => PD.splitPlan(s, qid, { dates: ['2026-10-13'], from: '12:00', to: '09:00', unit: 60 }), /結束時間/);
+  assert.throws(() => PD.splitPlan(s, qid, { dates: [], from: '09:00', to: '12:00', unit: 60 }), /哪幾天/);
+  sp = PD.splitPlan(s, qid, { dates: ['2026-10-13'], from: '13:00', to: '16:00', unit: 60, steps: ['收資料', '寫初稿', '請主管看', '寄出'], overflow: 'stack' });
+  const ids = PD.applySplit(s, qid, sp, ['收資料', '寫初稿', '請主管看', '寄出']);
+  assert.ok(ids.length === 4 && s.quests[0].steps.length === 4 && s.rows.filter((r) => r.title.startsWith('寫完週報：')).length === 4, '套用：新步驟補進委託（4 個步驟擠進 3 格）');
+  // 5. AI 建議步驟：格式檢查
+  assert.deepStrictEqual(PD.normalizeSteps({ steps: [{ text: '收集資料', minutes: 40 }, { text: '寫完週報', minutes: 30 }, { text: '寫初稿', minutes: 5 }, { text: '寫初稿', minutes: 60 }] }, { title: '寫完週報' }), [{ text: '收集資料', min: 45 }, { text: '寫初稿', min: 15 }], 'AI 的步驟：去掉委託名稱、重複的，時間對齊 15 分');
+  assert.deepStrictEqual(PD.normalizeSteps({ steps: [{ text: '只有一個', minutes: 30 }] }, { title: 'x' }), [], '少於兩個不算');
+
+  // 6. 引擎：時刻簿、拆時段、做完一格自動勾步驟、同時好幾件
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-tb-'));
+  fs.writeFileSync(path.join(dir, 'plan.md'), base);
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, achievements: { enabled: false }, streak: { enabled: false }, llm: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] } }));
+  let t = new Date('2026-10-13T09:40:00').getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  // 同時好幾件
+  const ti = E.todayInfo();
+  assert.ok(ti.currents.length === 2 && ti.current.a === '寫完週報：寫初稿', '現在同時兩件：最早結束的當這一格');
+  assert.ok(/寫完週報：寫初稿／回信/.test(E.facts().block), '艾琳說現在這格：兩件都說');
+  // 打開時刻簿（今日行程的 🕘）
+  let r = E.pdOpen('this', { book: 'time', day: '2026-10-13' });
+  assert.ok(r.planDraft.book === 'time' && r.planDraft.bookDay === '2026-10-13' && r.planDraft.nowHM === '09:40', '直接翻到時刻簿的今天');
+  E.pdBook('quests');
+  assert.strictEqual(E.pdView().book, 'quests', '記住翻到哪一本');
+  // 拆時段
+  const wq = E.pdView().quests.find((q) => q.title === '寫完週報').id;
+  r = E.pdSplitPreview(wq, { dates: ['2026-10-14'], from: '09:00', to: '11:00', unit: 60, stepsText: '寫初稿\n請主管看' });
+  assert.deepStrictEqual(r.preview.rows.map((x) => x.title), ['寫完週報：寫初稿', '寫完週報：請主管看'], '預覽');
+  assert.strictEqual(E.pdView().changes, 0, '預覽不改草稿');
+  r = E.pdSplit(wq, { dates: ['2026-10-14'], from: '09:00', to: '11:00', unit: 60, stepsText: '寫初稿\n請主管看' });
+  assert.ok(r.lines[0].event === 'pd_split' && r.planDraft.book === 'time' && r.planDraft.bookDay === '2026-10-14' && r.planDraft.changes === 2, '排進去：翻到時刻簿那天');
+  E.pdUndo();
+  assert.strictEqual(E.pdView().changes, 0, '↶ 復原排進去的');
+  E.pdSplit(wq, { dates: ['2026-10-14'], from: '09:00', to: '11:00', unit: 60, stepsText: '寫初稿\n請主管看' });
+  await E.pdCommit();
+  const txt = fs.readFileSync(path.join(dir, 'plan.md'), 'utf8');
+  assert.ok(/## 週三 10\/14\n- 09:00–10:00 寫完週報：寫初稿\n- 10:00–11:00 寫完週報：請主管看/.test(txt), txt);
+  // AI 建議步驟（假的）
+  await assert.rejects(E.pdSuggestSteps(wq), /AI 現在沒開/);
+  E.config.llm.enabled = true; E.npc.status = { online: true };
+  E.npc.structured = async (event, o) => { assert.ok(event === 'plan_steps' && /【委託】寫完週報/.test(o.user) && /【已經有的步驟】收資料/.test(o.user)); return { steps: [{ text: '整理數字', minutes: 30 }, { text: '寫重點', minutes: 45 }] }; };
+  r = await E.pdSuggestSteps(wq, { minutes: 120 });
+  assert.deepStrictEqual(r.steps, [{ text: '整理數字', min: 30 }, { text: '寫重點', min: 45 }]);
+  E.config.llm.enabled = false;
+  // 做完一格 → 委託的那個步驟也勾起來（只勾一次）
+  t = new Date('2026-10-13T10:05:00').getTime();
+  const row = E.plan.days.find((x) => x.date === '2026-10-13').rows.find((x) => x.a === '寫完週報：寫初稿');
+  const gold0 = E.state.player.gold;
+  r = await E.toggleDaily(row.id, true);
+  const after = fs.readFileSync(path.join(dir, 'plan.md'), 'utf8');
+  assert.ok(r.linked && r.linked.step === '寫初稿' && /- \[x\] 寫初稿/.test(after) && /- \[x\] 09:00–10:00 寫完週報：寫初稿/.test(after), '做完一格＝步驟也做完：' + after);
+  assert.ok(r.reward && r.reward.xp > 0 && E.state.player.gold > gold0, '兩份獎勵加在一起');
+  r = await E.toggleDaily(row.id, false);
+  assert.ok(!r.linked && /- \[x\] 寫初稿/.test(fs.readFileSync(path.join(dir, 'plan.md'), 'utf8')), '取消那格：步驟不會跟著取消');
+  // 筆記本裡勾那格（pdRowDone 走同一條路）
+  const r2 = E.pdView().rows.find((x) => x.title === '寫完週報：請主管看');
+  t = new Date('2026-10-14T10:30:00').getTime();
+  r = await E.pdRowDone(r2.id, true);
+  assert.ok(r.linked && E.pdView().quests.find((q) => q.title === '寫完週報').steps.every((x) => x.done), '筆記本勾時段：步驟也勾');
+  fs.rmSync(dir, { recursive: true, force: true });
+  // 7. 畫面：兩本書、書籤、時刻簿、拆時段小卡
+  const root = path.join(__dirname, '..');
+  const big = fs.readFileSync(path.join(root, 'src/renderer/plandraft.html'), 'utf8');
+  for (const id of ['pageQuests', 'pageTime', 'tabs', 'dueCols', 'dayTabs', 'timeArea', 'unsureBox']) assert.ok(big.includes(`id="${id}"`), '筆記本畫面：' + id);
+  const pre = fs.readFileSync(path.join(root, 'src/main/plandraft-preload.js'), 'utf8');
+  for (const ch of ['pd:book', 'pd:splitPreview', 'pd:split', 'pd:suggest']) assert.ok(pre.includes(ch), 'preload：' + ch);
+  console.log('兩本書與時刻簿測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
