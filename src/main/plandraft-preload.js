@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('pd', {
   submit: (id) => ipcRenderer.invoke('pd:submit', id),
   rowDone: (id, done) => ipcRenderer.invoke('pd:rowDone', id, done),
   book: (book, day) => ipcRenderer.invoke('pd:book', book, day),
+  setFont: (on) => ipcRenderer.invoke('pd:font', on),
   splitPreview: (id, o) => ipcRenderer.invoke('pd:splitPreview', id, o),
   split: (id, o) => ipcRenderer.invoke('pd:split', id, o),
   suggest: (id, o) => ipcRenderer.invoke('pd:suggest', id, o),

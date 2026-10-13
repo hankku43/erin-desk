@@ -1,5 +1,6 @@
-// 🔄 自動更新的卡片：新版本下載好了（安裝版）或有新版本（免安裝版）時，貼在狀態欄上面
-//   安裝版：「現在更新（會重新啟動）」／「下次關掉時再裝」（不按也會在關掉艾琳時自動換上）
+// 🔄 自動更新的卡片：有新版本（先問再裝）、下載中、下載好了（安裝版）或有新版本（免安裝版）時，貼在狀態欄上面
+//   安裝版（預設先問）：「下載，關掉時換上」／「現在更新（下載完重新啟動）」／「這版先不要」；答應了才下載，下載中顯示進度
+//   下載好：「現在更新（會重新啟動）」／「下次關掉時再裝」（答應過的版本，關掉艾琳時換上）
 //   免安裝版：「打開下載頁」／「知道了」
 //   按了「下次再說／知道了」的版本不再跳卡片（記在存檔裡），選單「❓ 說明」裡還是看得到
 (function () {
@@ -12,12 +13,21 @@
 
   function render(s) {
     last = s;
-    const show = s && (s.status === 'ready' || s.status === 'available') && s.version && s.version !== dismissed;
+    const show = s && s.version && s.version !== dismissed && (s.status === 'ready' || s.status === 'available' || s.status === 'offer' || (s.status === 'downloading' && s.accepted));
     card.classList.toggle('hidden', !show);
     if (!show) return;
     const portable = s.status === 'available';
     const notes = (s.notes || []).length
-      ? `<details class="upd-notes"><summary>更新了什麼</summary><ul>${s.notes.map((n) => (/^・/.test(n) ? `<li>${esc(n.slice(1))}</li>` : `<li class="h">${esc(n)}</li>`)).join('')}</ul></details>` : '';
+      ? `<details class="upd-notes"${s.status === 'offer' ? ' open' : ''}><summary>更新了什麼</summary><ul>${s.notes.map((n) => (/^・/.test(n) ? `<li>${esc(n.slice(1))}</li>` : `<li class="h">${esc(n)}</li>`)).join('')}</ul></details>` : '';
+    if (s.status === 'offer' || s.status === 'downloading') { // 先問再裝：答應了才下載
+      const dl = s.status === 'downloading';
+      card.innerHTML = `<div class="upd-head"><span class="upd-ic">🎁</span><b>有新版本　${esc(s.version)}</b>${dl ? '' : '<button class="icon-btn" data-upd-later title="這版先不要">✕</button>'}</div>
+        <div class="upd-sub">${dl ? `下載中… ${s.percent || 0}%　${s.installNow ? '下載完會重新啟動換上' : `下載好之後，下次關掉${esc(npcName())}時換上`}` : `現在是 ${esc(s.current)}。要更新嗎？按「下載」才會開始，你的資料都會留著。`}</div>
+        ${dl ? `<div class="upd-bar"><i style="width:${Math.max(2, s.percent || 0)}%"></i></div>` : notes}
+        ${dl ? '' : `<div class="upd-btns"><button class="btn small gold" data-upd-accept>下載，關掉時換上</button><button class="btn small" data-upd-accept-now>現在更新</button><button class="btn small ghost" data-upd-later>這版先不要</button></div>`}`;
+      card.style.bottom = document.body.classList.contains('no-hud') ? '14px' : `${($('#hud') && $('#hud').offsetHeight) + 22}px`;
+      return;
+    }
     card.innerHTML = `<div class="upd-head"><span class="upd-ic">🎁</span><b>${portable ? '有新版本' : '新版本準備好了'}　${esc(s.version)}</b><button class="icon-btn" data-upd-later title="${portable ? '知道了' : '下次關掉時再裝'}">✕</button></div>
       <div class="upd-sub">${portable
         ? `現在是 ${esc(s.current)}。免安裝版要自己下載新的 zip，解壓縮後蓋過舊的資料夾就好；你的資料在「文件\\艾琳的任務櫃台」，不會不見。`
@@ -38,12 +48,21 @@
       if (!r || !r.installing) { toast('⚠ 現在沒辦法更新，下次關掉時會自動換上', 4000); render(last); }
       return;
     }
+    const acc = t.closest('[data-upd-accept], [data-upd-accept-now]');
+    if (acc) {
+      const now = acc.hasAttribute('data-upd-accept-now');
+      const r = await api.updateAccept(now);
+      if (r && r.downloading) toast(now ? `🔄 開始下載，好了${npcName()}會重新啟動換上新版` : `🔄 開始下載，下次關掉${npcName()}時換上`, 3500);
+      else toast('⚠ 現在沒辦法下載，等一下從右鍵「❓ 說明 → 🔄 檢查更新」再試', 4000);
+      return;
+    }
     if (t.closest('[data-upd-page]')) { api.updateOpenPage(); return; }
     if (t.closest('[data-upd-later]') && last) {
       dismissed = last.version;
       api.updateDismiss(last.version);
       card.classList.add('hidden');
       if (last.status === 'ready') toast(`好～下次關掉${npcName()}的時候會自動換上 ${last.version}`, 3500);
+      if (last.status === 'offer') toast(`好，${last.version} 先不裝。想裝的時候：右鍵「❓ 說明」→「🎁 有新版本」`, 4000);
     }
   });
 

@@ -192,10 +192,19 @@ function findSteps(rest) {
   return null;
 }
 
+const RE_ENDS_DAY = new RegExp(`(?:${RE_DAY.source})\\s*$`);
 function splitUnits(line, ctx) {
   const out = [];
   for (const part of String(line).split(/[。；;]\s*/).map((x) => x.trim()).filter(Boolean)) {
-    const pieces = part.split(RE_SPLIT).map((x) => x.trim()).filter(Boolean);
+    // 「提醒我週二、週四下午四點填工時」：頓號前面剛好是日子＝一次說好幾天，不拆（之後 expandDays 再拆成每一天）
+    const raw = part.split(/([，,、])\s*(?=(?:(?:下下|下|這|本)?\s*(?:週|周|星期|禮拜)\s*[一二三四五六日天]|大後天|後天|明天|今天|\d{1,2}\s*[/月]\s*\d{1,2})|(?:上午|下午|早上|晚上|中午|傍晚)(?!茶))/);
+    const pieces = [];
+    for (let i = 0; i < raw.length; i += 2) {
+      const pc = raw[i], sep = raw[i - 1], m0 = RE_DAY.exec(pc);
+      if (i > 0 && sep === '、' && RE_ENDS_DAY.test(pieces[pieces.length - 1] || '') && m0 && m0.index === 0) pieces[pieces.length - 1] += `、${pc}`;
+      else pieces.push(pc);
+    }
+    for (let i = pieces.length - 1; i >= 0; i--) { pieces[i] = pieces[i].trim(); if (!pieces[i]) pieces.splice(i, 1); }
     const mine = [];
     let buf = '';
     pieces.forEach((pc, i) => { // 只有日子／時間、沒有事的那段不拆：併到下一段（「週三、週四出差」），最後一段就併回前一段（「週二開會，下午兩點」）
@@ -210,6 +219,36 @@ function splitUnits(line, ctx) {
     out.push(...mine);
   }
   return out;
+}
+// 「週三、週四出差」「週二和週四 9 點站會」「週三到週五外訓」：一次說好幾天 → 拆成每一天各一句（日子換成 M/D）
+const RE_DAY_G = new RegExp(RE_DAY.source, 'g');
+const RE_DAY_SEP = /^\s*(?:[、，,／/和跟及與]|以及|還有)?\s*$/;
+const RE_DAY_RANGE = /^\s*(?:到|至|~|～|－|-|–)\s*$/;
+function expandDays(unit, ctx) {
+  const ms = [...String(unit).matchAll(RE_DAY_G)];
+  for (let i = 0; i < ms.length - 1; i++) {
+    const run = [ms[i]], seps = [];
+    for (let j = i + 1; j < ms.length; j++) {
+      const between = unit.slice(ms[j - 1].index + ms[j - 1][0].length, ms[j].index);
+      const range = RE_DAY_RANGE.test(between);
+      if (!range && !RE_DAY_SEP.test(between)) break;
+      run.push(ms[j]); seps.push(range);
+    }
+    if (run.length < 2) continue;
+    const dates = [];
+    run.forEach((m, k) => {
+      const f = findDay(m[0], ctx);
+      if (!f) return;
+      if (k > 0 && seps[k - 1] && dates.length) { // 「週三到週五」：中間的日子也算（最多一週）
+        for (let x = addDays(dates[dates.length - 1], 1); x < f.date && dates.length < 7; x = addDays(x, 1)) dates.push(x);
+      }
+      if (!dates.includes(f.date)) dates.push(f.date);
+    });
+    if (dates.length < 2) return [unit];
+    const from = run[0].index, to = run[run.length - 1].index + run[run.length - 1][0].length;
+    return dates.map((date) => `${unit.slice(0, from)}${md(date)}${unit.slice(to)}`);
+  }
+  return [unit];
 }
 // 回傳項目陣列：{ kind: quest|row|reminder|theme|unsure|steps, … }；steps＝{ ref: 委託名稱或 ''（上一個）, steps }
 function ruleExtract(text, ctx) {
@@ -227,7 +266,7 @@ function ruleExtract(text, ctx) {
     }
     listFor = null;
     let lastDay = null;
-    for (const unit of splitUnits(rawLine, ctx)) {
+    for (const unit of splitUnits(rawLine, ctx).flatMap((u) => expandDays(u, ctx))) {
       if (isChatter(unit) || isEnough(unit)) continue;
       const own = findDay(unit, ctx);
       const day = own || (lastDay && RE_PERIOD_HEAD.test(unit) ? { date: lastDay.date, raw: '', index: -1 } : null); // 「下午練講稿」：跟前一段同一天
@@ -244,7 +283,8 @@ function ruleExtract(text, ctx) {
         else out.push({ kind: 'row', date: day.date, start: time.start, end: time.end || (RE_MEETING.test(unit) ? plusMin(time.start, 60) : ''), title, raid: RE_MEETING.test(unit) });
         lastQuest = null; continue;
       }
-      if (day && RE_DAYOFF.test(rest.replace(/\s+/g, ''))) { out.push({ kind: 'theme', date: day.date, title: rest.replace(/\s+/g, '') }); lastQuest = null; continue; }
+      const offWord = rest.replace(/\s+/g, '').replace(/^(?:都|也|全部|整天)?(?:要|得|會|在)?/, ''); // 「明天、後天都要請假」
+      if (day && RE_DAYOFF.test(offWord)) { out.push({ kind: 'theme', date: day.date, title: offWord }); lastQuest = null; continue; }
       if (day && RE_ALLDAY.test(unit)) {
         out.push({ kind: 'theme', date: day.date, title: clip(cleanText(rest.replace(RE_ALLDAY, ' '))) || '整天' });
         lastQuest = null; continue;
@@ -686,8 +726,8 @@ function renameLinked(d, oldTitle, newTitle) {
 function layoutDay(items) {
   const xs = items.map((x) => ({ key: x.key, s: toMin(x.start), e: x.end && x.end > x.start ? toMin(x.end) : toMin(x.start) + 30 })).sort((a, b) => a.s - b.s || b.e - a.e);
   const out = {};
-  let group = [], laneEnd = [], groupEnd = 0;
-  const close = () => { const n = laneEnd.length; for (const g of group) out[g.key] = { lane: g.lane, lanes: n }; group = []; laneEnd = []; };
+  let group = [], laneEnd = [], groupEnd = 0, gi = 0;
+  const close = () => { const n = laneEnd.length; for (const g of group) out[g.key] = { lane: g.lane, lanes: n, g: gi }; gi++; group = []; laneEnd = []; }; // g＝第幾群（太擠時畫面收成「+N」用）
   for (const x of xs) {
     if (group.length && x.s >= groupEnd) close();
     let lane = laneEnd.findIndex((e) => e <= x.s);
@@ -1086,6 +1126,12 @@ function checks(d, { offDay = null, raids = [] } = {}) {
     if (x) out.push({ ids: [r.id], text: `${dayLabel(r.date)} ${r.start}「${r.title}」和團戰「${x.title}」撞時間` });
   }
   const qs = live(d.quests);
+  // 🕘 排進時刻簿的時段在委託截止日之後：來不及
+  for (const r of live(d.rows).filter((x) => !x.canceled)) {
+    const L = linkOf(r.title, qs);
+    const q = L && qs.find((x) => x.id === L.qid);
+    if (q && q.due && r.date > q.due && (rowState(r) || questState(q))) out.push({ ids: [r.id, q.id], text: `${dayLabel(r.date)}「${r.title}」排在截止日（${dayLabel(q.due)}）之後` });
+  }
   const dates = [...new Set([...live(d.rows).map((r) => r.date), ...live(d.reminders).map((m) => m.date), ...qs.map((q) => q.due).filter(Boolean)])];
   for (const date of dates) {
     const off = offDay ? offDay(date) : null;

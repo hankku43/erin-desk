@@ -428,7 +428,7 @@ async function probeForSetup() {
   pr.installing = ollamaJob ? ollamaJob.last || { phase: 'download', percent: 0 } : null;
   return pr;
 }
-// ---- 🔄 自動更新（updater.js）：安裝版背景下載、關掉時換上；免安裝版提醒；開發版不檢查 ----
+// ---- 🔄 自動更新（updater.js）：安裝版先問再下載、關掉時換上（update.ask＝false 改回自動）；免安裝版提醒；開發版不檢查 ----
 let updater = null;
 const updLog = (m) => { try { fs.appendFileSync(path.join(engine.dataDir, 'update.log'), `${new Date().toISOString()} ${m}\n`); } catch (_) { /* 寫不了就算了 */ } };
 const npcNames = () => ({ call: engine.config.npc.callName || '冒險者', self: engine.config.npc.selfName || engine.config.npc.name });
@@ -438,6 +438,7 @@ function setupUpdater() {
     onStatus: (s) => push('update:status', s),
     onSay: (lines) => push('npc:lines', lines),
     isAuto: () => (engine.config.update || {}).auto !== false,
+    askFirst: () => (engine.config.update || {}).ask !== false, // 先問再裝（資安體檢）：false＝背景下載、關掉時自動換上
     names: npcNames,
     dismissed: () => (engine.state.update || {}).dismissed || null,
   });
@@ -451,6 +452,7 @@ function updateMenuItem() {
   const s = updater ? updater.status() : { mode: 'dev', current: app.getVersion(), status: 'idle' };
   if (s.mode === 'dev') return { label: `🔄 檢查更新（從原始碼執行：用 git pull 更新，目前 ${s.current}）`, enabled: false };
   if (s.status === 'ready') return { label: `🎁 現在更新到 ${s.version}（會重新啟動）`, click: () => { push('view:update', { view: engine.view(), reason: '🔄 正在更新，馬上回來…' }); updater.install(); } };
+  if (s.status === 'offer') return { label: `🎁 有新版本 ${s.version}：下載（下次關掉時換上）`, click: () => { updater.accept(); push('view:update', { view: engine.view(), reason: `🔄 開始下載 ${s.version}，下次關掉時換上` }); } };
   if (s.status === 'downloading') return { label: `🔄 正在下載新版本 ${s.version}（${s.percent || 0}%）`, enabled: false };
   if (s.status === 'checking') return { label: '🔄 正在檢查更新…', enabled: false };
   if (s.status === 'available') return { label: `🎁 有新版本 ${s.version}：打開下載頁`, click: () => shell.openExternal(s.url) };
@@ -462,7 +464,8 @@ async function checkUpdateNow() {
   const s = await updater.check();
   const reason = s.status === 'latest' ? `✔ 已經是最新版（${s.current}）`
     : s.status === 'error' ? `⚠ 檢查更新失敗：${s.error}`
-      : s.status === 'downloading' ? `🔄 找到新版本 ${s.version}，正在背景下載` : '';
+      : s.status === 'downloading' ? `🔄 找到新版本 ${s.version}，正在背景下載`
+        : s.status === 'offer' ? `🎁 有新版本 ${s.version}：要更新的話按卡片上的「下載」` : '';
   if (reason) push('view:update', { view: engine.view(), reason });
   return { status: s };
 }
@@ -841,6 +844,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('pd:discard', wrap(() => engine.pdDiscard()));
   // 📜 委託簿／🕘 時刻簿、委託拆成時段
   ipcMain.handle('pd:book', wrap((book, day) => engine.pdBook(book, day)));
+  ipcMain.handle('pd:font', wrap((on) => engine.pdSetFont(!!on)));
   ipcMain.handle('pd:splitPreview', wrap((id, o) => engine.pdSplitPreview(id, o || {})));
   ipcMain.handle('pd:split', wrap((id, o) => engine.pdSplit(id, o || {})));
   ipcMain.handle('pd:suggest', wrap((id, o) => engine.pdSuggestSteps(id, o || {})));
@@ -936,6 +940,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('update:get', wrap(() => ({ status: updater ? updater.status() : null, dismissed: (engine.state.update || {}).dismissed || null })));
   ipcMain.handle('update:check', wrap(() => checkUpdateNow()));
   ipcMain.handle('update:install', wrap(() => (updater ? updater.install() : { installing: false })));
+  ipcMain.handle('update:accept', wrap((now) => (updater ? updater.accept({ now: !!now }) : { downloading: false })));
   ipcMain.handle('update:dismiss', wrap((v) => { engine.state.update = { ...(engine.state.update || {}), dismissed: String(v || '') }; engine.saveState(); return {}; }));
   ipcMain.handle('update:openPage', wrap(() => { shell.openExternal(updater ? updater.status().url : UPD.RELEASES_PAGE); return {}; }));
 

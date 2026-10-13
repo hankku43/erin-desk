@@ -61,6 +61,21 @@ module.exports = ({ win, engine, app, menuTemplate, updater }) => {
       assert(await visible('#updCard') && /有新版本　0\.1\.4/.test(await text('#updCard .upd-head')) && await js(`!!document.querySelector('[data-upd-page]')`), '免安裝版的卡片');
       assert(/蓋過舊的資料夾/.test(await text('#updCard .upd-sub')), '免安裝版說明');
       await shot('u04_portable');
+      // 5b. 安裝版預設先問再裝：有新版 → 卡片問「下載，關掉時換上／現在更新／這版先不要」；按下載才開始（開發版沒有真的 updater → 提示）
+      await js(`document.body.classList.remove('no-hud'); 0`);
+      wc.send('update:status', { mode: 'auto', current: '0.1.2', status: 'offer', version: '0.1.5', notes: ['・兩本書：委託簿＋時刻簿'], url: U.RELEASES_PAGE });
+      wc.send('npc:lines', [U.line('offer', { v: '0.1.5' })]);
+      await wait(600); await flush();
+      assert(await visible('#updCard') && /有新版本　0\.1\.5/.test(await text('#updCard .upd-head')) && /按「下載」才會開始/.test(await text('#updCard .upd-sub')), '先問的卡片');
+      assert(await js(`!!document.querySelector('[data-upd-accept]') && !!document.querySelector('[data-upd-accept-now]') && document.querySelector('#updCard details').open`), '下載／現在更新、更新內容先打開');
+      await shot('u05_offer');
+      wc.send('update:status', { mode: 'auto', current: '0.1.2', status: 'downloading', accepted: true, installNow: false, version: '0.1.5', percent: 40, notes: [], url: U.RELEASES_PAGE });
+      await wait(400);
+      assert(/下載中… 40%/.test(await text('#updCard .upd-sub')) && await js(`!!document.querySelector('#updCard .upd-bar')`), '答應後顯示下載進度');
+      await shot('u06_downloading');
+      wc.send('update:status', { mode: 'auto', current: '0.1.2', status: 'downloading', accepted: false, version: '0.1.5', percent: 40, notes: [], url: U.RELEASES_PAGE });
+      await wait(300);
+      assert(!(await visible('#updCard')), '沒答應的下載（自動模式）不顯示卡片');
       // 6. 狀態欄收起來時，卡片貼在下面
       await js(`document.body.classList.add('no-hud'); updateCard.render(updateCard.state()); 0`); await wait(300);
       assert((await js(`getComputedStyle(document.querySelector('#updCard')).bottom`)) === '14px', '沒有狀態欄時貼底');

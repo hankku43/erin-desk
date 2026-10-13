@@ -1,6 +1,7 @@
 // 🔄 自動更新：朋友不用自己去找新版
-//   安裝版（NSIS 裝在 %LOCALAPPDATA%\Programs）：electron-updater 從 GitHub Releases 讀 latest.yml，
-//     背景下載（只下載有變的部分，用 blockmap），下次關掉艾琳時自動換上；也可以按「現在更新」立刻重新啟動
+//   安裝版（NSIS 裝在 %LOCALAPPDATA%\Programs）：electron-updater 從 GitHub Releases 讀 latest.yml
+//     預設「先問再裝」（10/13 資安體檢）：有新版先跳卡片問（status 'offer'），按「下載」才下載（只下載有變的部分，用 blockmap），
+//     下載好下次關掉艾琳時換上；按「現在更新」下載完立刻重新啟動。config update.ask＝false 改回以前：背景下載、關掉時自動換上
 //   免安裝版（zip）：electron-updater 沒辦法換掉解壓縮的資料夾 → 只問 GitHub 最新版本，提醒＋打開下載頁
 //   從原始碼執行（開發版）：不檢查（用 git pull）
 //   每一步都可以注入（app、loadUpdater、fetchImpl、計時器…），測試不用真的連網
@@ -49,6 +50,7 @@ function friendly(e) {
 }
 // 艾琳的話（口吻：叫「冒險者」、自稱「艾琳」）
 function line(kind, { v, call = '冒險者', self = '艾琳' }) {
+  if (kind === 'offer') return { text: `${call}，公會寄來新版本 ${v} 了！要換上嗎？旁邊的卡片可以先看看更新了什麼，按「下載」才會開始，不按${self}就不會動它。`, emotion: 'cheer' };
   if (kind === 'ready') return { text: `${call}～公會寄來新版本 ${v} 了！${self}已經先收好了，下次關掉${self}的時候會自動換上；想現在就換的話，按旁邊卡片的「現在更新」。`, emotion: 'cheer' };
   if (kind === 'portable') return { text: `${call}，公會出了新版本 ${v}！免安裝版要自己下載新的，按旁邊卡片的「打開下載頁」就好，資料都會留著。`, emotion: 'surprised' };
   if (kind === 'updated') return { text: `換上新版本 ${v} 了！${call}如果發現哪裡怪怪的，記得跟${self}說喔。`, emotion: 'happy' };
@@ -59,7 +61,7 @@ function createUpdater({
   app, platform = process.platform, execPath = process.execPath, readdir = fs.readdirSync,
   loadUpdater = () => require('electron-updater').autoUpdater, fetchImpl = fetch,
   onStatus = () => {}, onSay = () => {}, log = () => {},
-  isAuto = () => true, names = () => ({}), dismissed = () => null,
+  isAuto = () => true, askFirst = () => true, names = () => ({}), dismissed = () => null,
   setTimeoutImpl = setTimeout, now = Date.now,
 } = {}) {
   const installed = isInstalled(execPath, readdir);
@@ -68,7 +70,7 @@ function createUpdater({
     try { au = loadUpdater(); } catch (e) { log(`electron-updater 載入失敗：${e.message}`); }
   }
   const mode = modeOf({ isPackaged: app.isPackaged, platform, installed, hasUpdater: !!au });
-  const st = { mode, current: app.getVersion(), status: 'idle', version: null, notes: [], percent: 0, error: null, url: RELEASES_PAGE, checkedAt: null };
+  const st = { mode, current: app.getVersion(), status: 'idle', version: null, notes: [], percent: 0, error: null, url: RELEASES_PAGE, checkedAt: null, accepted: false, installNow: false };
   let lastEmit = 0;
   const emit = (force = true) => {
     const t = now();
@@ -85,27 +87,35 @@ function createUpdater({
   };
   const fail = (e) => { st.status = 'error'; st.error = friendly(e); st.checkedAt = now(); log(`更新失敗：${(e && (e.stack || e.message)) || e}`); emit(); };
 
+  // 先問再裝：問過、按了「下載」才下載、關掉時才換上（askFirst 每次檢查前都重新看設定）
+  const applyAsk = () => { const ask = askFirst(); au.autoDownload = !ask; au.autoInstallOnAppQuit = !ask || st.accepted; };
   if (au) {
-    au.autoDownload = true; // 有新版就在背景下載
-    au.autoInstallOnAppQuit = true; // 下次關掉時安裝
+    applyAsk();
     au.allowPrerelease = false;
     au.logger = { info: (m) => log(String(m)), warn: (m) => log(`warn ${m}`), error: (m) => log(`error ${m}`), debug: () => {} };
     au.on('checking-for-update', () => { st.status = 'checking'; emit(); });
-    au.on('update-available', (info) => { Object.assign(st, { status: 'downloading', version: info.version, notes: notesText(info.releaseNotes), percent: 0, error: null }); emit(); });
+    au.on('update-available', (info) => {
+      const notes = notesText(info.releaseNotes);
+      if (st.accepted || !askFirst()) { Object.assign(st, { status: 'downloading', version: info.version, notes, percent: 0, error: null }); emit(); return; }
+      Object.assign(st, { status: 'offer', version: info.version, notes, percent: 0, error: null, checkedAt: now() }); // 先問
+      emit(); announce('offer');
+    });
     au.on('update-not-available', () => { Object.assign(st, { status: 'latest', error: null, checkedAt: now() }); emit(); });
     au.on('download-progress', (p) => { st.percent = Math.floor((p && p.percent) || 0); emit(false); });
     au.on('update-downloaded', (info) => {
       Object.assign(st, { status: 'ready', version: info.version, percent: 100, error: null, checkedAt: now() });
       if (info.releaseNotes) st.notes = notesText(info.releaseNotes);
-      emit(); announce('ready');
+      emit();
+      if (st.installNow) install(); else announce('ready');
     });
     au.on('error', (e) => { if (st.status !== 'ready') fail(e); else log(`更新（已下載好）之後的錯誤：${e && e.message}`); });
   }
 
   async function check() {
     if (mode === 'dev') return { ...st };
-    if (['checking', 'downloading', 'ready'].includes(st.status)) return { ...st }; // 正在忙或已經下載好：不重複
+    if (['checking', 'downloading', 'ready', 'offer'].includes(st.status)) return { ...st }; // 正在忙、問過了或已經下載好：不重複
     if (mode === 'auto') {
+      applyAsk();
       try { await au.checkForUpdates(); } catch (e) { if (st.status !== 'error') fail(e); }
       return { ...st };
     }
@@ -121,6 +131,15 @@ function createUpdater({
     } catch (e) { fail(e); }
     return { ...st };
   }
+  // 冒險者答應更新：開始下載，下次關掉時換上；now＝下載完立刻重新啟動換上
+  function accept({ now: right = false } = {}) {
+    if (mode !== 'auto' || st.status !== 'offer') return { downloading: false };
+    Object.assign(st, { accepted: true, installNow: !!right, status: 'downloading', percent: 0, error: null });
+    au.autoInstallOnAppQuit = true;
+    emit();
+    Promise.resolve().then(() => au.downloadUpdate()).catch((e) => { st.accepted = false; fail(e); });
+    return { downloading: true };
+  }
   // 現在更新：關掉艾琳 → 不跳視窗安裝 → 自動重新打開
   function install() {
     if (mode !== 'auto' || st.status !== 'ready') return { installing: false };
@@ -133,7 +152,7 @@ function createUpdater({
     setTimeoutImpl(auto, FIRST_DELAY);
     return true;
   }
-  return { mode, check, install, start, status: () => ({ ...st, notes: [...st.notes] }) };
+  return { mode, check, accept, install, start, status: () => ({ ...st, notes: [...st.notes] }) };
 }
 
 module.exports = { OWNER, REPO, RELEASES_PAGE, API_LATEST, FIRST_DELAY, parseVer, isNewer, isInstalled, modeOf, notesText, friendly, line, createUpdater };

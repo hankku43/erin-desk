@@ -68,6 +68,8 @@ function render() {
   pickDay();
   const time = S.book === 'time';
   $('#book').dataset.book = S.book;
+  document.body.classList.toggle('hand', d.handFont !== false);
+  $('#fontState').textContent = d.handFont !== false ? '開' : '關';
   $('#ttl').textContent = `${S.name}的筆記本`;
   $('#ttlSub').textContent = time ? '時刻簿' : '委託簿';
   $('#ttlIco').textContent = time ? '🕘' : '📓';
@@ -198,11 +200,13 @@ function blockHtml(r, { ppm, lo, compact = false, ext = false }) {
   const w0 = r.st === 'dirty' && r.was ? [r.was.date !== r.date ? dayLabel(r.was.date) : '', r.was.start !== r.start ? r.was.start : '', r.was.title !== r.title ? `「${r.was.title}」` : ''].filter(Boolean).join(' ') : '';
   const tip = `${r.start}${r.end ? `–${r.end}` : ''} ${r.raid ? '📯 ' : ''}${r.title}${w0 ? `（原本 ${w0}）` : ''}`;
   const short = h < 40 && !compact;
-  return `<div class="${cls(r.id, `blk${r.raid ? ' raid' : ''}${L ? ' linked' : ''}${r.done ? ' done' : ''}${r.canceled ? ' canceled' : ''}${short ? ' short' : ''}${compact ? ' compact' : ''}`, r.st, warn)}" style="${pos};${L ? `--qc:${qColor(L.qid)}` : ''}" data-edit="${esc(r.id)}" data-kind="row" tabindex="0" data-tip="${esc(tip)}">
+  const drag = r.st !== 'del'; // 🖐 拖著換時間、換天；拉下緣改結束時間
+  return `<div class="${cls(r.id, `blk${r.raid ? ' raid' : ''}${L ? ' linked' : ''}${r.done ? ' done' : ''}${r.canceled ? ' canceled' : ''}${short ? ' short' : ''}${compact ? ' compact' : ''}${drag ? ' dr' : ''}`, r.st, warn)}" style="${pos};${L ? `--qc:${qColor(L.qid)}` : ''}" data-edit="${esc(r.id)}" data-kind="row" ${drag ? `data-drag="${esc(r.id)}"` : ''} tabindex="0" data-tip="${esc(`${tip}${drag ? '（拖著換時間、拉下緣改結束）' : ''}`)}">
     ${compact ? '' : `<div class="bt">${box}<span class="tm">${esc(r.start)}${r.end ? `–${esc(r.end)}` : ''}</span></div>`}
     <div class="bx">${r.raid ? '📯 ' : ''}${esc(main)}</div>${compact ? '' : sub}
     ${!compact && w0 ? `<div class="was">原本 ${esc(w0)}</div>` : ''}
     ${r.st === 'del' ? restoreBtn(r.id) : ''}
+    ${drag && !compact ? `<i class="rz" data-rz="${esc(r.id)}" aria-hidden="true"></i>` : ''}
   </div>`;
 }
 function laneCol(date, { ppm, lo, hi, compact }) {
@@ -214,7 +218,43 @@ function laneCol(date, { ppm, lo, hi, compact }) {
   for (let m = lo; m <= hi; m += 30) lines.push(`<i class="hl-line${m % 60 ? ' half' : ''}" style="top:${((m - lo) * ppm).toFixed(1)}px"></i>`);
   const now = date === d.today && d.nowHM && toMin(d.nowHM) >= lo && toMin(d.nowHM) <= hi ? `<div class="now" style="top:${((toMin(d.nowHM) - lo) * ppm).toFixed(1)}px"><span>${compact ? '' : `現在 ${esc(d.nowHM)}`}</span></div>` : '';
   const flags = rems.map((m) => `<div class="${cls(m.id, 'flag', m.st, warnIds())}" style="top:${((toMin(m.time) - lo) * ppm).toFixed(1)}px" data-edit="${esc(m.id)}" data-kind="reminder" data-tip="${esc(`⏰ ${m.time} ${m.title}`)}"><span>⏰ ${compact ? esc(m.time) : `${esc(m.time)} ${esc(m.title)}`}</span>${m.st === 'del' ? restoreBtn(m.id) : ''}</div>`).join('');
-  return `<div class="lanes${compact ? ' compact' : ''}" data-lanes="${esc(date)}" style="height:${((hi - lo) * ppm).toFixed(0)}px">${lines.join('')}${rows.map((r) => blockHtml(r, { ppm, lo, compact })).join('')}${ext.map((r) => blockHtml(r, { ppm, lo, compact, ext: true })).join('')}${flags}${now}</div>`;
+  // 同時段太多件：最多並排 3 欄（一週總覽 2 欄），其他的收成「+N」點開看
+  const MAX = compact ? 2 : 3;
+  const all = [...rows.map((r) => ({ r, ext: false })), ...ext.map((r) => ({ r, ext: true }))];
+  const blocks = [];
+  const groups = {};
+  for (const x of all) (groups[x.r.g === undefined ? `s${x.r.id}` : x.r.g] = groups[x.r.g === undefined ? `s${x.r.id}` : x.r.g] || []).push(x);
+  for (const [g, xs] of Object.entries(groups)) {
+    const n = xs[0].r.lanes || 1;
+    if (n <= MAX) { for (const x of xs) blocks.push(blockHtml(x.r, { ppm, lo, compact, ext: x.ext })); continue; }
+    const shown = xs.filter((x) => x.r.lane < MAX - 1), hidden = xs.filter((x) => x.r.lane >= MAX - 1);
+    for (const x of shown) blocks.push(blockHtml({ ...x.r, lanes: MAX }, { ppm, lo, compact, ext: x.ext }));
+    const s0 = Math.min(...hidden.map((x) => toMin(x.r.start))), e0 = Math.max(...hidden.map((x) => toMin(endOf(x.r))));
+    const pos = `top:${((s0 - lo) * ppm).toFixed(1)}px;height:${Math.max(compact ? 15 : 24, (e0 - s0) * ppm - 2).toFixed(1)}px;left:calc(${((MAX - 1) / MAX) * 100}% + 2px);width:calc(${100 / MAX}% - 4px)`;
+    blocks.push(`<button class="blk more" style="${pos}" data-more="${esc(date)}|${esc(g)}" data-tip="${esc(`這段時間還有 ${hidden.length} 件：${hidden.map((x) => x.r.title).join('、')}`)}">+${hidden.length}${compact ? '' : ' 件'}</button>`);
+  }
+  return `<div class="lanes${compact ? ' compact' : ''}" data-lanes="${esc(date)}" style="height:${((hi - lo) * ppm).toFixed(0)}px">${lines.join('')}${blocks.join('')}${flags}${now}</div>`;
+}
+// 「+N」點開：這一群全部列出來
+function groupItems(date, g) {
+  const d = S.d;
+  return [...d.rows.filter((r) => r.date === date && r.start && String(r.g) === g).map((r) => ({ r, ext: false })), ...(d.raids || []).filter((r) => r.date === date && String(r.g) === g).map((r) => ({ r, ext: true }))]
+    .sort((a, b) => a.r.start.localeCompare(b.r.start));
+}
+// 📜 委託匣（時刻簿右邊）：把委託或某個步驟拖進時間軸，排一格
+function trayHtml() {
+  const d = S.d;
+  const sched = new Set(d.rows.filter((r) => r.st !== 'del' && r.link && r.link.step).map((r) => `${r.link.qid}|${r.link.step}`));
+  const qs = d.quests.filter((q) => q.st !== 'del' && !(q.play && q.play.status === 'done'));
+  const list = qs.map((q) => {
+    const left = q.steps.filter((x) => !x.done);
+    const next = left.find((x) => !sched.has(`${q.id}|${x.text}`));
+    return `<div class="tq" style="--qc:${qColor(q.id)}">
+      <div class="tq-t" data-tq="${esc(q.id)}" data-tip="${esc(`拖到時間軸排一格${next ? `（下一步：${next.text}）` : ''}`)}">${esc(q.title)}${q.due ? `<small>${esc(dayLabel(q.due))}前</small>` : ''}</div>
+      ${left.length ? `<div class="tq-steps">${left.map((x) => `<span class="ts${sched.has(`${q.id}|${x.text}`) ? ' sched' : ''}" data-ts="${esc(q.id)}" data-step="${esc(x.text)}" data-tip="${esc(sched.has(`${q.id}|${x.text}`) ? `「${x.text}」已經排了，再拖一次會再排一格` : `把「${x.text}」拖到時間軸`)}">${esc(x.text)}</span>`).join('')}</div>` : ''}
+    </div>`;
+  }).join('');
+  return `<aside class="tray" aria-label="委託匣"><div class="tray-h">📜 委託<small>拖進時間軸排一格</small></div>${list || '<div class="tray-empty">這週還沒有委託</div>'}</aside>`;
 }
 function axisHtml(lo, hi, ppm) {
   const out = [];
@@ -238,19 +278,19 @@ function renderTime() {
   if (S.day === 'week') {
     const ppm = 0.8;
     const days = d.days;
-    area.innerHTML = `<div class="wk" style="--n:${days.length}">
+    area.innerHTML = `<div class="tlay"><div class="tmain"><div class="wk" style="--n:${days.length}">
       <div class="wk-head"><span class="ax-sp"></span>${days.map((day) => { const [w, date] = day.label.split(' '); return `<button class="wk-dh${day.date === d.today ? ' today' : ''}${day.off ? ' off' : ''}" data-day="${esc(day.date)}" data-tip="翻到這一天"><b>${esc(w)}</b> <small>${esc(date)}</small>${day.theme ? `<em>🗓 ${esc(day.theme)}</em>` : ''}${day.off ? `<em>🏖 ${esc(day.off)}</em>` : ''}</button>`; }).join('')}</div>
       <div class="wk-body">${axisHtml(lo, hi, ppm)}${days.map((day) => `<div class="wk-col${day.off ? ' off' : ''}">${laneCol(day.date, { ppm, lo, hi, compact: true })}</div>`).join('')}</div>
-    </div>`;
+    </div></div>${trayHtml()}</div>`;
   } else {
     const ppm = 1.25;
     const day = d.days.find((x) => x.date === S.day) || d.days[0];
     const n = d.rows.filter((r) => r.date === day.date && r.st !== 'del').length;
-    area.innerHTML = `<div class="dpage${day.off ? ' off' : ''}">
+    area.innerHTML = `<div class="tlay"><div class="tmain"><div class="dpage${day.off ? ' off' : ''}">
       <div class="dinfo"><b class="dl">${esc(day.label)}</b>${day.date === d.today ? '<span class="todaytag">今天</span>' : ''}${dayInfoHtml(day)}<span class="grow"></span><button class="add" data-add-day="${esc(day.date)}" data-tip="這天加時段、團戰、提醒、整天的事">＋ 這天加…</button></div>
       <div class="dgrid">${axisHtml(lo, hi, ppm)}${laneCol(day.date, { ppm, lo, hi, compact: false })}</div>
-      ${n ? '' : `<div class="dempty">這天還空空的：點時間軸的空白處加一格，或在委託簿按「🕘 排進時刻簿」。</div>`}
-    </div>`;
+      ${n ? '' : `<div class="dempty">這天還空空的：點時間軸的空白處加一格、把右邊的委託拖進來，或在委託簿按「🕘 排進時刻簿」。</div>`}
+    </div></div>${trayHtml()}</div>`;
   }
   // 換天、換本才捲：捲到現在、或這天第一格（不然留在原本的位置）
   const key = `${S.book}|${S.day}|${d.week.start}`;
@@ -351,10 +391,15 @@ function renderPop() {
     const date = p.id ? p.id.slice(2) : p.date;
     title = `${dayLabel(date)} 整天`;
     body = `<label class="f">這天在做什麼（例如：出差、教育訓練；留空＝拿掉）<input id="fTitle" maxlength="40" value="${esc(S.d.themes[date] || '')}"></label>`;
+  } else if (p.kind === 'more') {
+    const items = groupItems(p.date, p.g);
+    title = `${dayLabel(p.date)} 同一段時間的 ${items.length} 件`;
+    body = `<div class="more-list">${items.map((x) => (x.ext ? `<div class="ml ext"><b>${esc(x.r.start)}–${esc(x.r.end)}</b>📯 ${esc(x.r.title)}<small>自己建的團戰</small></div>`
+      : `<button class="ml${x.r.st === 'del' ? ' del' : ''}" data-edit="${esc(x.r.id)}" data-kind="row" style="${x.r.link ? `--qc:${qColor(x.r.link.qid)}` : ''}"><b>${esc(x.r.start)}${x.r.end ? `–${esc(x.r.end)}` : ''}</b>${x.r.raid ? '📯 ' : ''}${esc(x.r.title)}${x.r.done ? ' ✓' : ''}</button>`)).join('')}</div>`;
   } else if (p.kind === 'split') return renderSplit();
-  const del = p.id && !['pick', 'confirm', 'pickQuest'].includes(p.kind) && !p.resolve && x.st !== 'del' ? '<button class="tb danger" data-pdel>🗑 刪掉</button>' : '';
-  const save = p.kind === 'pick' ? '' : `<button class="tb gold" data-psave>${p.kind === 'confirm' ? esc(p.ok || '確定') : '✔ 好了'}</button>`;
-  el.innerHTML = `<div class="card"><h3><span>${esc(title)}</span></h3>${note ? `<div class="note">${esc(note)}</div>` : ''}${body}<div class="err" id="fErr"></div><div class="acts2">${del}<span class="grow"></span><button class="tb" data-pcancel>取消</button>${save}</div></div>`;
+  const del = p.id && !['pick', 'confirm', 'pickQuest', 'more'].includes(p.kind) && !p.resolve && x.st !== 'del' ? '<button class="tb danger" data-pdel>🗑 刪掉</button>' : '';
+  const save = p.kind === 'pick' || p.kind === 'more' ? '' : `<button class="tb gold" data-psave>${p.kind === 'confirm' ? esc(p.ok || '確定') : '✔ 好了'}</button>`;
+  el.innerHTML = `<div class="card"><h3><span>${esc(title)}</span></h3>${note ? `<div class="note">${esc(note)}</div>` : ''}${body}<div class="err" id="fErr"></div><div class="acts2">${del}<span class="grow"></span><button class="tb" data-pcancel>${p.kind === 'more' ? '關起來' : '取消'}</button>${save}</div></div>`;
   el.classList.remove('hidden');
   const first = el.querySelector('input:not([type=checkbox]), select');
   if (first && !p.keepFocus) setTimeout(() => { first.focus(); if (first.select) first.select(); }, 30);
@@ -520,9 +565,11 @@ function gridClick(e, lanesEl) {
 // ---- 事件 ----
 document.addEventListener('click', async (e) => {
   const t = e.target;
+  if (S.dragEnd && Date.now() - S.dragEnd < 400) return; // 剛拖完放開：不要當成點一下
   if (!t.closest('.more')) { S.menu = false; $('#moreMenu').classList.add('hidden'); }
   if (t.closest('#pop')) {
     if (t === $('#pop') || t.closest('[data-pcancel]')) { closePop(); return; }
+    const pe = t.closest('[data-edit]'); if (pe && S.pop && S.pop.kind === 'more') { openPop({ kind: pe.dataset.kind, id: pe.dataset.edit }); return; }
     const pk = t.closest('[data-pick]');
     if (pk) { const k = pk.dataset.pick; const date = S.pop.date; openPop(k === 'raid' ? { kind: 'row', date, raid: true } : { kind: k, date }); return; }
     const sd = t.closest('[data-sday]');
@@ -534,7 +581,9 @@ document.addEventListener('click', async (e) => {
     return;
   }
   const bk = t.closest('#tabs [data-book]'); if (bk) { setBook(bk.dataset.book); return; }
+  const mo = t.closest('[data-more]'); if (mo) { const [date, g] = mo.dataset.more.split('|'); openPop({ kind: 'more', date, g }); return; }
   if (t.closest('#bMore')) { S.menu = !S.menu; $('#moreMenu').classList.toggle('hidden', !S.menu); return; }
+  if (t.closest('[data-font]')) { S.menu = false; $('#moreMenu').classList.add('hidden'); const on = S.d.handFont === false; const r = await act(() => window.pd.setFont(on)); if (r) { S.d.handFont = on; render(); say(on ? '換成手寫的字了～' : '換回一般的字。', 'normal'); } return; }
   if (t.closest('[data-wipe]')) { S.menu = false; $('#moreMenu').classList.add('hidden'); const r = await act(() => window.pd.wipe()); if (r) { apply(r); say(`原本的都先劃掉了。重新跟${S.name}說要做什麼吧～（↶ 可以復原）`, 'normal'); } return; }
   if (t.closest('[data-discard]')) { S.menu = false; $('#moreMenu').classList.add('hidden'); openPop({ kind: 'confirm', title: '放棄這一頁的修改？', text: `還沒寫進計畫檔的 ${S.d.changes} 處修改都會擦掉，回到計畫檔原本的樣子（不能復原）。`, ok: '擦掉', run: async () => { const r = await act(() => window.pd.discard()); if (r) { apply(r); sayLine(r.lines); } } }); return; }
   if (t.closest('[data-go]')) {
@@ -587,6 +636,125 @@ document.addEventListener('change', (e) => {
   }
   if (e.target.id === 'unitSel') S.unit = Number(e.target.value) || 30;
 });
+// ---- 🖐 拖拉：方塊拖著換時間／換天（拖到上面的日子分頁＝搬到那天）、拉下緣改結束；右邊委託匣拖進時間軸排一格 ----
+const DROP_LEN = 60; // 從委託匣拖進來：先排一小時，之後拉下緣改
+const ppmOf = (ln) => (ln.classList.contains('compact') ? 0.8 : 1.25);
+const snapM = (m) => Math.round(m / S.unit) * S.unit;
+const at = (x, y, sel) => { const el = document.elementFromPoint(x, y); return el ? el.closest(sel) : null; };
+// 委託的下一個步驟：還沒做完、還沒排進時刻簿的第一個
+function nextStep(qid) {
+  const q = S.d.quests.find((x) => x.id === qid);
+  if (!q) return '';
+  const sched = new Set(S.d.rows.filter((r) => r.st !== 'del' && r.link && r.link.qid === qid).map((r) => r.link.step));
+  const s = q.steps.find((x) => !x.done && !sched.has(x.text));
+  return s ? s.text : '';
+}
+document.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || S.pop || !S.d || S.book !== 'time') return;
+  const t = e.target;
+  if (t.closest('.rbox, .restore')) return;
+  const rz = t.closest('[data-rz]'), blk = t.closest('[data-drag]'), ts = t.closest('[data-ts]'), tq = t.closest('[data-tq]');
+  let dr = null;
+  if (rz) dr = { kind: 'resize', id: rz.dataset.rz };
+  else if (blk) dr = { kind: 'move', id: blk.dataset.drag };
+  else if (ts) dr = { kind: 'new', qid: ts.dataset.ts, step: ts.dataset.step };
+  else if (tq) dr = { kind: 'new', qid: tq.dataset.tq, step: nextStep(tq.dataset.tq) };
+  if (!dr) return;
+  if (dr.kind !== 'new') {
+    const r = S.d.rows.find((x) => x.id === dr.id);
+    if (!r || !r.start) return;
+    const el = (rz || blk).closest('.blk'), ln = el.closest('.lanes');
+    dr = { ...dr, r, el, ln, dur: toMin(endOf(r)) - toMin(r.start), hadEnd: !!r.end, grab: (e.clientY - ln.getBoundingClientRect().top) / ppmOf(ln) + axisRange().lo - toMin(r.start) };
+  } else {
+    const q = S.d.quests.find((x) => x.id === dr.qid);
+    if (!q) return;
+    dr.title = dr.step ? `${q.title}：${dr.step}` : q.title;
+  }
+  S.drag = { ...dr, x0: e.clientX, y0: e.clientY, started: false };
+});
+function startDrag(dr) {
+  dr.started = true;
+  document.body.classList.add('dragging');
+  $('#tip').classList.add('hidden');
+  if (dr.el) dr.el.classList.add('drag-src');
+  dr.pv = document.createElement('div'); dr.pv.className = 'drop-pv';
+  if (dr.kind === 'new') { dr.ghost = document.createElement('div'); dr.ghost.className = 'drag-ghost'; dr.ghost.textContent = `📜 ${dr.title}`; document.body.appendChild(dr.ghost); }
+}
+function moveDrag(dr, e) {
+  const x = e.clientX, y = e.clientY;
+  if (dr.ghost) { dr.ghost.style.left = `${x + 14}px`; dr.ghost.style.top = `${y + 10}px`; }
+  const area = $('#timeArea').getBoundingClientRect();
+  if (y < area.top + 30) $('#timeArea').scrollTop -= 16; else if (y > area.bottom - 30) $('#timeArea').scrollTop += 16; // 拖到邊邊：自動捲
+  document.querySelectorAll('.drop-on').forEach((el) => el.classList.remove('drop-on'));
+  const { lo, hi } = axisRange();
+  const tab = dr.kind === 'move' ? at(x, y, '#dayTabs [data-day], .wk-dh[data-day]') : null;
+  if (tab) { // 拖到日子分頁：搬到那天、時間不變
+    tab.classList.add('drop-on'); dr.pv.remove();
+    const s0 = toMin(dr.r.start);
+    dr.target = { date: tab.dataset.day, start: hm(s0), end: hm(s0 + dr.dur), tab: true };
+    return;
+  }
+  const ln = dr.kind === 'resize' ? dr.ln : at(x, y, '.lanes');
+  if (!ln) { dr.pv.remove(); dr.target = null; return; }
+  const ppm = ppmOf(ln), m = lo + (y - ln.getBoundingClientRect().top) / ppm;
+  let s0, e0;
+  if (dr.kind === 'move') { s0 = Math.max(lo, Math.min(hi - dr.dur, snapM(m - dr.grab))); e0 = s0 + dr.dur; }
+  else if (dr.kind === 'new') { s0 = Math.max(lo, Math.min(hi - DROP_LEN, Math.floor(m / S.unit) * S.unit)); e0 = s0 + DROP_LEN; }
+  else { s0 = toMin(dr.r.start); e0 = Math.min(hi, Math.max(s0 + S.unit, snapM(m))); }
+  dr.target = { date: ln.dataset.lanes, start: hm(s0), end: hm(Math.min(23 * 60 + 59, e0)) };
+  if (dr.pv.parentNode !== ln) ln.appendChild(dr.pv);
+  dr.pv.style.top = `${((s0 - lo) * ppm).toFixed(1)}px`; dr.pv.style.height = `${Math.max(14, (e0 - s0) * ppm - 2).toFixed(1)}px`;
+  dr.pv.textContent = `${ln.classList.contains('compact') ? '' : `${dayLabel(dr.target.date)} `}${dr.target.start}–${dr.target.end}`;
+}
+function cleanupDrag(dr) {
+  document.body.classList.remove('dragging');
+  document.querySelectorAll('.drop-on').forEach((el) => el.classList.remove('drop-on'));
+  if (dr.el) dr.el.classList.remove('drag-src');
+  if (dr.pv) dr.pv.remove();
+  if (dr.ghost) dr.ghost.remove();
+}
+async function endDrag(dr) {
+  cleanupDrag(dr);
+  const t = dr.target;
+  if (!t) return;
+  let r = null, msg = '';
+  if (dr.kind === 'move') {
+    if (t.date === dr.r.date && t.start === dr.r.start) return;
+    r = await act(() => window.pd.edit(dr.id, { date: t.date, start: t.start, end: dr.hadEnd ? t.end : '' }));
+    msg = `「${dr.r.title}」搬到 ${dayLabel(t.date)} ${t.start} 了（↶ 可以復原）`;
+  } else if (dr.kind === 'resize') {
+    if (t.end === dr.r.end) return;
+    r = await act(() => window.pd.edit(dr.id, { end: t.end }));
+    msg = `改成 ${dr.r.start}–${t.end} 了`;
+  } else {
+    r = await act(() => window.pd.add('row', { date: t.date, start: t.start, end: t.end, title: dr.title, raid: false }));
+    msg = `排了一格：${dayLabel(t.date)} ${t.start}–${t.end}「${dr.title}」。拉下緣可以改長短～`;
+  }
+  if (!r) return;
+  if (t.tab && S.day !== 'week') S.day = t.date; // 拖到別天的分頁：跟著翻過去
+  apply(r);
+  say(msg, 'happy');
+}
+document.addEventListener('pointermove', (e) => {
+  const dr = S.drag;
+  if (!dr) return;
+  if (!dr.started) { if (Math.hypot(e.clientX - dr.x0, e.clientY - dr.y0) < 5) return; startDrag(dr); }
+  e.preventDefault();
+  moveDrag(dr, e);
+});
+document.addEventListener('pointerup', (e) => {
+  const dr = S.drag;
+  if (!dr) return;
+  S.drag = null;
+  if (!dr.started) return;
+  S.dragEnd = Date.now();
+  moveDrag(dr, e);
+  endDrag(dr);
+});
+document.addEventListener('pointercancel', () => { if (S.drag && S.drag.started) cleanupDrag(S.drag); S.drag = null; });
+// Esc：拖到一半不要了
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.drag) { if (S.drag.started) { cleanupDrag(S.drag); S.dragEnd = Date.now(); } S.drag = null; e.stopImmediatePropagation(); } }, true);
+
 function stampFx() {
   const el = $('#stamp');
   $('#stampErin').src = POSE.stamp; $('#stampSeal').src = '../../assets/shop/seal.png';

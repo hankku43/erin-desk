@@ -40,6 +40,7 @@
       "assets/shop/*.png",
       "assets/opening/*",
       "assets/stageup/*",
+      "assets/fonts/**/*",
       "plans/_template.md",
       "plans/week_sample.md",
       "build/icon.png"

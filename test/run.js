@@ -2224,7 +2224,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.deepStrictEqual(U.notesText('## 新功能\r\n- **安裝** Ollama\n* `coin`\n\n'), ['新功能', '・安裝 Ollama', '・coin']);
   assert.strictEqual(U.notesText(Array.from({ length: 20 }, (_, i) => `- ${i}`).join('\n')).length, 8, '最多 8 行');
   assert.ok(/連不到 GitHub/.test(U.friendly(new Error('getaddrinfo ENOTFOUND github.com'))) && /latest\.yml/.test(U.friendly(new Error('HttpError: 404'))) && /太頻繁/.test(U.friendly(new Error('GitHub 回應 403'))));
-  for (const k of ['ready', 'portable', 'updated']) {
+  for (const k of ['offer', 'ready', 'portable', 'updated']) {
     const t = U.line(k, { v: '0.1.3' }).text;
     assert.ok(t.includes('0.1.3') && /冒險者/.test(t) && !/玩家|您/.test(t) && !/(^|[^我])我(?!們)/.test(t), '口吻：' + t);
   }
@@ -2246,7 +2246,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   au.quitAndInstall = (...a) => quits.push(a);
   const statuses = [], said = [];
   let t0 = 0;
-  const up = U.createUpdater({ app: app(), platform: 'win32', execPath: 'C:\\P\\Erin.exe', readdir: () => ['Uninstall 艾琳的任務櫃台.exe'], loadUpdater: () => au, onStatus: (s) => statuses.push(s), onSay: (l) => said.push(...l), now: () => (t0 += 400), ...fakeTimers });
+  const up = U.createUpdater({ app: app(), platform: 'win32', execPath: 'C:\\P\\Erin.exe', readdir: () => ['Uninstall 艾琳的任務櫃台.exe'], loadUpdater: () => au, onStatus: (s) => statuses.push(s), onSay: (l) => said.push(...l), now: () => (t0 += 400), askFirst: () => false, ...fakeTimers }); // update.ask＝false：以前的做法
   assert.strictEqual(up.mode, 'auto');
   assert.ok(au.autoDownload === true && au.autoInstallOnAppQuit === true && au.allowPrerelease === false, '背景下載、關掉時安裝、不抓預覽版');
   assert.ok(up.start() && timers.length === 1 && timers[0].once && timers[0].ms === U.FIRST_DELAY, '只在開啟時檢查一次，不定時檢查');
@@ -2264,6 +2264,33 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.deepStrictEqual(up.install(), { installing: true });
   await flushT();
   assert.deepStrictEqual(quits, [[true, true]], '不跳視窗安裝、裝完重新打開');
+  // 1b. 預設先問再裝：有新版 → 'offer'＋艾琳問一次，不下載、關掉時不裝；答應了才下載，下載好說一次；答應「現在更新」→ 下載完直接重新啟動
+  const auA = new EventEmitter();
+  let dlA = 0; const quitsA = [];
+  auA.checkForUpdates = async () => { auA.emit('checking-for-update'); auA.emit('update-available', { version: '0.1.3', releaseNotes: '- 兩本書' }); if (auA.autoDownload) throw new Error('不該自動下載'); };
+  auA.downloadUpdate = async () => { dlA++; auA.emit('download-progress', { percent: 50 }); auA.emit('update-downloaded', { version: '0.1.3' }); };
+  auA.quitAndInstall = (...a) => quitsA.push(a);
+  const saidA = [];
+  const upA = U.createUpdater({ app: app(), platform: 'win32', execPath: 'x', readdir: () => ['Uninstall a.exe'], loadUpdater: () => auA, onSay: (l) => saidA.push(...l), ...fakeTimers });
+  assert.ok(auA.autoDownload === false && auA.autoInstallOnAppQuit === false, '先問：不自動下載、關掉時不裝');
+  let sA = await upA.check();
+  assert.ok(sA.status === 'offer' && sA.version === '0.1.3' && dlA === 0 && saidA.length === 1 && /要換上嗎/.test(saidA[0].text), '有新版：先問');
+  await upA.check();
+  assert.strictEqual(saidA.length, 1, '問過了不再問');
+  assert.deepStrictEqual(upA.install(), { installing: false }, '還沒下載不能裝');
+  assert.deepStrictEqual(upA.accept(), { downloading: true });
+  await flushT(); await new Promise((r) => setImmediate(r));
+  sA = upA.status();
+  assert.ok(dlA === 1 && sA.status === 'ready' && sA.accepted && auA.autoInstallOnAppQuit === true && saidA.length === 2 && /下次關掉/.test(saidA[1].text), '答應了才下載，關掉時換上：' + JSON.stringify(sA));
+  assert.deepStrictEqual(upA.accept(), { downloading: false }, '下載好了不用再答應');
+  const auB = new EventEmitter(); const quitsB = [];
+  auB.checkForUpdates = async () => auB.emit('update-available', { version: '0.1.4' });
+  auB.downloadUpdate = async () => auB.emit('update-downloaded', { version: '0.1.4' });
+  auB.quitAndInstall = (...a) => quitsB.push(a);
+  const upB = U.createUpdater({ app: app(), platform: 'win32', execPath: 'x', readdir: () => ['Uninstall a.exe'], loadUpdater: () => auB, ...fakeTimers });
+  await upB.check(); upB.accept({ now: true });
+  await new Promise((r) => setImmediate(r)); await flushT();
+  assert.deepStrictEqual(quitsB, [[true, true]], '現在更新：下載完直接重新啟動換上');
   // 2. 已經按過「下次再說」的版本：不再說；關掉自動檢查：計時到了也不檢查
   const au2 = new EventEmitter(); let c2 = 0;
   au2.checkForUpdates = async () => { c2++; au2.emit('update-downloaded', { version: '0.1.3' }); };
@@ -3314,7 +3341,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   let v = PD.view(d, { today: '2026-10-13', raids: [{ date: '2026-10-13', start: '09:00', end: '09:30', title: '站會' }] });
   const r0 = v.rows.find((r) => r.title === '寫完週報：寫初稿');
   assert.ok(r0.link && r0.link.step === '寫初稿' && r0.link.hasStep && !r0.link.stepDone && r0.lanes === 2, '連結＋並排：' + JSON.stringify(r0));
-  assert.deepStrictEqual(PD.layoutDay([{ key: 'a', start: '09:00', end: '10:00' }, { key: 'b', start: '09:30', end: '11:00' }, { key: 'c', start: '10:00', end: '10:30' }, { key: 'd', start: '11:00', end: '12:00' }]), { a: { lane: 0, lanes: 2 }, b: { lane: 1, lanes: 2 }, c: { lane: 0, lanes: 2 }, d: { lane: 0, lanes: 1 } }, '同時段並排');
+  assert.deepStrictEqual(PD.layoutDay([{ key: 'a', start: '09:00', end: '10:00' }, { key: 'b', start: '09:30', end: '11:00' }, { key: 'c', start: '10:00', end: '10:30' }, { key: 'd', start: '11:00', end: '12:00' }]), { a: { lane: 0, lanes: 2, g: 0 }, b: { lane: 1, lanes: 2, g: 0 }, c: { lane: 0, lanes: 2, g: 0 }, d: { lane: 0, lanes: 1, g: 1 } }, '同時段並排');
   assert.ok(v.quests[0].slots === 1 && v.quests[0].slotDates[0] === '2026-10-13', '委託知道自己排了幾格');
   PD.addItems(d, [{ kind: 'row', date: '2026-10-13', start: '09:00', end: '10:00', title: '看信', raid: false }]);
   assert.strictEqual(PD.checks(d).length, 0, '同時段兩件事：不用紅筆');
@@ -3325,6 +3352,18 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(d.rows.some((r) => r.title === '寫好週報：寫初稿'), '委託改名：時段跟著改');
   const applied = PD.applyToContent(base, d).content;
   assert.ok(/## 寫好週報/.test(applied) && /09:00–10:00 寫好週報：寫初稿/.test(applied), applied);
+  // 一次說好幾天：每一天各記一筆
+  const xd = (t) => PD.ruleExtract(t, ctx).map((x) => `${x.kind} ${(x.date || x.due || '').slice(5)} ${x.start || x.time || ''} ${x.title}`.replace(/\s+/g, ' ').trim());
+  assert.deepStrictEqual(xd('週三、週四出差'), ['theme 10-14 出差', 'theme 10-15 出差'], '週三、週四出差');
+  assert.deepStrictEqual(xd('週三到週五外訓'), ['theme 10-14 外訓', 'theme 10-15 外訓', 'theme 10-16 外訓'], '週三到週五');
+  assert.deepStrictEqual(xd('週二和週四 9 點站會'), ['row 10-13 09:00 站會', 'row 10-15 09:00 站會'], '週二和週四 9 點');
+  assert.deepStrictEqual(xd('提醒我週二、週四下午四點填工時'), ['reminder 10-13 16:00 填工時', 'reminder 10-15 16:00 填工時'], '提醒好幾天');
+  assert.deepStrictEqual(xd('明天、後天都要請假'), ['theme 10-14 請假', 'theme 10-15 請假']);
+  assert.deepStrictEqual(xd('週三做測試、週四修 bug、週五上線'), ['quest 10-14 做測試', 'quest 10-15 修 bug', 'quest 10-16 上線'], '每段有自己的事：照舊拆開');
+  // 排在截止日之後：提醒
+  const late = PD.blank(ctx.week, '');
+  PD.addItems(late, [{ kind: 'quest', title: '交企劃', tier: 'major', due: '2026-10-14', steps: ['寫大綱'] }, { kind: 'row', date: '2026-10-15', start: '09:00', end: '10:00', title: '交企劃：寫大綱', raid: false }]);
+  assert.ok(PD.checks(late).some((c) => /截止日（週三 10\/14）之後/.test(c.text)), '排在截止日之後');
   // 3. 步驟的時間寫法
   assert.deepStrictEqual(PD.parseStepLines('收資料 30\n寫初稿 1.5 小時\n- 整理 45分\n改第2版\n請主管看'), [{ text: '收資料', min: 30 }, { text: '寫初稿', min: 90 }, { text: '整理', min: 45 }, { text: '改第2版', min: 0 }, { text: '請主管看', min: 0 }]);
   // 4. 拆時段：平均分、一步一格、跳過團戰、延到下一天、擠在同一格、照步驟的時間
@@ -3375,6 +3414,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(r.planDraft.book === 'time' && r.planDraft.bookDay === '2026-10-13' && r.planDraft.nowHM === '09:40', '直接翻到時刻簿的今天');
   E.pdBook('quests');
   assert.strictEqual(E.pdView().book, 'quests', '記住翻到哪一本');
+  assert.ok(E.pdView().handFont === true, '手寫字型預設開');
+  E.pdSetFont(false);
+  assert.ok(E.pdView().handFont === false && JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).planDraft.handFont === false, '關掉手寫字型：存進設定');
+  E.pdSetFont(true);
   // 拆時段
   const wq = E.pdView().quests.find((q) => q.title === '寫完週報').id;
   r = E.pdSplitPreview(wq, { dates: ['2026-10-14'], from: '09:00', to: '11:00', unit: 60, stepsText: '寫初稿\n請主管看' });
@@ -3416,6 +3459,15 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const big = fs.readFileSync(path.join(root, 'src/renderer/plandraft.html'), 'utf8');
   for (const id of ['pageQuests', 'pageTime', 'tabs', 'dueCols', 'dayTabs', 'timeArea', 'unsureBox']) assert.ok(big.includes(`id="${id}"`), '筆記本畫面：' + id);
   const pre = fs.readFileSync(path.join(root, 'src/main/plandraft-preload.js'), 'utf8');
-  for (const ch of ['pd:book', 'pd:splitPreview', 'pd:split', 'pd:suggest']) assert.ok(pre.includes(ch), 'preload：' + ch);
+  for (const ch of ['pd:book', 'pd:splitPreview', 'pd:split', 'pd:suggest', 'pd:font']) assert.ok(pre.includes(ch), 'preload：' + ch);
+  // ✍ 手寫字型（芫荽 Iansui，OFL）：CSS 用到的檔案都在、附授權、會打包進安裝檔、不會太大
+  const fdir = path.join(root, 'assets', 'fonts', 'iansui');
+  const fcss = fs.readFileSync(path.join(fdir, 'iansui.css'), 'utf8');
+  const urls = [...fcss.matchAll(/url\((\.\/files\/[^)]+)\)/g)].map((m) => m[1]);
+  assert.ok(urls.length > 50 && urls.every((u) => fs.existsSync(path.join(fdir, u))) && !/\.woff\)/.test(fcss), '字型檔都在（只用 woff2）');
+  assert.ok(/SIL OPEN FONT LICENSE/i.test(fs.readFileSync(path.join(fdir, 'OFL.txt'), 'utf8')), '附 OFL 授權');
+  const fsize = fs.readdirSync(path.join(fdir, 'files')).reduce((n, f) => n + fs.statSync(path.join(fdir, 'files', f)).size, 0);
+  assert.ok(fsize < 7 * 1024 * 1024, `字型不要太大：${(fsize / 1048576).toFixed(1)}MB`);
+  assert.ok(/assets\/fonts\/iansui\/iansui\.css/.test(big) && JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build.files.includes('assets/fonts/**/*'), '筆記本用手寫字、安裝檔包含字型');
   console.log('兩本書與時刻簿測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('api', {
   updateGet: () => ipcRenderer.invoke('update:get'),
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateInstall: () => ipcRenderer.invoke('update:install'),
+  updateAccept: (now) => ipcRenderer.invoke('update:accept', now), // 🎁 答應更新：開始下載（now＝下載完立刻重新啟動）
   updateDismiss: (v) => ipcRenderer.invoke('update:dismiss', v),
   updateOpenPage: () => ipcRenderer.invoke('update:openPage'),
   setupCancelInstall: () => ipcRenderer.invoke('setup:cancelInstall'),

@@ -1811,6 +1811,7 @@ class Engine {
     const now = this.now();
     return {
       ...v, today, nowHM: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`, book: this.state.pdBook === 'time' ? 'time' : 'quests', bookDay: this.state.pdBookDay || null,
+      handFont: this.pdCfg().handFont !== false, // ✍ 手寫字型（芫荽 Iansui）
       weeks, canPlay, ai: this.aiOn(), target: f ? { kind: f.kind, name: path.basename(f.file) } : { kind: 'new', name: hint.name, dir: path.basename(hint.dir) },
     };
   }
@@ -1825,6 +1826,8 @@ class Engine {
     this.saveState();
     return { book: this.state.pdBook, bookDay: this.state.pdBookDay || null };
   }
+  // ✍ 筆記本的手寫字型：開／關（寫進 config.json 的 planDraft.handFont）
+  pdSetFont(on) { this.saveConfigPatch({ planDraft: { handFont: !!on } }); return { handFont: !!on }; }
   // 🕘 委託拆成時段：預覽（不改草稿）
   pdSplitOpts(d, o = {}) {
     const offDates = [];

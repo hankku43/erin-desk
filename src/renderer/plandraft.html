@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; img-src 'self' file: data:; style-src 'self' 'unsafe-inline';">
 <title>筆記本・委託</title>
+<link rel="stylesheet" href="../../assets/fonts/iansui/iansui.css">
 <link rel="stylesheet" href="plandraft.css">
 </head>
 <body>
@@ -19,6 +20,7 @@
         <div class="menu hidden" id="moreMenu">
           <button data-wipe>🧽 整頁擦掉重寫（原本的全部標成刪掉）</button>
           <button data-discard>↺ 放棄這一頁還沒寫進去的修改</button>
+          <button data-font>✍ 手寫字型：<span id="fontState">開</span></button>
         </div>
       </div>
       <button class="tb gold" id="bCommit">✔ 寫進計畫檔</button>
@@ -44,8 +46,9 @@
           <h2><span>🕘 時刻簿</span></h2>
           <div id="dayTabs" class="daytabs" role="tablist"></div>
           <button class="tb small" id="bWeekView" data-tip="五天並排看一週">📅 一週總覽</button>
+          <span class="hint">拖方塊換時間、拉下緣改長短；右邊的委託拖進來排一格</span>
           <span class="grow"></span>
-          <label class="unit" data-tip="點時間軸的空白處加一格，對齊到這個單位">點空白加一格：<select id="unitSel"><option value="60">每 1 小時</option><option value="30" selected>每 30 分</option><option value="15">每 15 分</option></select></label>
+          <label class="unit" data-tip="點空白加一格、拖拉時，時間對齊到這個單位">對齊：<select id="unitSel"><option value="60">每 1 小時</option><option value="30" selected>每 30 分</option><option value="15">每 15 分</option></select></label>
         </div>
         <div id="timeArea" class="time-area"></div>
       </section>
