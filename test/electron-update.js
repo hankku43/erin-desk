@@ -76,8 +76,11 @@ module.exports = ({ win, engine, app, menuTemplate, updater }) => {
       wc.send('update:status', { mode: 'auto', current: '0.1.2', status: 'downloading', accepted: false, version: '0.1.5', percent: 40, notes: [], url: U.RELEASES_PAGE });
       await wait(300);
       assert(!(await visible('#updCard')), '沒答應的下載（自動模式）不顯示卡片');
-      // 6. 狀態欄收起來時，卡片貼在下面
+      // 6. 狀態欄收起來時，卡片貼在下面（上一步沒答應的下載會把卡片藏起來，先換回答應過的下載中，卡片才會出現）
+      wc.send('update:status', { mode: 'auto', current: '0.1.2', status: 'downloading', accepted: true, installNow: false, version: '0.1.5', percent: 60, notes: [], url: U.RELEASES_PAGE });
+      await wait(300);
       await js(`document.body.classList.add('no-hud'); updateCard.render(updateCard.state()); 0`); await wait(300);
+      assert(await visible('#updCard'), '卡片有出現');
       assert((await js(`getComputedStyle(document.querySelector('#updCard')).bottom`)) === '14px', '沒有狀態欄時貼底');
       console.log('UPDATE TEST OK');
     } catch (e) { console.error('UPDATE TEST FAIL', e); process.exitCode = 1; }
