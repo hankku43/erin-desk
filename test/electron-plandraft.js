@@ -1,4 +1,4 @@
-// 📓 艾琳的筆記本（兩本書）巡禮：主畫面「📓 委託」→ 📜 委託簿（依截止日分欄）→ 說話（新委託、這個任務的步驟、移時段 → 時刻簿的書籤 +1）
+// 📓 艾琳的筆記本（兩本書）巡禮：主畫面「📓 筆記本」→ 📜 委託簿（依截止日分欄）→ 說話（新委託、這個任務的步驟、移時段 → 時刻簿的書籤 +1）
 // → 🕘 時刻簿（一天一頁、改過的標原本、一週總覽）→ 委託「🕘 排進時刻簿」（小卡、預覽）→ 點空白加一格（同時段並排）
 // → 勾目標、改委託、刪掉／復原、不確定 → 寫進計畫檔 → 時刻簿勾一格（委託的步驟一起勾）→ 下週新檔 → 收起來
 // xvfb 用；QUEST_NPC_HOME＝準備好的資料夾（config.json、plans/week.md、data/save.json 已經做完新手教學、AI 關著）
@@ -26,9 +26,9 @@ module.exports = ({ win, engine, menuTemplate, pdWin }) => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);
       await wait(2500); await flush();
-      const sub = menuTemplate().find((m) => /週計畫/.test(m.label || ''));
-      assert(/委託：艾琳的筆記本/.test(sub.submenu[0].label), '選單第一項：' + sub.submenu[0].label);
-      // 1. 主畫面「📓 委託」→ 大視窗、📜 委託簿
+      const top = menuTemplate().filter((m) => m.type !== 'separator');
+      assert(top.filter((m) => /^📓 筆記本/.test(m.label || '')).length === 1 && !top.some((m) => m.submenu && m.submenu.some((x) => /筆記本/.test(x.label || ''))), '右鍵第一層有「📓 筆記本」、而且只有這一處'); // 10/13
+      // 1. 主畫面「📓 筆記本」→ 大視窗、📜 委託簿
       await js(`openDialog(); 0`); await wait(300);
       await click('[data-act=pd]');
       let bw = null;
@@ -51,6 +51,11 @@ module.exports = ({ win, engine, menuTemplate, pdWin }) => {
       assert(/這週/.test(await text('#weeks .on', B)) && /下週/.test(await text('#weeks', B)), '這週／下週');
       assert(/assets\/stageup\/erin_(hug_notebook|write_hum)/.test(await js(`document.querySelector('#face').src`, B)), '艾琳抱著筆記本／邊哼歌邊寫');
       await shot('pd01_quests', bw);
+      // 10/13 視窗縮到最小：欄頭「週二 今天 10/13」還是一行、不溢出（以前「今天」會掉到第二行）
+      const [w0, h0] = bw.getSize(); bw.setSize(960, 640); await wait(500);
+      const dh = await js(`[...document.querySelectorAll('.dcol .dh')].map((h) => ({ t: h.textContent.trim(), h: Math.round(h.getBoundingClientRect().height), over: h.scrollWidth > h.clientWidth + 1 }))`, B);
+      assert(dh.some((x) => /週二/.test(x.t)) && dh.every((x) => x.h <= 30 && !x.over), '欄頭一行、不溢出：' + JSON.stringify(dh));
+      bw.setSize(w0, h0); await wait(400);
       // 2. 說話：新委託＋步驟；移時段 → 時刻簿的書籤 +1
       await say('整理實驗報告');
       await say('這個任務的步驟有要先做文獻整理後寫初稿再接著請主管看');

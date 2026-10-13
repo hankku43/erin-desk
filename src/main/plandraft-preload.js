@@ -26,4 +26,5 @@ contextBridge.exposeInMainWorld('pd', {
   close: () => ipcRenderer.invoke('pd:close'),
   commit: () => ipcRenderer.invoke('pd:commit'),
   onUpdate: (fn) => ipcRenderer.on('pd:update', (_e, p) => fn(p)),
+  onNotify: (fn) => ipcRenderer.on('pd:notify', (_e, p) => fn(p)), // 艾琳的提醒、團戰開始／結束（主視窗藏著的時候也看得到）
 });

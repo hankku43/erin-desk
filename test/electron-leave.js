@@ -26,7 +26,7 @@ module.exports = ({ win, engine, menuTemplate }) => {
       await engine.addRaid({ title: '週五回顧', date: '2026-10-09', start: '16:00', end: '16:30', repeat: 'weekly', days: [5] });
       wc.send('view:update', { view: engine.view() }); await wait(300);
       // 選單
-      const sub = menuTemplate().find((m) => /週計畫/.test(m.label || ''));
+      const sub = menuTemplate().find((m) => /^🗓 行程/.test(m.label || ''));
       assert(sub.submenu.some((m) => /今天請假/.test(m.label || '')) && sub.submenu.some((m) => /請假與國定假日/.test(m.label || '')), '選單有請假');
       // 1. 今日行程 → 🌴 請假
       await js(`closeDialog(); openPanel('daily'); 0`); await wait(500);

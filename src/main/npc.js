@@ -229,7 +229,7 @@ const TEMPLATES = {
   ],
   journal_reporter: [
     ['每天都有來回報，{self}的日誌寫得好充實～謝謝{call}。', 'happy'],
-    ['{reports} 天的下班回報一天都沒少！這種踏實的感覺，{self}很喜歡。', 'happy'],
+    ['{reports} 天的收工回報一天都沒少！這種踏實的感覺，{self}很喜歡。', 'happy'],
   ],
   journal_grinder: [
     ['這週完成了 {objectives} 個目標！{call}一路往前衝的樣子，{self}都看到了。', 'cheer'],

@@ -118,38 +118,89 @@
     return `<div class="tv-prop item">${art}</div>`;
   }
 
+  // 🎫 小票：道賀卡、許願單說完了沒人理（6 秒）、或你去點別的東西（開面板、對話框）→ 卡片收起來，縮成狀態欄上方的一張小票，面板就不會被壓到一半；點小票再展開
+  const CHIP_WAIT = 6000;
+  function chipLabel(v) {
+    if (v.kind === 'congrats') return `🎫 抽卡券 ×${+v.tickets || 1}`;
+    const it = (v.items || [])[0];
+    return `🔖 許願單${it ? `：${it.name}` : ''}`;
+  }
+  function placeChip() {
+    const chip = $('#twinsChip'); if (!chip) return;
+    const hud = $('#hud');
+    const h = hud && !document.body.classList.contains('no-hud') ? hud.offsetHeight : 0;
+    chip.style.bottom = `${h ? 12 + h - 4 : 14}px`; // 像插在狀態欄上緣的一張票；狀態欄收起來就貼在左下角
+  }
+  if (window.ResizeObserver && $('#hud')) new ResizeObserver(placeChip).observe($('#hud'));
+
   function play(v) {
     return new Promise((resolve) => {
       const dlg = $('#dialog');
       const wasOpen = !dlg.classList.contains('hidden');
       dlg.classList.add('hidden'); hideWhisper();
       const first = (v.lines[0] && v.lines[0].who) || 'duo';
-      const el = document.createElement('section');
-      el.id = 'twinsVisit'; el.className = `card tv-${v.kind}`; el.dataset.hit = '';
-      el.innerHTML = `<div class="tv-busts">${bust(other(first), 'back')}${bust(first, 'on')}</div>${prop(v)}
+      const hasActions = (v.actions || []).length > 0;
+      const markup = (who) => `<div class="tv-busts">${bust(other(who), 'back')}${bust(who, 'on')}</div>${prop(v)}
         <div class="tv-body"><b class="tv-name"></b><div class="tv-line"></div>
         <div class="tv-actions hidden">${(v.actions || []).map((a) => `<button class="btn small ${a.gold ? 'gold' : 'ghost'}" data-tv="${esc(a.id)}">${esc(a.label)}</button>`).join('')}</div></div>
         <button class="icon-btn tv-close" data-tv="close" aria-label="關閉">✕</button>`;
-      $('#upper').appendChild(el);
+      let el = null, chip = null;
       let i = -1, typing = null, autoT = null, done = false, hover = false;
-      const lineEl = el.querySelector('.tv-line');
+      const lineEl = () => el.querySelector('.tv-line');
+      const cleanup = () => { clearInterval(typing); clearTimeout(autoT); typing = null; document.removeEventListener('pointerdown', outside, true); };
       const finish = (act) => {
         if (done) return; done = true;
-        clearInterval(typing); clearTimeout(autoT);
-        el.classList.add('bye');
+        cleanup();
+        if (chip) { chip.remove(); chip = null; }
+        const card = el;
+        if (card) card.classList.add('bye');
         setTimeout(() => {
-          el.remove();
-          if (wasOpen && v.kind !== 'tea' && !state.queue.length && act !== 'draw' && act !== 'shop') openDialog(); // 外送之後艾琳在頭旁邊小聲說話，對話框先不打開
+          if (card) card.remove();
+          if (wasOpen && v.kind !== 'tea' && !state.queue.length && !state.panel && act !== 'draw' && act !== 'shop') openDialog(); // 外送之後艾琳在頭旁邊小聲說話，對話框先不打開
           resolve(act || 'ok');
         }, 380);
       };
+      // 收成小票（只有道賀、許願單這種要你回答的才收；外送說完就走）
+      const shrink = () => {
+        if (done || !el || chip) return;
+        cleanup();
+        const card = el; el = null;
+        card.classList.add('bye'); setTimeout(() => card.remove(), 380);
+        chip = document.createElement('button');
+        chip.id = 'twinsChip'; chip.className = `tw-chip tv-${v.kind}`; chip.dataset.hit = '';
+        chip.dataset.tip = `${NAMES[(v.lines[v.lines.length - 1] || {}).who] || NAMES.duo}還在等你回話：點一下展開`;
+        chip.innerHTML = `${bust(first, 'chip')}<span>${esc(chipLabel(v))}</span>`;
+        chip.addEventListener('click', expand);
+        document.body.appendChild(chip);
+        placeChip();
+      };
+      // 點小票：卡片回來，直接停在最後一句＋按鈕（不用重打字）
+      const expand = () => {
+        if (done || el) return;
+        if (chip) { chip.remove(); chip = null; }
+        mount();
+        i = v.lines.length - 1;
+        const l = v.lines[i];
+        el.querySelector('.tv-name').textContent = l.name; lineEl().textContent = l.text;
+        for (const b of el.querySelectorAll('.tw-bust')) { const me = b.classList.contains(l.who); b.classList.toggle('on', me); b.classList.toggle('back', !me); }
+        showActions();
+      };
+      // 點了卡片以外的地方（開面板、點艾琳、狀態欄…）：先讓路
+      const outside = (e) => {
+        if (done || !el || e.target.closest('#twinsVisit')) return;
+        if (!hasActions) { finish('auto'); return; }
+        shrink();
+      };
       const showActions = () => {
-        if ((v.actions || []).length) el.querySelector('.tv-actions').classList.remove('hidden');
-        else autoT = setTimeout(() => { if (!hover) finish('auto'); else showActions(); }, 2600);
+        if (hasActions) {
+          el.querySelector('.tv-actions').classList.remove('hidden');
+          clearTimeout(autoT);
+          autoT = setTimeout(() => { if (!hover) shrink(); else showActions(); }, CHIP_WAIT); // 沒人理：先收成小票
+        } else autoT = setTimeout(() => { if (!hover) finish('auto'); else showActions(); }, 2600);
       };
       const next = () => {
         clearTimeout(autoT);
-        if (typing) { clearInterval(typing); typing = null; lineEl.textContent = v.lines[i].text; schedule(); return; }
+        if (typing) { clearInterval(typing); typing = null; lineEl().textContent = v.lines[i].text; schedule(); return; }
         i += 1;
         if (i >= v.lines.length) { showActions(); return; }
         const l = v.lines[i];
@@ -161,9 +212,10 @@
           if (me) { b.classList.remove('hop'); void b.offsetWidth; b.classList.add('hop'); }
         }
         let k = 0;
-        lineEl.textContent = '';
+        const target = lineEl();
+        target.textContent = '';
         typing = setInterval(() => {
-          k += 1; lineEl.textContent = l.text.slice(0, k);
+          k += 1; target.textContent = l.text.slice(0, k);
           if (k >= l.text.length) { clearInterval(typing); typing = null; schedule(); }
         }, 34);
       };
@@ -171,14 +223,23 @@
         if (i >= v.lines.length - 1) { showActions(); return; }
         autoT = setTimeout(() => { if (!hover) next(); else schedule(); }, 2400); // 滑鼠停在上面：等你看完
       };
-      el.addEventListener('mouseenter', () => { hover = true; });
-      el.addEventListener('mouseleave', () => { hover = false; });
-      el.addEventListener('click', (e) => {
-        const b = e.target.closest('[data-tv]');
-        if (b) { finish(b.dataset.tv); return; }
-        if (i < v.lines.length - 1 || typing) next();
-        else if (!(v.actions || []).length) finish('ok'); // 外送：說完了點一下就走
-      });
+      const mount = () => {
+        el = document.createElement('section');
+        el.id = 'twinsVisit'; el.className = `card tv-${v.kind}`; el.dataset.hit = '';
+        el.innerHTML = markup(first);
+        $('#upper').appendChild(el);
+        hover = false;
+        el.addEventListener('mouseenter', () => { hover = true; });
+        el.addEventListener('mouseleave', () => { hover = false; });
+        el.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-tv]');
+          if (b) { finish(b.dataset.tv); return; }
+          if (i < v.lines.length - 1 || typing) next();
+          else if (!hasActions) finish('ok'); // 外送：說完了點一下就走
+        });
+        document.addEventListener('pointerdown', outside, true);
+      };
+      mount();
       setTimeout(next, 420); // 先讓她們跑進來
     });
   }

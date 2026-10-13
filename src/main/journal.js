@@ -78,7 +78,7 @@ function snapshot({ plan, ps, state, rewards = G.DEFAULT_REWARDS, now = new Date
     reports: daily.filter((d) => d.done || d.blocker || d.next).length, days: Math.max(plan.days.length, 1),
     focus: focus.length, focusMin: sum(focus, (h) => Number((h.reason.match(/(\d+)\s*分鐘/) || [])[1] || 0)),
     fortunes: hist.filter((h) => /^今日運勢/.test(h.reason)).map((h) => h.reason.replace(/^今日運勢[:：]\s*/, '')).reverse(),
-    divinations: hist.filter((h) => /^占卜魔法/.test(h.reason)).length,
+    divinations: hist.filter((h) => /^(?:占卜魔法|星環占卜)/.test(h.reason)).length,
     levelStart: G.levelInfo(Math.max(0, xpEnd - xp), step).level, levelEnd: G.levelInfo(Math.max(0, xpEnd), step).level,
   };
   stats.titleEnd = G.levelInfo(Math.max(0, xpEnd), step).title;
@@ -92,7 +92,7 @@ const BADGES = [
   ['ontime', '⏱', '準時之星', (s) => s.quests >= 2 && s.late === 0, (s) => `交付的 ${s.quests} 個委託都準時`],
   ['levelup', '⬆', '突破極限', (s) => s.levelEnd > s.levelStart, (s) => `升到 Lv.${s.levelEnd}`],
   ['focus', '🍅', '專注大師', (s) => s.focus >= 8, (s) => `專注了 ${s.focus} 顆番茄（${s.focusMin} 分鐘）`],
-  ['reporter', '📝', '勤勞的記錄員', (s) => s.reports >= Math.max(3, s.days), (s) => `${s.reports} 天都有下班回報`],
+  ['reporter', '📝', '勤勞的記錄員', (s) => s.reports >= Math.max(3, s.days), (s) => `${s.reports} 天都有收工回報`],
   ['grinder', '⚔', '勇往直前', (s) => s.objectives >= 10, (s) => `完成了 ${s.objectives} 個目標`],
   ['steady', '🌱', '穩紮穩打', (s) => s.objectives >= 1 || s.quests >= 1, (s) => `完成了 ${s.objectives} 個目標`],
   ['rest', '☕', '養精蓄銳', () => true, () => '這週先好好休息'],
@@ -170,9 +170,9 @@ function reportText(snap, labels = DEFAULTS.labels) {
 // 給 AI 看的這週摘要（寫評語用）
 function weekFacts(snap) {
   const s = snap.stats;
-  const parts = [`${snap.label}`, `交付委託 ${s.quests}/${s.questsTotal}（準時 ${s.onTime}${s.late ? `、晚交 ${s.late}` : ''}）`, `完成目標 ${s.objectives}/${s.objectivesTotal}`];
+  const parts = [`${snap.label}`, `交付任務 ${s.quests}/${s.questsTotal}（準時 ${s.onTime}${s.late ? `、晚交 ${s.late}` : ''}）`, `完成目標 ${s.objectives}/${s.objectivesTotal}`];
   if (s.rowsTotal) parts.push(`行程 ${s.rows}/${s.rowsTotal} 格`);
-  parts.push(`下班回報 ${s.reports} 天`, `經驗值 +${s.xp}、金幣 +${s.gold}`);
+  parts.push(`收工回報 ${s.reports} 天`, `經驗值 +${s.xp}、金幣 +${s.gold}`);
   if (s.focus) parts.push(`專注 ${s.focus} 顆番茄（${s.focusMin} 分鐘）`);
   if (s.levelEnd > s.levelStart) parts.push(`升到 Lv.${s.levelEnd}「${s.titleEnd}」`);
   const done = snap.quests.filter((q) => q.status === 'done').map((q) => q.title);
@@ -192,8 +192,8 @@ function toMarkdown(week, { labels, npcName = '艾琳' } = {}) {
   if (b.length) L.push(`> 本週稱號：${b[0].icon} ${b[0].name}（${b[0].why}）${b.length > 1 ? `　徽章：${b.slice(1).map((x) => `${x.icon} ${x.name}`).join('、')}` : ''}`, '');
   if (week.comment) L.push(`## ${npcName}的評語`, '', week.comment, '');
   L.push('## 本週數據', '', '| 項目 | 數字 |', '|---|---|',
-    `| 交付委託 | ${s.quests}/${s.questsTotal}（準時 ${s.onTime}） |`, `| 完成目標 | ${s.objectives}/${s.objectivesTotal} |`,
-    ...(s.rowsTotal ? [`| 完成行程 | ${s.rows}/${s.rowsTotal} 格 |`] : []), `| 下班回報 | ${s.reports} 天 |`,
+    `| 交付任務 | ${s.quests}/${s.questsTotal}（準時 ${s.onTime}） |`, `| 完成目標 | ${s.objectives}/${s.objectivesTotal} |`,
+    ...(s.rowsTotal ? [`| 完成行程 | ${s.rows}/${s.rowsTotal} 格 |`] : []), `| 收工回報 | ${s.reports} 天 |`,
     `| 經驗值／金幣 | +${s.xp} XP／+${s.gold}${s.spent ? `（花了 ${s.spent}）` : ''} |`, `| 專注 | ${s.focus} 顆（${s.focusMin} 分鐘） |`,
     `| 等級 | Lv.${s.levelStart}${s.levelEnd > s.levelStart ? ` → Lv.${s.levelEnd}` : ''} |`, '');
   if (week.daily.length) {

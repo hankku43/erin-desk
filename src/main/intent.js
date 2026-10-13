@@ -31,7 +31,7 @@ const ACTION_RULES = [
   '- 要交付整個任務 → {"type":"submit","target":"任務代號","report":"回報內容"}（例如 q1）',
   '- 想改做另一個任務 → {"type":"activate","target":"任務代號"}',
   '- 今日行程某一格做完／取消 → {"type":"daily_done"或"daily_undo","target":"行程代號"}（例如 d0）',
-  '- 下班回報 → {"type":"report","done":"實際完成","blocker":"卡點","next":"明日調整"}',
+  '- 收工回報（下班回報、日報） → {"type":"report","done":"實際完成","blocker":"卡點","next":"明日調整"}',
   '代號只能使用【可操作項目】裡列出的；不確定是哪一項就不要放動作，改在 line 裡問清楚。',
   '只是聊天、詢問建議時，actions 用空陣列 []。',
   '有放動作時，line 要用角色口吻確認你要做的事，例如「要艾琳幫你把『週報寄出』勾起來嗎？」。',
@@ -138,7 +138,7 @@ function validate(actions, cat) {
     } else if (a.type === 'report') {
       const f = { done: String(a.done || '').slice(0, 300), blocker: String(a.blocker || '').slice(0, 300), next: String(a.next || '').slice(0, 300) };
       if (!f.done && !f.blocker && !f.next) continue;
-      item = { type: 'report', key: 'report', fields: f, label: `寫下班回報：${[f.done && `完成 ${f.done}`, f.blocker && `卡點 ${f.blocker}`, f.next && `明日 ${f.next}`].filter(Boolean).join('／')}` };
+      item = { type: 'report', key: 'report', fields: f, label: `寫收工回報：${[f.done && `完成 ${f.done}`, f.blocker && `卡點 ${f.blocker}`, f.next && `明日 ${f.next}`].filter(Boolean).join('／')}` };
     }
     const sig = `${item.type}:${item.key}`;
     if (seen.has(sig)) continue;

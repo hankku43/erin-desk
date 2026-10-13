@@ -14,7 +14,7 @@ const WORK_CUES = /進度|卡住|卡關|會議|開會|報告|簡報|回報|下�
 // 艾琳講工作的事件（說完 10 分鐘內，冒險者回話多半在接這件事）
 const WORK_EVENTS = /^(greet|morning|afternoon|wrapup|custom|registered|assign|objective|submit|overdue|reminder|daily|daily_report|all_clear|raid)/;
 // 艾琳上一句聊天在問工作
-const WORK_ASK = /進度|任務|委託|目標|做完|完成了|勾起來|勾選|交付|行程|下班回報/;
+const WORK_ASK = /進度|任務|委託|目標|做完|完成了|勾起來|勾選|交付|行程|下班回報|收工回報|收工/;
 // 太常見、計畫裡出現也不代表在講工作的兩字詞
 const STOP = new Set(('今天 明天 昨天 後天 現在 等等 一下 一起 一個 一些 這個 那個 這樣 那樣 什麼 怎麼 為什麼 時候 時間 '
   + '可以 不要 不會 沒有 還有 還是 已經 還沒 開始 結束 準備 整理 確認 完成 處理 需要 應該 可能 如果 因為 所以 但是 '

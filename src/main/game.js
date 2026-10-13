@@ -100,7 +100,7 @@ function ensureActive(plan, ps, now) {
 // 成就用的累計次數：照獎勵的理由記（history 只留 300 筆，這裡是永久的）
 const TALLY = [
   [/^完成目標/, 'objectives'], [/^交付任務/, 'quests'], [/^交付任務.*（準時）$/, 'onTime'], [/^完成行程/, 'rows'],
-  [/下班回報$/, 'reports'], [/^完成專注/, 'focus'], [/^今日運勢/, 'fortunes'], [/^今日運勢：大吉/, 'daikichi'], [/^占卜魔法/, 'divinations'],
+  [/(?:下班回報|收工回報)$/, 'reports'], [/^完成專注/, 'focus'], [/^今日運勢/, 'fortunes'], [/^今日運勢：大吉/, 'daikichi'], [/^(?:占卜魔法|星環占卜)/, 'divinations'],
 ];
 function tally(state, reason) {
   const s = state.stats || (state.stats = {});
@@ -161,7 +161,7 @@ function onDailyReport(state, ps, dateISO, fields, rewards = DEFAULT_REWARDS, no
   ps.dailyReported[dateISO] = true;
   const summary = [fields.done && `完成：${fields.done}`, fields.blocker && `卡點：${fields.blocker}`, fields.next && `明日：${fields.next}`].filter(Boolean).join('；');
   if (summary) remember(state, `${dateISO} 日報 ${summary}`);
-  return first ? grant(state, rewards.dailyReport, `${dateISO} 下班回報`, rewards, now) : null;
+  return first ? grant(state, rewards.dailyReport, `${dateISO} 收工回報`, rewards, now) : null;
 }
 
 function remember(state, note) {

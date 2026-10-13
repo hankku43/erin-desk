@@ -111,6 +111,23 @@ module.exports = ({ win, engine, pdWin, pdOpen }) => {
       await js(`document.querySelector('#bMore').click(); 0`); await wait(150);
       await js(`document.querySelector('[data-font]').click(); 0`); await wait(400);
       assert(await js(`document.body.classList.contains('hand')`), '再打開');
+      // 12. 10/13 主視窗藏著的時候，艾琳的提醒也送到筆記本：泡泡＋上面的提醒條；團戰開始 → 倒數
+      const noticeOn = () => js(`!document.querySelector('#notice').classList.contains('hidden')`);
+      assert(!(await noticeOn()), '一開始沒有提醒條');
+      engine.onSpeech([{ text: '📯 再 5 分鐘「週會」就開始了', emotion: 'normal', event: 'raid_soon_last' }]); await wait(300);
+      assert((await noticeOn()) && /再 5 分鐘/.test(await text('#noticeText')) && /再 5 分鐘/.test(await text('#say')), '提醒進泡泡＋提醒條：' + await text('#noticeText'));
+      assert(await js(`document.querySelector('#noticeFocus').classList.contains('hidden')`), '還沒開始：沒有倒數');
+      engine.state.focus = { startAt: T, endAt: T + 30 * 60000, minutes: 30, raid: { key: 'k', title: '週會', date: '2026-10-13', start: '10:00', end: '10:30', source: 'app' } };
+      engine.onSpeech([{ text: '📯 「週會」開始了，專注到 10:30！', emotion: 'cheer', event: 'raid_start' }]); await wait(300);
+      assert(/週會・還剩 30 分（到 10:30）/.test(await text('#noticeFocus')), '團戰倒數：' + await text('#noticeFocus'));
+      await shot('tb08_notice', bw);
+      await js(`document.querySelector('#noticeClose').click(); 0`); await wait(200);
+      assert((await noticeOn()) && !(await text('#noticeText')) && /還剩 30 分/.test(await text('#noticeFocus')), '✕ 只收掉提醒的字，倒數留著');
+      engine.onSpeech([{ text: '（她自己找話聊）', emotion: 'normal', ambient: true }]); await wait(200);
+      assert(!/找話聊/.test(await text('#say')) && !(await text('#noticeText')), 'ambient 的話筆記本不插嘴');
+      engine.state.focus = null;
+      engine.onSpeech([{ text: '這格做完了～', emotion: 'happy', deferred: true }]); await wait(200);
+      assert(/做完了/.test(await text('#say')) && !(await noticeOn()), 'deferred 的回話只進泡泡；專注結束後倒數收起來');
       console.log('TIMEBOOK OK');
       setTimeout(() => process.exit(0), 300);
     } catch (e) {

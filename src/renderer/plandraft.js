@@ -12,7 +12,7 @@ const ART = (n) => `../../assets/stageup/${n}`;
 const POSE = { listen: ART('erin_write_hum.webp'), happy: ART('erin_hug_notebook.webp'), shy: ART('erin_hide_notebook.webp'), stamp: ART('erin_stamp.webp') };
 // 委託的顏色（時刻簿的方塊、委託簿的小標籤用同一個顏色，看得出哪幾格屬於哪個委託）
 const QCOLORS = ['#ffd0dc', '#cfe8ff', '#d7f2d0', '#ffe2b8', '#e6d8ff', '#cdeeee', '#fff0a6', '#f6d6c8'];
-const S = { d: null, faces: {}, name: '艾琳', hl: new Set(), pop: null, confirm: false, menu: false, book: 'quests', day: null, unit: 30, bump: { quests: 0, time: 0 }, scrolled: '' };
+const S = { d: null, faces: {}, name: '艾琳', hl: new Set(), pop: null, confirm: false, menu: false, book: 'quests', day: null, unit: 30, bump: { quests: 0, time: 0 }, scrolled: '', focus: null, clockOffset: 0, notice: null };
 
 // ---- 日期、時間小工具 ----
 const dt = (iso) => new Date(`${iso}T00:00:00`);
@@ -96,7 +96,7 @@ function renderTabs() {
     const em = b.querySelector('.bump');
     em.textContent = n ? `+${n}` : '';
     em.classList.toggle('hidden', !n);
-    b.dataset.tip = k === 'quests' ? '📜 委託簿：委託和步驟（依截止日排）' : '🕘 時刻簿：每天幾點做什麼（一天一頁）';
+    b.dataset.tip = k === 'quests' ? '📜 委託簿：這週的任務（計畫檔裡叫委託）和步驟，依截止日排' : '🕘 時刻簿：每天幾點做什麼（一天一頁）';
   });
 }
 function renderWarns() {
@@ -154,7 +154,7 @@ function renderQuests() {
   const other = d.quests.filter((q) => q.due && !inWeek.has(q.due));
   if (other.length) cols.push({ key: 'other', qs: other });
   let n = 0;
-  $('#dueCols').style.gridTemplateColumns = cols.map((c) => (c.qs.length ? 'minmax(190px, 1fr)' : 'minmax(112px, .5fr)')).join(' '); // 沒有委託的那天窄一點
+  $('#dueCols').style.gridTemplateColumns = cols.map((c) => (c.qs.length ? 'minmax(190px, 1fr)' : 'minmax(116px, .5fr)')).join(' '); // 沒有委託的那天窄一點
   $('#dueCols').innerHTML = cols.map((c) => {
     const day = c.day;
     const head = day ? (() => { const [w, date] = day.label.split(' '); return `<div class="dh"><b>${esc(w)}</b><span class="date">${esc(date || '')}</span></div>${day.off ? `<span class="offtag">🏖 ${esc(day.off)}</span>` : ''}`; })()
@@ -811,6 +811,41 @@ $('#sayInput').addEventListener('paste', (e) => {
   $('#sayInput').value = '';
   sendSay(all.slice(0, 1200));
 });
+// ---- ⏰ 艾琳的提醒、📯 團戰倒數（主視窗藏著的時候也看得到）----
+// ambient（她主動找話聊）的在筆記本不插話，主視窗那邊會亮 ! 等你回去；deferred（勾步驟、交付之後的回話）只進泡泡；其他（整點提醒、團戰、收工）進泡泡＋上面的提醒條
+function setFocus(f, now) {
+  if (!f) return;
+  S.focus = f;
+  if (now) S.clockOffset = now - Date.now();
+  renderNotice();
+}
+function focusLabel() {
+  const f = S.focus;
+  if (!f || !f.active) return '';
+  const left = Math.max(0, Math.ceil((f.endAt - (Date.now() + (S.clockOffset || 0))) / 60000));
+  return f.raid ? `📯 ${f.raid.title}・還剩 ${left} 分（到 ${f.raid.end}）` : `🍅 專注中・還剩 ${left} 分`;
+}
+function renderNotice() {
+  const fl = focusLabel();
+  const n = S.notice;
+  $('#noticeFocus').textContent = fl; $('#noticeFocus').classList.toggle('hidden', !fl);
+  $('#noticeText').textContent = n ? n.text : '';
+  $('#noticeClose').classList.toggle('hidden', !n);
+  $('#notice').classList.toggle('hidden', !fl && !n);
+}
+function notify(p) {
+  if (p.focus) setFocus(p.focus, p.now);
+  const lines = (p.lines || []).filter((l) => l && l.text && !l.ambient);
+  if (!lines.length) return;
+  const busy = $('.bubble').classList.contains('busy');
+  const last = lines[lines.length - 1];
+  if (!busy) say(last.text, last.emotion || 'normal');
+  const keep = lines.filter((l) => !l.deferred);
+  if (keep.length) { S.notice = { text: keep[keep.length - 1].text, at: Date.now() }; renderNotice(); }
+}
+$('#noticeClose').addEventListener('click', () => { S.notice = null; renderNotice(); });
+setInterval(() => { if (S.focus && S.focus.active) renderNotice(); }, 15000);
+window.pd.onNotify(notify);
 window.pd.onUpdate((p) => {
   if (!p.planDraft) return;
   S.d = p.planDraft;
@@ -845,6 +880,7 @@ document.addEventListener('mouseover', (e) => {
   document.title = `${S.name}的筆記本`;
   face('listen');
   render();
+  setFocus(r.focus, r.now); // 打開時已經在團戰／專注中：倒數照樣顯示
   if (r.lines && r.lines.length) sayLine(r.lines); else say(`這週的計畫長這樣，要加、要改都跟${S.name}說～`, 'happy');
   if (S.d && !S.d.ai) setTimeout(() => { $('#say').textContent += '（AI 現在沒開：用規則記，也可以點每一項自己改）'; }, 50);
   setTimeout(() => $('#sayInput').focus(), 300);

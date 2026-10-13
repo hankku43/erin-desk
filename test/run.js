@@ -601,7 +601,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.throws(() => E.divineCast({ question: '  ', method: 'circle', a: 1, b: 1 }), /想問的事/);
   const c1 = E.divineCast({ question: '這週的發表會會順利嗎？', method: 'circle', a: 17, b: 6 });
   assert.strictEqual(E.state.player.gold, 15, '扣 10 金幣');
-  assert.deepStrictEqual([c1.record.result.ben.name, c1.record.method, E.state.history[0].reason, E.state.history[0].gold], ['天水訟', 'circle', '占卜魔法：天水訟', -10]);
+  assert.deepStrictEqual([c1.record.result.ben.name, c1.record.method, E.state.history[0].reason, E.state.history[0].gold], ['天水訟', 'circle', '星環占卜：天水訟', -10]);
   const read = await E.divineRead(c1.record.id);
   assert.ok(/天水訟/.test(read.lines[0].text) && /艾琳的建議/.test(read.lines[0].text) && !/我(?!們)/.test(read.lines[0].text), read.lines[0].text);
   assert.strictEqual((await E.divineRead(c1.record.id)).lines[0].text, read.lines[0].text, '再看一次用同一段解讀');
@@ -1640,7 +1640,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '這週冒險者把新品標示整整齊齊地交出去了，艾琳看了好開心！成本試算表還差一點，下週一起把它完成吧。', emotion: 'happy' }) } }; };
   const c2 = await E.journalComment(fri.journal, true);
   const req = sent.messages.map((m) => m.content).join('\n');
-  assert.ok(/【本週】9\/28–10\/2；交付委託 1\/6/.test(req) && /【情境】你在冒險日誌上/.test(req) && !/【當前任務】/.test(req), 'AI 拿到這週的摘要');
+  assert.ok(/【本週】9\/28–10\/2；交付任務 1\/6/.test(req) && /【情境】你在冒險日誌上/.test(req) && !/【當前任務】/.test(req), 'AI 拿到這週的摘要');
   assert.ok(c2.journal.week.commentSource === 'llm' && /新品標示/.test(c2.journal.week.comment));
   E.config.llm.enabled = false; E.npc.llm.enabled = false;
   // 匯出：data/週報/ 底下

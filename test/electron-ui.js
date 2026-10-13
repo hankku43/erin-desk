@@ -81,7 +81,14 @@ module.exports = ({ win, engine, app }) => {
 
       // 3b. 今日行程：標題列只有標題，按鈕在下面的工具列；字寬多 15%（Windows 的字比較寬）也不會把按鈕拆成兩行
       await click('[data-act=daily]'); await wait(600); await flush();
-      assert(await js(`!document.querySelector('#panel .panel-head [data-new]') && document.querySelectorAll('#panel .panel-tools [data-new], #panel .panel-tools [data-rd-list], #panel .panel-tools [data-lv-open]').length >= 5`), '按鈕都在工具列');
+      // 10/13：工具列只剩四顆有字的（時段、提醒、團戰、筆記本↗）；請假、匯入匯出在 ⋯；收工回報是清單最下面一條
+      const tb = await js(`(() => { const bs = [...document.querySelectorAll('#panel .panel-tools > .btn')]; return { n: bs.length, text: bs.map((b) => b.textContent.trim()), worded: bs.every((b) => /[\\u4e00-\\u9fff]/.test(b.textContent)), head: !!document.querySelector('#panel .panel-head [data-new]'), menu: document.querySelectorAll('#panel .tool-menu [role=menuitem]').length, wrap: (document.querySelector('#panel .panel-foot .wrap-row[data-report-open]') || {}).textContent || '' }; })()`);
+      assert(!tb.head && tb.n === 4 && tb.worded && /筆記本↗/.test(tb.text.join('')) && tb.menu === 3 && /收工回報/.test(tb.wrap), '工具列四顆有字＋⋯三項＋收工回報在最下面：' + JSON.stringify(tb));
+      await click('[data-tool-more]'); await wait(150);
+      assert(await js(`!document.querySelector('#panel .tool-menu').classList.contains('hidden') && document.querySelector('#panel .tool-menu').getBoundingClientRect().right <= window.innerWidth`), '⋯ 打開、不超出視窗');
+      await shot('u03a_daily_more');
+      await js(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); 0`); await wait(100);
+      assert(await js(`document.querySelector('#panel .tool-menu').classList.contains('hidden')`), '點外面 ⋯ 收起來');
       const wide = await wc.insertCSS('.panel-head *, .panel-tools * { letter-spacing: .15em !important; }');
       await wait(200);
       const hd = await js(`(() => { const h = document.querySelector('#panel .panel-head'); const bs = [...document.querySelectorAll('#panel .panel-head button, #panel .panel-tools button, #panel .panel-head h2')]; return { h: h.getBoundingClientRect().height, tall: bs.filter((b) => b.getBoundingClientRect().height > 36).map((b) => b.textContent.trim()) }; })()`);

@@ -250,6 +250,14 @@ function createWindow({ hidden = false } = {}) {
 
 function push(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  // 📓 筆記本開著時主視窗是藏起來的：艾琳的提醒、團戰開始也要送到筆記本，不然冒險者看不到
+  if (channel === 'npc:lines') pdNotify({ lines: payload });
+  else if (channel === 'ui:raid') pdNotify({ raid: payload });
+}
+// 筆記本的頂欄：提醒（最新一句）＋團戰／專注倒數（用主程式的時間算）
+function pdNotify(extra = {}) {
+  if (!pdWin || pdWin.isDestroyed() || !engine) return;
+  pdWin.webContents.send('pd:notify', { focus: engine.focusInfo(), now: engine.now().getTime(), ...extra });
 }
 // 工作列／視窗標題跟著接待員的名字（程式名稱、資料夾不改）
 function syncTitle() {
@@ -573,36 +581,36 @@ function menuTemplate() {
   return [
     { label: mini ? '🔼 展開' : '🐾 縮小化（變回貓咪）', click: () => (mini ? setMini(false) : push('ui:shrink')) }, // 縮小走前端，先播變身動畫
     { type: 'separator' },
+    // 10/13 照首頁排、名字一樣：常用四顆（週任務板｜筆記本｜今日行程；聊聊在對話框上）＋專注；玩法一組（魔法｜回憶｜日誌｜雜貨舖，跟首頁同一種分法）；筆記本只出現這一次。第一層維持 11 項（狀態欄收起來時多一項「顯示狀態欄」＝12）
     { label: '📜 週任務板', click: open('board') },
+    { label: (() => { const n = engine.pdSummary().changes; return `📓 筆記本（另開視窗${n ? `・${n} 處還沒寫進計畫檔` : ''}）`; })(), click: () => pdOpen() },
     { label: '📅 今日行程', click: open('daily') },
-    { label: (() => { const n = engine.pdSummary().changes; return n ? `📓 委託（${n} 處還沒寫進計畫檔）` : `📓 委託：${npcName}的筆記本`; })(), click: () => pdOpen() },
     engine.state.focus
       ? { label: engine.state.focus.raid ? `📯 團戰「${engine.state.focus.raid.title}」結束了（還剩 ${engine.focusInfo().leftMin} 分鐘）` : `🍅 結束專注（還剩 ${engine.focusInfo().leftMin} 分鐘）`, click: stopFocus }
       : { label: `🍅 專注 ${engine.focusCfg().minutes} 分鐘`, click: () => { if (mini) setMini(false); push('ui:focus'); } },
-    { label: '✨ 更多玩法', submenu: [
+    { label: '✨ 魔法、回憶、日誌、雜貨舖', submenu: [
       { label: f ? `🔮 今日運勢：${f.rank}` : '🔮 抽今日運勢', click: () => { if (mini) setMini(false); push('ui:fortune'); } },
-      { label: `✨ 占卜魔法（${engine.divCfg().cost} 金幣）…`, click: open('divine') },
-      { label: `📒 ${npcName}的小本子（偷看）`, click: open('notebook') },
+      { label: `🌌 星環占卜（${engine.divCfg().cost} 金幣）…`, click: open('divine') },
+      { type: 'separator' },
+      { label: `📒 ${npcName}的小本子（她記得你說過的事）`, click: open('notebook') },
+      { label: '🏅 成就', click: open('collection') },
+      { label: '🎬 回憶相簿', click: open('album') }, // 💗 開場、升階漫畫可以重看
+      { type: 'separator' },
       { label: '📖 冒險日誌・週報', click: open('journal') },
       { type: 'separator' },
       { label: '🛒 雲朵雜貨舖', click: open('shop') },
-      { label: '🏅 成就', click: open('collection') },
-      { label: '🎬 回憶相簿', click: open('album') }, // 💗 開場、升階漫畫可以重看
     ] },
     { type: 'separator' },
     ...(engine.config.window.hud === false && !mini ? [{ label: '📊 顯示狀態欄', click: () => { const r = engine.setHud(true); push('view:update', { view: r.view }); } }] : []), // 狀態欄收起來時：第一層就找得到
-    { label: '📂 週計畫・團戰', submenu: [
-      { label: (() => { const n = engine.pdSummary().changes; return n ? `📓 委託：${npcName}的筆記本（${n} 處還沒寫進計畫檔）` : `📓 委託：${npcName}的筆記本（用聊的加、改、勾）`; })(), click: () => pdOpen() },
+    // 🗓 行程：今日行程工具列「⋯」裡的那些，右鍵也找得到（計畫檔本身的事在 ⚙ 設定與資料）
+    { label: '🗓 行程', submenu: [
       { label: '📯 團戰（會議）：新增、改時間、取消…', click: open('raids') },
-      { label: '🌙 收工：寫今天做了什麼、卡在哪', click: open('report') },
+      { label: '🌙 收工回報：寫今天做了什麼、卡在哪', click: open('report') },
+      { type: 'separator' },
       engine.dayOff(engine.calendarView().today.date).kind === 'leave'
         ? { label: '🌴 取消今天的請假', click: menuSafe(() => engine.setLeave(engine.calendarView().today.date, false)) }
         : { label: '🌴 今天請假（不提醒、連續上工不斷）', click: menuSafe(() => engine.setLeave(engine.calendarView().today.date, true)) },
       { label: '🌴 請假與國定假日…', click: open('leave') },
-      { type: 'separator' },
-      { label: '選擇週計畫檔…', click: () => choosePlan() },
-      { label: '開啟計畫檔', click: () => shell.openPath(engine.planFile()) },
-      { label: '重新載入計畫檔', click: () => reloadPlan('已重新載入') },
       { type: 'separator' },
       { label: '📥 匯入行事曆（.ics）到本週…', click: menuSafe(importIcs) },
       { label: '📤 匯出本週成行事曆（.ics）…', click: menuSafe(exportIcs) },
@@ -625,6 +633,10 @@ function menuTemplate() {
       { label: `📒 讓${npcName}記小本子（記住你說過的事）`, type: 'checkbox', checked: engine.nbCfg().enabled !== false, click: (m) => { const r = engine.setNotebook(m.checked); push('npc:lines', r.lines); push('view:update', { view: r.view }); } },
       { label: '🖥 固定在顯示器', submenu: displayMenu() },
       { label: '縮到工作列', click: () => win.minimize() },
+      { type: 'separator' },
+      { label: '📂 選擇週計畫檔…', click: () => choosePlan() },
+      { label: '開啟計畫檔', click: () => shell.openPath(engine.planFile()) },
+      { label: '重新載入計畫檔', click: () => reloadPlan('已重新載入') },
       { type: 'separator' },
       { label: '📁 打開我的資料夾', click: () => shell.openPath(USER_DIR) },
       { label: '開啟設定檔 config.json', click: () => shell.openPath(engine.configFile()) },
@@ -824,7 +836,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('pd:get', wrap(() => {
     const normal = findImage('normal');
     const faces = Object.fromEntries(['normal', 'happy', 'write', 'thinking', 'worried', 'cheer', 'surprised', 'shy'].map((e) => [e, findImage(e) || normal]));
-    return { planDraft: engine.pdView(), faces, name: engine.config.npc.name, lines: pdWinLines.splice(0) };
+    return { planDraft: engine.pdView(), faces, name: engine.config.npc.name, lines: pdWinLines.splice(0), focus: engine.focusInfo(), now: engine.now().getTime() };
   }));
   ipcMain.handle('pd:switch', wrap((which) => engine.pdSwitch(which)));
   ipcMain.handle('pd:say', wrap((text) => {

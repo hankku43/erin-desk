@@ -186,7 +186,7 @@ class Engine {
       onTime: sum((p) => Object.values(p.submitted || {}).filter((x) => x.onTime).length),
       rows: sum((p) => Object.values(p.dailyDone || {}).filter(Boolean).length),
       reports: sum((p) => Object.keys(p.dailyReported || {}).length),
-      focus: hist(/^完成專注/), fortunes: hist(/^今日運勢/), daikichi: hist(/^今日運勢：大吉/), divinations: hist(/^占卜魔法/),
+      focus: hist(/^完成專注/), fortunes: hist(/^今日運勢/), daikichi: hist(/^今日運勢：大吉/), divinations: hist(/^(?:占卜魔法|星環占卜)/),
     };
   }
 
@@ -1255,7 +1255,7 @@ class Engine {
     if (prev) return { repeat: true, record: prev, lines: [{ ...this.npc.template('divine_repeat', this.divineFacts(prev)), event: 'divine' }], view: this.view() };
     if (this.state.player.gold < c.cost) return { poor: true, lines: [{ ...this.npc.template('divine_poor', { cost: c.cost, gold: this.state.player.gold }), event: 'divine' }], view: this.view() };
     const r = method === 'time' ? MH.castByTime(this.now()) : MH.castByNumbers(a, b, this.now(), method === 'circle' ? 'circle' : 'numbers');
-    G.grant(this.state, { xp: 0, gold: -c.cost }, `占卜魔法：${r.ben.name}`, this.config.rewards, this.now());
+    G.grant(this.state, { xp: 0, gold: -c.cost }, `星環占卜：${r.ben.name}`, this.config.rewards, this.now());
     const record = { id: `dv${now}`, at: now, question: q, norm, method: r.method, result: r, reading: null };
     list.unshift(record);
     this.state.divinations = list.slice(0, 30);
@@ -1450,7 +1450,7 @@ class Engine {
     let writeError = null;
     try { this.writePlan(this.P.setProgress(this.planText, date, fields)); } catch (e) { writeError = e.message; }
     const reward = G.onDailyReport(this.state, this.ps, date, fields, this.config.rewards, this.now());
-    if (reward) this.affect(this.affCfg().gain.report, '下班回報');
+    if (reward) this.affect(this.affCfg().gain.report, '收工回報');
     this.workDone = true;
     this.saveState();
     const report = [fields.done, fields.blocker && `卡點：${fields.blocker}`, fields.next && `明天：${fields.next}`].filter(Boolean).join('；');
@@ -2484,7 +2484,7 @@ class Engine {
         } else if (it.type === 'report') {
           try { this.writePlan(this.P.setProgress(this.planText, G.todayISO(this.now()), it.fields)); } catch (e) { writeError = e.message; }
           const r1 = G.onDailyReport(this.state, this.ps, G.todayISO(this.now()), it.fields, this.config.rewards, this.now());
-          if (r1) this.affect(this.affCfg().gain.report, '下班回報');
+          if (r1) this.affect(this.affCfg().gain.report, '收工回報');
           add(r1); reported = true;
         } else if (it.type === 'submit') {
           const r = G.submitQuest(this.state, this.ps, this.plan, it.questId, it.report || p.text, this.now(), this.config.rewards);

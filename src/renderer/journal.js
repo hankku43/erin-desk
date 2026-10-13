@@ -30,7 +30,7 @@ async function journalWrite(force) {
 
 // 最重要的四個數字放大；其他的排成一行小字（以前八格都是 10–11px，看起來很累）
 const JN_TILES = (s) => [
-  ['📜', '交付委託', `${s.quests}<small>/${s.questsTotal}</small>`, s.quests ? `準時 ${s.onTime}${s.late ? `・晚 ${s.late}` : ''}` : ''],
+  ['📜', '交付任務', `${s.quests}<small>/${s.questsTotal}</small>`, s.quests ? `準時 ${s.onTime}${s.late ? `・晚 ${s.late}` : ''}` : ''],
   ['☑', '完成目標', `${s.objectives}<small>/${s.objectivesTotal}</small>`, ''],
   ['✨', '經驗值', `+${s.xp}`, s.levelEnd > s.levelStart ? `Lv.${s.levelStart} → ${s.levelEnd}` : `Lv.${s.levelEnd}`],
   [COIN, '金幣', `+${s.gold}`, s.spent ? `花了 ${s.spent}` : ''],
@@ -73,7 +73,7 @@ function renderJournal(el) {
       ${b.length > 1 ? `<div class="jn-badges">${b.slice(1).map((x) => `<span class="jn-badge" title="${esc(x.why)}">${x.icon} ${esc(x.name)}</span>`).join('')}</div>` : ''}</div>` : '';
     const tiles = `<div class="jn-stats">${JN_TILES(s).map(([i, l, v, sub]) => `<div class="jn-tile"><span class="ji">${i}</span><span class="jl">${l}</span><b>${v}</b><small>${sub}</small></div>`).join('')}</div>
       <div class="jn-more">${JN_MORE(s).map((x) => `<span>${x}</span>`).join('')}</div>`;
-    const quests = w.quests.length ? `<h3 class="jn-h">委託</h3><ul class="jn-quests">${[...w.quests].sort((a, b2) => ['done', 'progress', 'pending'].indexOf(a.status) - ['done', 'progress', 'pending'].indexOf(b2.status)).map((q) => {
+    const quests = w.quests.length ? `<h3 class="jn-h">任務</h3><ul class="jn-quests">${[...w.quests].sort((a, b2) => ['done', 'progress', 'pending'].indexOf(a.status) - ['done', 'progress', 'pending'].indexOf(b2.status)).map((q) => {
       const n = q.objectives.filter((o) => o.done).length;
       return `<li class="${q.status}"><span class="jq">${JN_Q[q.status][0]}</span><span class="jt">${rich(q.title)}</span>${q.project ? `<span class="chip proj">${esc(q.project)}</span>` : ''}<small>${q.status === 'done' ? (q.submitted ? (q.submitted.onTime ? '準時交付' : '已交付') : '目標全完成') : `${n}/${q.objectives.length}`}</small></li>`;
     }).join('')}</ul>` : '';

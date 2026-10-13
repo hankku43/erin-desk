@@ -18,7 +18,8 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       const top = tpl.filter((m) => m.type !== 'separator');
       console.log('MENU', top.map((m) => m.label + (m.submenu ? ' ▸' : '')).join(' | '));
       assert(top.length <= 12, '第一層最多 12 項：' + top.length);
-      assert(tpl.some((m) => /週計畫/.test(m.label) && m.submenu) && tpl.some((m) => /^🤖 AI/.test(m.label) && m.submenu), '有分組');
+      assert(tpl.some((m) => /^🗓 行程/.test(m.label) && m.submenu) && tpl.some((m) => /設定與資料/.test(m.label) && m.submenu.some((x) => /選擇週計畫檔/.test(x.label || ''))) && tpl.some((m) => /^🤖 AI/.test(m.label) && m.submenu), '有分組');
+      assert(top.filter((m) => /筆記本/.test(m.label)).length === 1 && !JSON.stringify(tpl).includes('更多玩法'), '筆記本只出現一次、沒有「更多玩法」'); // 10/13
       // 2. 等 AI（每句 4 秒）的時候連勾兩個目標
       await js(`closeDialog(); openPanel('board')`); await wait(400);
       const q = engine.plan.quests.find((x) => x.active) || engine.plan.quests[0];

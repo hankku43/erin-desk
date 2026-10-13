@@ -37,13 +37,13 @@ const TIER_ICON = { main: '👑', major: '⚔️', side: '🌿' };
 function tierBadge(q) { return `<span class="badge ${q.tier}">${TIER_ICON[q.tier] || ''} ${q.tierName}</span>`; }
 function hhmm(iso) { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
 function histIcon(reason) {
-  if (/^占卜魔法/.test(reason)) return '✨';
+  if (/^(?:占卜魔法|星環占卜)/.test(reason)) return '✨';
   if (/^今日運勢/.test(reason)) return '🔮';
   if (/^完成專注/.test(reason)) return '🍅';
   if (/^交付任務/.test(reason)) return '🏆';
   if (/^完成目標/.test(reason)) return '☑️';
   if (/^完成行程/.test(reason)) return '⏰';
-  if (/下班回報/.test(reason)) return '📝';
+  if (/下班回報|收工回報/.test(reason)) return '📝';
   return '✨';
 }
 // 紀錄的獎勵欄：占卜是花錢（負數），沒有經驗值就不顯示 XP
@@ -771,7 +771,7 @@ function renderDivine(el, v) {
     const nums = d.method === 'numbers' ? `<div class="field-row"><div class="field">第一個數字（上卦）<input id="dvA" type="number" min="1" max="9999" value="${esc(d.a)}" placeholder="例如 17"></div><div class="field">第二個數字（下卦）<input id="dvB" type="number" min="1" max="9999" value="${esc(d.b)}" placeholder="例如 6"></div></div>` : '';
     const recent = (info.recent || []).slice(0, 3);
     const rec = recent.length ? `<div class="dv-recent"><div class="dv-rtitle">🌙 最近的占卜（點一下再看一次，不花錢）</div>${recent.map((r) => `<button class="dv-ritem" data-dv-recent="${r.id}"><span class="dv-tag l${r.level}">${esc(r.tag)}</span><b>${esc(r.ben)}</b><span class="q">${esc(r.question)}</span></button>`).join('')}</div>` : '';
-    el.innerHTML = head('✨ 占卜魔法', '星環占・梅花易數', goldChip, `同一件事 ${info.repeatHours} 小時內只占一次（一事不二占），重問會直接給上次的結果、不扣錢`) + `<div class="panel-body form dv-ask">
+    el.innerHTML = head('🌌 星環占卜', '梅花易數', goldChip, `同一件事 ${info.repeatHours} 小時內只占一次（一事不二占），重問會直接給上次的結果、不扣錢`) + `<div class="panel-body form dv-ask">
       ${d.notice ? `<div class="dv-notice">${rich(d.notice)}</div>` : ''}
       <div class="field">🌙 想問什麼？<input id="dvQ" maxlength="60" value="${esc(d.question)}" placeholder="例如：這週的發表會會順利嗎？"></div>
       <div class="field">🔮 起卦方式<div class="dv-methods">${tiles}</div></div>
@@ -783,7 +783,7 @@ function renderDivine(el, v) {
   if (d.step === 'circle') {
     const ring = (n, r) => Array.from({ length: n }, (_, i) => `<span style="transform:rotate(${(i * 360) / n}deg) translateY(-${r}px)">${i + 1}</span>`).join('');
     const tri = '☰☱☲☳☴☵☶☷'.split('').map((x, i) => `<span style="transform:rotate(${i * 45}deg) translateY(-30px)">${x}</span>`).join('');
-    el.innerHTML = head('✨ 占卜魔法', '心裡默念你的問題', goldChip) + `<div class="panel-body dv-circle-body">
+    el.innerHTML = head('🌌 星環占卜', '心裡默念你的問題', goldChip) + `<div class="panel-body dv-circle-body">
       <div class="dv-q">「${esc(d.question)}」</div>
       <div class="mc" id="dvCircle"><div class="mc-ring outer" id="mcOuter">${ring(24, 103)}</div><div class="mc-ring inner" id="mcInner">${ring(16, 66)}</div>
         <div class="mc-core"><div class="mc-tri">${tri}</div><div class="mc-star">✦</div></div><div class="mc-pointer">▼</div></div>
@@ -797,7 +797,7 @@ function renderDivine(el, v) {
   // 結果
   const r = d.rec.result;
   const sub = d.mode === 'repeat' ? '一事不二占・上次的結果' : d.mode === 'history' ? '之前的占卜' : `${DV_METHOD_NAME[d.rec.method] || ''}・${r.hour ? `${r.hour.name}時` : ''}`;
-  el.innerHTML = head('✨ 占卜魔法', sub, goldChip) + `<div class="panel-body dv-result ${d.fresh ? 'casting' : ''}">
+  el.innerHTML = head('🌌 星環占卜', sub, goldChip) + `<div class="panel-body dv-result ${d.fresh ? 'casting' : ''}">
     <div class="dv-q">「${esc(d.rec.question)}」${d.mode === 'repeat' ? '<span class="dv-stamp">一事不二占</span>' : ''}</div>
     <div class="dv-guas">${dvCol(0, '本卦', '現在', r.ben, r.moving)}<span class="dv-arrow">➜</span>${dvCol(1, '互卦', '過程', r.hu, 0)}<span class="dv-arrow">➜</span>${dvCol(2, '變卦', '結果', r.bian, r.moving)}</div>
     <div class="dv-verdict"><span class="dv-tag big l${r.verdict.level}">${esc(r.verdict.tag)}</span><span>${esc(r.verdict.text)}</span></div>
@@ -977,7 +977,7 @@ $('#choices').addEventListener('click', async (e) => {
   if (act === 'submit' && state.view.active) openPanel('submit', state.view.active.id);
   if (act === 'daily') { openPanel('daily'); run(() => api.daily(), { talk: true }); }
   if (act === 'report') openPanel('report');
-  if (act === 'pd') openPdNote(); // 📓 委託：艾琳的筆記本
+  if (act === 'pd') openPdNote(); // 📓 筆記本（另一個大視窗）
   if (act === 'magic') openPanel('magic'); // ✨ 今日運勢／星環占卜
   if (act === 'memories') openPanel('memories'); // 📒 小本子／成就／回憶相簿
   if (act === 'chat') { $('#chatRow').classList.toggle('hidden'); $('#chatInput').focus(); }
@@ -1092,7 +1092,7 @@ function renderPanelInner(el, v) {
     return;
   }
   if (state.panel === 'board') {
-    const addBtn = v.editable && state.boardTab === 'quests' ? `<button class="tab add" data-new="quest" title="登記一筆新委託">＋ 新任務</button><button class="tab add" data-pd-open title="在${esc(v.npc.name)}的筆記本用說的加委託、改計畫">📓 委託</button>` : '';
+    const addBtn = v.editable && state.boardTab === 'quests' ? `<button class="tab add" data-new="quest" data-tip="登記一筆新任務（會直接寫進計畫檔）">＋ 新任務</button><button class="tab add" data-pd-open data-tip="會開另一個大視窗：${esc(v.npc.name)}的筆記本（委託簿）——用說的加任務、改計畫、勾目標">📓 筆記本<span class="ext" aria-hidden="true">↗</span></button>` : '';
     const tabs = `<div class="tabs"><button class="tab ${state.boardTab === 'quests' ? 'on' : ''}" data-tab="quests">任務</button><button class="tab ${state.boardTab === 'hist' ? 'on' : ''}" data-tab="hist">紀錄</button>${addBtn}</div>`;
     let body = '';
     if (state.boardTab === 'quests') {
@@ -1120,7 +1120,7 @@ function renderPanelInner(el, v) {
         </div>`;
       }
       body = tutorialHtml(v) + body; // 🎓 新手任務
-      if (!qs.length) body = tutorialHtml(v) + (v.editable ? '<p class="hint">計畫檔裡還沒有任務。按上面的「＋ 新任務」登記第一筆委託吧！</p>' : '<p class="hint">計畫檔裡沒有任務。右鍵角色 →「選擇週計畫檔…」</p>');
+      if (!qs.length) body = tutorialHtml(v) + (v.editable ? '<p class="hint">計畫檔裡還沒有任務。按上面的「＋ 新任務」登記第一筆任務吧！</p>' : '<p class="hint">計畫檔裡沒有任務。右鍵角色 →「選擇週計畫檔…」</p>');
       else if (!v.editable) body += '<p class="hint">🔒 這份計畫檔是舊版表格格式，程式裡不能直接新增／編輯。用 <code>node tools/convert_plan.js</code> 轉成新格式就可以了。</p>';
     } else {
       body = '<div class="hist">' + (v.history.length
@@ -1152,7 +1152,7 @@ function renderPanelInner(el, v) {
         ? `<span class="confirm"><button class="btn small danger" data-del-row-yes="${r.id}">刪除</button><button class="btn small ghost" data-del-no>取消</button></span>`
         : `<button class="icon-btn del" data-del-row="${r.id}" title="刪除這一格">✕</button>`;
       const rdMark = r.raid ? '<span class="rd-tag" title="團戰：開始前提醒、開始時自動專注">📯</span>' : '';
-      const linked = !t.branch && r.questId && r.step && r.a.endsWith(r.step) ? `<span class="blk"><small class="lq" title="這格是委託「${esc(r.a.slice(0, r.a.length - r.step.length).replace(/[：:]\s*$/, ''))}」的步驟：做完會一起勾">📜 ${rich(r.a.slice(0, r.a.length - r.step.length).replace(/[：:]\s*$/, ''))}：</small>${rich(r.step)}</span>` : ''; // 🕘 時刻簿排的「委託：步驟」
+      const linked = !t.branch && r.questId && r.step && r.a.endsWith(r.step) ? `<span class="blk"><small class="lq" title="這格是任務「${esc(r.a.slice(0, r.a.length - r.step.length).replace(/[：:]\s*$/, ''))}」的目標：做完會一起勾">📜 ${rich(r.a.slice(0, r.a.length - r.step.length).replace(/[：:]\s*$/, ''))}：</small>${rich(r.step)}</span>` : ''; // 🕘 時刻簿排的「委託：步驟」
       body += `<label class="row ${r.current ? 'current' : ''} ${r.past ? 'past' : ''} ${r.done ? 'done' : ''} ${r.raid ? 'raid' : ''} ${r.canceled ? 'canceled' : ''}"><input type="checkbox" data-row="${r.id}" ${r.done ? 'checked' : ''} ${r.canceled ? 'disabled' : ''}><span class="slot">${esc(r.slot)}</span><span>${rdMark}${linked || `<span class="blk">${rich(blk)}</span>`}${out ? `<span class="out">→ ${rich(out)}</span>` : ''}${r.canceled ? '<span class="out">已取消</span>' : ''}</span>${del}</label>`;
     }
     while (ai < appRaids.length) body += rdHtml(appRaids[ai++]);
@@ -1164,9 +1164,13 @@ function renderPanelInner(el, v) {
         return `<div class="dec"><span>${d.shown ? '✔' : '⏳'} <b>${rich(d.label)}</b>${d.action ? ` → ${rich(d.action)}` : ''}</span>${del}</div>`;
       }).join('') + '</div>';
     }
-    // 標題列只放標題；新增、團戰、請假、匯入匯出放到下面一列工具列（以前全部擠在標題列，Windows 的字比較寬，按鈕會斷成兩行）
-    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><span class="tool-sep" aria-hidden="true"></span><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="btn small tool" data-lv-open data-tip="請假、看接下來的國定假日">🌴 請假</button><button class="btn small tool ico" data-pd-open data-tip="委託：在${esc(v.npc.name)}的筆記本用說的加、改、勾" aria-label="委託">📓</button><button class="btn small tool ico" data-pd-time data-tip="時刻簿：在${esc(v.npc.name)}的筆記本把今天的時段排一排（同一個時段可以不只一件事）" aria-label="時刻簿">🕘</button><button class="btn small tool ico" data-report-open data-tip="收工：寫今天做了什麼、卡在哪（下班提醒時直接跟${esc(v.npc.name)}說也可以）" aria-label="收工">🌙</button>` : ''}<span class="spacer"></span>${v.editable ? '<button class="btn small tool ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="btn small tool ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
-    el.innerHTML = head('📅 今日行程', '', '', '勾完一格 +10 XP。時段是那一天要做的事、提醒是到時候來叫你；團戰（會議）開始時會自動專注；📥📤 可以跟 Google／Outlook 行事曆互通（.ics 檔）') + tools + `<div class="panel-body">${body}</div>`;
+    // 🌙 收工回報：面板最下面一條有字的（不跟著清單捲走；以前是工具列上一顆 🌙 圖示，看不出是什麼）
+    const pt = v.progressToday;
+    const foot = `<div class="panel-foot wrap-foot"><button class="wrap-row${pt ? ' done' : ''}" data-report-open data-tip="${pt ? '今天回報過了，點開可以再改' : `寫今天做了什麼、卡在哪（今天第一次 +30 XP；下班提醒時直接跟${esc(v.npc.name)}說也可以）`}"><span class="wr-ico">🌙</span><span class="wr-main"><b>${pt ? '今天收工回報過了' : '收工回報'}</b><small>${pt ? esc(pt.done || '').slice(0, 40) || '再看一次' : '今天做了什麼、卡在哪 → 日誌和週報'}</small></span><span class="wr-arrow">${pt ? '✔' : '›'}</span></button></div>`;
+    // 工具列只留四顆有字的；請假、匯入匯出收進「⋯」（以前九顆、五顆只有圖示，看不出哪個是哪個）
+    const moreMenu = `<span class="tool-more"><button class="btn small tool ico" data-tool-more aria-label="更多" aria-haspopup="menu" data-tip="請假、匯入匯出行事曆">⋯</button><div class="tool-menu hidden" role="menu">${v.editable ? '<button role="menuitem" data-lv-open>🌴 請假、國定假日</button><button role="menuitem" data-new="ics-in">📥 匯入行事曆（.ics）<small>把 Google／Outlook 匯出的檔加進本週</small></button>' : ''}<button role="menuitem" data-new="ics-out">📤 匯出行事曆（.ics）<small>時段、提醒、截止日 → Google／Outlook</small></button></div></span>`;
+    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消；開始時會自動專注">📯 團戰</button><button class="btn small tool" data-pd-time data-tip="會開另一個大視窗：${esc(v.npc.name)}的筆記本，翻到時刻簿的今天（用拖的排時段，委託簿也在裡面）">📓 筆記本<span class="ext" aria-hidden="true">↗</span></button>` : ''}<span class="spacer"></span>${moreMenu}</div>`;
+    el.innerHTML = head('📅 今日行程', '', '', '勾完一格 +10 XP。時段是那一天要做的事、提醒是到時候來叫你；團戰（會議）開始時會自動專注；⋯ 裡可以請假、跟 Google／Outlook 行事曆互通（.ics 檔）') + tools + `<div class="panel-body">${body}</div>` + foot;
   }
 
   if (state.panel === 'questForm') {
@@ -1175,7 +1179,7 @@ function renderPanelInner(el, v) {
     const tier = q ? q.tier : 'major';
     const due = q && q.deadline && q.deadlineLabel !== '本週內' ? q.deadline : '';
     const pick = (val, icon, name, tok) => `<label class="tp ${val} ${tier === val ? 'on' : ''}" title="檔案裡會寫成 ${tok}"><input type="radio" name="qfTier" value="${val}" ${tier === val ? 'checked' : ''}>${icon} ${name}<small>${tok}</small></label>`;
-    el.innerHTML = head(q ? '✎ 編輯任務' : '📜 新任務', q ? rich(q.title) : '登記一筆新委託', '', q ? '目標要改的話，回任務卡用「＋ 目標」或 ✕' : '會直接寫進計畫檔，之後也能在檔案裡改') + `<div class="panel-body form">
+    el.innerHTML = head(q ? '✎ 編輯任務' : '📜 新任務', q ? rich(q.title) : '登記一筆新任務', '', q ? '目標要改的話，回任務卡用「＋ 目標」或 ✕' : '會直接寫進計畫檔，之後也能在檔案裡改') + `<div class="panel-body form">
       <div class="field">📝 任務名稱<input id="qfTitle" value="${esc(q ? q.title : '')}" placeholder="例如：完成週報" maxlength="80" autofocus></div>
       <div class="field-row">
         <div class="field">🏷 類型<div class="tier-pick">${pick('main', '👑', '主線', '⭐')}${pick('major', '⚔️', '重要支線', '🔧')}${pick('side', '🌿', '支線', '🌿')}</div></div>
@@ -1185,7 +1189,7 @@ function renderPanelInner(el, v) {
       <div class="field">🗂 專案<input id="qfProj" list="qfProjList" value="${esc(q && q.project ? q.project : '')}" placeholder="週報用這個分類（選填，沒填歸在「其他」）" maxlength="30"><datalist id="qfProjList">${[...new Set([...(v.projects || []), ...v.quests.map((x) => x.project).filter(Boolean)])].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
       ${q ? '' : '<div class="field">☑ 目標（一行一個）<textarea id="qfObjs" rows="3" placeholder="整理會議紀錄&#10;寄給相關的人（選填，之後也能在任務卡加）"></textarea></div>'}
     </div>
-    <div class="panel-foot"><span class="spacer"></span><button class="btn ghost" data-back>取消</button><button class="btn gold" id="qfSave">${q ? '💾 儲存' : '📜 登記委託'}</button></div>`;
+    <div class="panel-foot"><span class="spacer"></span><button class="btn ghost" data-back>取消</button><button class="btn gold" id="qfSave">${q ? '💾 儲存' : '📜 登記任務'}</button></div>`;
     setTimeout(() => { const i = $('#qfTitle'); if (i) { i.focus(); i.select(); } }, 30);
   }
 
@@ -1246,7 +1250,7 @@ function renderPanelInner(el, v) {
     const doneRows = t.rows.filter((r) => r.done).map((r) => (t.branch && t.chosenBranch === 'b' ? r.b : r.a));
     const pt = v.progressToday || {};
     const pre = pt.done || doneRows.join('；');
-    el.innerHTML = head('🌙 收工：今天的進度', esc(t.label), '', v.writeBack ? `會寫進計畫檔最後的「進度紀錄」，整理成冒險日誌和週報。下班提醒時直接跟${esc(npcNameR())}說今天卡在哪也可以` : '只存在遊戲裡（回寫計畫檔已關閉）') + `<div class="panel-body">
+    el.innerHTML = head('🌙 收工回報', esc(t.label), '', v.writeBack ? `會寫進計畫檔最後的「進度紀錄」，整理成冒險日誌和週報。下班提醒時直接跟${esc(npcNameR())}說今天卡在哪也可以` : '只存在遊戲裡（回寫計畫檔已關閉）') + `<div class="panel-body">
       <div class="field">✅ 實際完成<textarea id="rDone" rows="3">${esc(pre)}</textarea></div>
       <div class="field-row">
         <div class="field">🧱 卡點<textarea id="rBlock" rows="2">${esc(pt.blocker || '')}</textarea></div>
@@ -1289,7 +1293,7 @@ async function saveQuestForm() {
   state.panelBack = null; openPanel('board');
   const card = r.questId && document.querySelector(`[data-toggle="${r.questId}"]`);
   if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  toast(editing ? '✎ 已更新任務' : '📜 新委託已寫進計畫檔');
+  toast(editing ? '✎ 已更新任務' : '📜 新任務已寫進計畫檔');
 }
 async function saveRowForm() {
   const date = $('#rfDate').value, start = $('#rfStart').value, end = $('#rfEnd').value, text = $('#rfText').value.trim(), output = $('#rfOut').value.trim();
@@ -1363,6 +1367,11 @@ $('#panel').addEventListener('click', (e) => {
   const m = busyMatch(e.target);
   if (m) withBusy(m, () => panelClick(e)); else panelClick(e);
 });
+// ⋯ 小選單：點到外面就收起來
+document.addEventListener('pointerdown', (e) => {
+  if (e.target.closest && e.target.closest('.tool-more')) return;
+  for (const m of document.querySelectorAll('.tool-menu:not(.hidden)')) m.classList.add('hidden');
+}, true);
 async function panelClick(e) {
   const t = e.target;
   if (state.panel === 'divine' && await divineClick(e)) return;
@@ -1374,9 +1383,12 @@ async function panelClick(e) {
   if (['raids', 'raidForm', 'daily'].includes(state.panel) && await raidsClick(e)) return;
   if (['leave', 'daily'].includes(state.panel) && await leaveClick(e)) return;
   if (['magic', 'memories'].includes(state.panel) && await hubClick(e)) return;
-  if (t.closest('[data-pd-open]')) { openPdNote(); return; } // 週任務板、今日行程上的「📓」
-  if (t.closest('[data-pd-time]')) { openPdNote('this', { book: 'time', day: state.view && state.view.today ? state.view.today.date : undefined }); return; } // 今日行程的「🕘」：直接翻到時刻簿的今天
-  if (t.closest('[data-report-open]')) { openPanel('report'); return; } // 今日行程的「🌙 收工」
+  // ⋯ 工具列的小選單：點 ⋯ 開合；點了裡面的項目先收起來再做事
+  const tm = t.closest('[data-tool-more]'); if (tm) { const menu = tm.parentElement.querySelector('.tool-menu'); if (menu) menu.classList.toggle('hidden'); return; }
+  const inMenu = t.closest('.tool-menu'); if (inMenu) inMenu.classList.add('hidden');
+  if (t.closest('[data-pd-open]')) { openPdNote(); return; } // 週任務板上的「📓 筆記本」
+  if (t.closest('[data-pd-time]')) { openPdNote('this', { book: 'time', day: state.view && state.view.today ? state.view.today.date : undefined }); return; } // 今日行程的「📓 筆記本」：直接翻到時刻簿的今天
+  if (t.closest('[data-report-open]')) { openPanel('report'); return; } // 今日行程最下面的「🌙 收工回報」
   if (state.panel === 'ach' && await achClick(e)) return;
   if (state.panel === 'album' && await Story.albumClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }

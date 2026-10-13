@@ -9,7 +9,7 @@ const ACH = [
   // 委託與目標
   { id: 'obj1', icon: '☑', name: '第一步', desc: '完成第一個目標', gold: 10, test: (c) => c.objectives >= 1 },
   { id: 'obj100', icon: '🎯', name: '目標獵人', desc: '完成 100 個目標', gold: 120, test: (c) => c.objectives >= 100, goal: (c) => [c.objectives, 100] },
-  { id: 'ontime1', icon: '⏱', name: '準時交件', desc: '第一次準時交付委託', gold: 20, test: (c) => c.onTime >= 1 },
+  { id: 'ontime1', icon: '⏱', name: '準時交件', desc: '第一次準時交付任務', gold: 20, test: (c) => c.onTime >= 1 },
   { id: 'quest10', icon: '📜', name: '熟練的冒險者', desc: '交付 10 個委託', gold: 50, test: (c) => c.quests >= 10, goal: (c) => [c.quests, 10] },
   { id: 'quest50', icon: '🛡', name: '公會的常客', desc: '交付 50 個委託', gold: 150, test: (c) => c.quests >= 50, goal: (c) => [c.quests, 50] },
   { id: 'quest100', icon: '👑', name: '委託大師', desc: '交付 100 個委託', gold: 300, test: (c) => c.quests >= 100, goal: (c) => [c.quests, 100] },
@@ -18,8 +18,8 @@ const ACH = [
   { id: 'focus10', icon: '🍅', name: '專注新手', desc: '完成 10 顆番茄', gold: 30, test: (c) => c.focus >= 10, goal: (c) => [c.focus, 10] },
   { id: 'focus50', icon: '🔥', name: '專注達人', desc: '完成 50 顆番茄', gold: 100, test: (c) => c.focus >= 50, goal: (c) => [c.focus, 50] },
   { id: 'focus100', icon: '⏳', name: '時間魔法師', desc: '完成 100 顆番茄', gold: 200, test: (c) => c.focus >= 100, goal: (c) => [c.focus, 100] },
-  { id: 'report5', icon: '📝', name: '勤快的回報', desc: '下班回報 5 天', gold: 30, test: (c) => c.reports >= 5, goal: (c) => [c.reports, 5] },
-  { id: 'report30', icon: '📖', name: '日誌守護者', desc: '下班回報 30 天', gold: 120, test: (c) => c.reports >= 30, goal: (c) => [c.reports, 30] },
+  { id: 'report5', icon: '📝', name: '勤快的回報', desc: '收工回報 5 天', gold: 30, test: (c) => c.reports >= 5, goal: (c) => [c.reports, 5] },
+  { id: 'report30', icon: '📖', name: '日誌守護者', desc: '收工回報 30 天', gold: 120, test: (c) => c.reports >= 30, goal: (c) => [c.reports, 30] },
   { id: 'journal4', icon: '🗓', name: '一個月的冒險', desc: '冒險日誌累積 4 週', gold: 60, test: (c) => c.weeks >= 4, goal: (c) => [c.weeks, 4] },
   // 等級與連續上工
   { id: 'lv5', icon: '⬆', name: '銀牌在望', desc: '升到 Lv.5', gold: 50, test: (c) => c.level >= 5, goal: (c) => [c.level, 5] },

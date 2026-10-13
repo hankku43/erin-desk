@@ -24,13 +24,13 @@ module.exports = ({ win, engine, menuTemplate, runTick }) => {
     try {
       await js(`document.documentElement.style.background=${JSON.stringify(BG)}`);
       await wait(2500); await flush();
-      // 選單：「📂 週計畫・團戰」裡找得到，第一層不超過 12 項
+      // 選單：「🗓 行程」裡找得到，第一層不超過 12 項
       const top = menuTemplate().filter((m) => m.type !== 'separator');
       assert(top.length <= 12, '第一層 ' + top.length);
-      const sub = top.find((m) => /週計畫/.test(m.label));
-      assert(sub && sub.submenu.some((m) => /📯 團戰/.test(m.label || '')), '週計畫選單有團戰');
+      const sub = top.find((m) => /^🗓 行程/.test(m.label));
+      assert(sub && sub.submenu.some((m) => /📯 團戰/.test(m.label || '')), '行程選單有團戰');
       // 1. 首頁 📯 → 清單：計畫檔的週會
-      await js('openRaids(); 0'); await wait(500); // 主畫面的「📯 團戰」換成「📓 委託」：從今日行程或右鍵選單進
+      await js('openRaids(); 0'); await wait(500); // 主畫面沒有「📯 團戰」：從今日行程或右鍵選單進
       assert(/週會/.test(await text('.rd-body')) && /計畫檔/.test(await text('.rd-body')), '計畫檔的團戰在清單裡');
       await shot('r01_list');
       // 2. 新團戰：每週一、三的專案站會

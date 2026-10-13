@@ -76,6 +76,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .confirm { margin: 8px 14px 0; padding: 8px 12px; background: #fffbe8; border: 2px solid var(--gold); border-radius: var(--wobble-2); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .confirm .grow { flex: 1; }
 .confirm small { color: var(--ink-soft); }
+/* ⏰ 提醒條：艾琳的提醒最新一句＋團戰／專注倒數（主視窗藏著時也看得到） */
+.notice { margin: 8px 14px 0; padding: 5px 8px 5px 12px; background: var(--rem); border: 2px solid var(--orange); border-radius: var(--wobble-2); display: flex; align-items: center; gap: 10px; font-weight: 700; }
+.notice .nf { flex: none; background: var(--raid); border: 1.5px solid var(--pen); border-radius: 999px; padding: 1px 10px; font-size: var(--fs-s); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.notice .nt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notice .nx { border: none; background: transparent; padding: 2px 6px; font-weight: 700; color: var(--ink-soft); border-radius: 8px; }
+.notice .nx:hover { background: rgba(44, 47, 76, .1); color: var(--ink); }
 .warns { margin: 8px 14px 0; display: flex; flex-direction: column; gap: 3px; }
 .warns div { font-size: var(--fs-s); color: var(--red); font-weight: 700; }
 .warns div::before { content: '✎ '; }
@@ -102,8 +108,9 @@ h2 span { background: linear-gradient(transparent 62%, var(--hl) 62%); padding: 
 .dcol.none { background: rgba(255, 249, 232, .92); border-style: dashed; }
 .dcol .dbody { flex: 1; display: flex; flex-direction: column; gap: 2px; padding-top: 12px; }
 .dcol > .add { align-self: center; margin-top: 6px; }
-.dcol.today .dh b { background: linear-gradient(transparent 55%, var(--hl) 55%); padding: 0 3px; }
-.dcol.today .dh b::after { content: '今天'; font-size: var(--fs-xs); color: var(--gold-ink); margin-left: 6px; }
+.dcol.today .dh b { background: linear-gradient(transparent 55%, var(--hl) 55%); padding: 0 1px; }
+.dcol.today .dh .date { font-size: var(--fs-xs); } /* 10/13 「週二 今天 10/13」在最窄的欄（112px）也放得下一行 */
+.dcol.today .dh b::after { content: '今天'; display: inline-block; font-size: var(--fs-xs); color: var(--gold-ink); margin-left: 3px; vertical-align: 1px; } /* 10/13 跟「週三」同一行，不會擠成兩行 */
 
 /* ---- 右邊的兩張索引書籤 ---- */
 .bookmarks { position: fixed; right: 8px; top: 120px; display: flex; flex-direction: column; gap: 10px; z-index: 20; }
@@ -174,9 +181,9 @@ h2 span { background: linear-gradient(transparent 62%, var(--hl) 62%); padding: 
 .mini:disabled { opacity: .6; cursor: default; }
 
 /* 欄位標題、放假、整天的事（兩本共用） */
-.dh { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; border-bottom: 2px solid var(--pen); padding-bottom: 4px; }
-.dh b { font-size: var(--fs-l); }
-.dh .date { font-size: var(--fs-s); color: var(--ink-soft); }
+.dh { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; border-bottom: 2px solid var(--pen); padding-bottom: 4px; min-width: 0; }
+.dh b { font-size: var(--fs-l); white-space: nowrap; }
+.dh .date { font-size: var(--fs-s); color: var(--ink-soft); white-space: nowrap; }
 .offtag { font-size: var(--fs-xs); font-weight: 700; color: #3f6a3f; background: #e2f4dd; border-radius: 8px; padding: 1px 6px; align-self: flex-start; white-space: nowrap; }
 .theme { position: relative; font-size: var(--fs-s); color: var(--ink); padding: 2px 8px; border-radius: 8px; cursor: pointer; background: rgba(79, 168, 255, .14); white-space: nowrap; }
 .theme:hover { background: rgba(79, 168, 255, .24); }

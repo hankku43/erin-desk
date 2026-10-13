@@ -98,6 +98,16 @@ module.exports = ({ win, engine }) => {
       await until(`!document.querySelector('#twinsVisit .tv-actions').classList.contains('hidden')`, 12000, '說完出現按鈕');
       await shot('t08_congrats');
       assert(engine.state.collection.tickets > before, '抽卡券給了');
+      // 6b. 10/13 你去點別的地方（開面板）：道賀卡讓路，縮成狀態欄上緣的一張小票；面板佔滿上方；點小票再展開（直接停在最後一句＋按鈕）
+      const pdown = (sel) => js(`document.querySelector(${JSON.stringify(sel)}).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, button: 0 })); 0`);
+      await pdown('#hud'); await js(`openPanel('board'); 0`); await wait(600);
+      assert(await js(`!document.querySelector('#twinsVisit') && /抽卡券 ×1/.test((document.querySelector('#twinsChip') || {}).textContent || '')`), '卡片收起來、小票出現：' + await js(`(document.querySelector('#twinsChip') || {}).textContent`));
+      const geo = await js(`(() => { const p = document.querySelector('#panel').getBoundingClientRect(), u = document.querySelector('#upper').getBoundingClientRect(), c = document.querySelector('#twinsChip').getBoundingClientRect(), h = document.querySelector('#hud').getBoundingClientRect(); return { panel: Math.round(p.height), upper: Math.round(u.height), chipBottom: Math.round(c.bottom), hudTop: Math.round(h.top), chipLeft: Math.round(c.left), hudRight: Math.round(h.right) }; })()`);
+      assert(geo.panel >= geo.upper - 2 && Math.abs(geo.chipBottom - geo.hudTop) <= 8 && geo.chipLeft > 0 && geo.chipLeft < geo.hudRight, '面板佔滿上方、小票插在狀態欄上緣：' + JSON.stringify(geo));
+      await shot('t08b_chip');
+      await click('#twinsChip'); await wait(500);
+      assert(await js(`!document.querySelector('#twinsChip') && !!document.querySelector('#twinsVisit.tv-congrats') && !document.querySelector('#twinsVisit .tv-actions').classList.contains('hidden') && document.querySelector('#twinsVisit .tv-line').textContent.length > 4`), '點小票：卡片回來、按鈕直接在');
+      await shot('t08c_expand');
       await click('#twinsVisit [data-tv="draw"]');
       await until(`state.panel === 'shop' && !!document.querySelector('[data-sp-ticket]')`, 4000, '去抽卡');
       await wait(500); await shot('t09_go_draw');
@@ -109,6 +119,12 @@ module.exports = ({ win, engine }) => {
       await until(`!document.querySelector('#twinsVisit .tv-actions').classList.contains('hidden')`, 12000, '說完出現按鈕');
       assert(/紅緞帶/.test(await js(`document.querySelector('#twinsVisit').textContent`)), '說是紅緞帶');
       await shot('t10_wish_ready');
+      // 7b. 10/13 沒人理 6 秒：自己縮成小票（許願單是粉紅的）；點開再去看看
+      await until(`!document.querySelector('#twinsVisit') && !!document.querySelector('#twinsChip.tv-wish')`, 9000, '6 秒沒理就縮成小票');
+      assert(/許願單：紅緞帶/.test(await js(`document.querySelector('#twinsChip').textContent`)), '小票寫許願單：' + await js(`document.querySelector('#twinsChip').textContent`));
+      await shot('t10b_wish_chip');
+      await click('#twinsChip'); await wait(500);
+      await until(`!!document.querySelector('#twinsVisit.tv-wish [data-tv="shop"]')`, 2000, '展開回來');
       await click('#twinsVisit [data-tv="shop"]');
       await until(`state.panel === 'shop' && !!document.querySelector('.sp-row.flash')`, 4000, '那一列閃一下');
       await wait(200); await shot('t11_wish_go');
