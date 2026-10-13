@@ -368,6 +368,38 @@ function normalizeAI(json, ctx) {
   return out;
 }
 
+// ---- 規則和 AI 怎麼配合（10/13 使用者電腦 qwen3:4b 實測：65 題規則全對；AI 單獨 57 題，會自己編截止日、把「這個任務的步驟…」整句當成新委託）----
+// 規則有把握的句子就不問 AI；沒把握的（沒記到東西、不確定、標題很長或還有逗號連接詞＝沒拆開）才請 AI 整理，回來的結果再檢查一次
+function ruleConfident(text, rule) {
+  if (!rule.length) return false;
+  return rule.every((it) => {
+    if (it.kind === 'unsure') return false;
+    if (it.kind !== 'quest') return true;
+    const t = String(it.title || '');
+    return norm(t).length <= 20 && !/[，,、；;]|然後|接著|再來|之後|以及/.test(t);
+  });
+}
+const needsAI = (text, rule) => !isChatter(text) && !isEnough(text) && !ruleConfident(text, rule);
+// AI 的結果：原話沒說日子／時間的不能自己加；規則有拆出步驟、AI 卻沒有步驟 → 用規則的；整句變成一個委託標題 → 用規則的
+function checkAI(items, text, ctx, rule) {
+  if (!items || !items.length) return null;
+  const hasDay = !!findDay(text, ctx), hasTime = !!findTime(text);
+  const nt = norm(text).length;
+  const out = [];
+  for (const it of items) {
+    const x = { ...it };
+    if (x.kind === 'quest' && x.due && !hasDay) x.due = '';
+    if ((x.kind === 'row' || x.kind === 'reminder') && !hasTime) { out.push({ kind: 'quest', title: x.title, tier: 'major', tierSet: false, due: hasDay ? x.date || '' : '', steps: [] }); continue; }
+    if ((x.kind === 'row' || x.kind === 'reminder' || x.kind === 'theme') && x.date && !hasDay) { out.push({ kind: 'unsure', title: x.kind === 'row' ? `${x.start} ${x.title}` : x.title, question: '是哪一天？', guess: x.kind === 'row' ? { kind: 'row', start: x.start, end: x.end, title: x.title, raid: x.raid } : null }); continue; }
+    if (x.kind === 'quest' && nt > 12 && norm(x.title).length >= nt * 0.8 && rule.length) return null; // 整句當標題：AI 沒拆開
+    out.push(x);
+  }
+  const ruleSteps = rule.some((r) => r.kind === 'steps' || (r.steps && r.steps.length));
+  const aiSteps = out.some((r) => r.kind === 'steps' || (r.steps && r.steps.length));
+  if (ruleSteps && !aiSteps) return null;
+  return out.length ? out : null;
+}
+
 // 修改：這一週的目錄（q1／r1／m1）＋使用者的指示 → 變更
 const EDIT_SCHEMA = {
   type: 'object',
@@ -911,7 +943,7 @@ function view(d, { offDay = null, today = null } = {}) {
 
 module.exports = {
   WD, TIER_NAME, weekOf, weekAt, weekName, mondayOf, needAsk, defaultWhich, findDay, resolveDay, findTime, normTime, ruleExtract, splitUnits, cleanText, isChatter,
-  isEnough, findSteps, seqSteps, stepText, looksLikeEdit, isEditStrong, ruleEdit,
+  isEnough, findSteps, seqSteps, stepText, looksLikeEdit, isEditStrong, ruleEdit, ruleConfident, needsAI, checkAI,
   EXTRACT_SCHEMA, EXTRACT_SYSTEM, extractUser, normalizeAI, toAIItems, EDIT_SCHEMA, EDIT_SYSTEM, editUser, indexText, applyEdits,
   blank, upgrade, snapshot, undo, addItems, removeLog, removeItem, restoreItem, wipe, editItem, resolveUnsure, findItem, findQuest, itemsText, summary, checks,
   questState, rowState, remState, changes, syncPlan, toMarkdown, applyToContent, view, dayLabel, addDays, validISO, validHM, live,

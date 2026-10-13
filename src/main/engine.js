@@ -1847,7 +1847,7 @@ class Engine {
     if (!L.edit) {
       L.ids = PD.addItems(d, rule, logId, L.restore);
       L.text = PD.itemsText(d, L.ids);
-      L.pending = ai && !!rule.length || (ai && !rule.length);
+      L.pending = ai && PD.needsAI(said, rule); // 規則有把握就不問 AI（實測 AI 會把對的改錯）
       L.rule = rule;
       const onlyUnsure = L.ids.length && L.ids.every((id) => id.startsWith('u'));
       line = !L.ids.length ? (ai ? null : this.pdLine('pd_empty')) : this.pdLine(onlyUnsure ? 'pd_unsure' : 'pd_noted', { items: L.text });
@@ -1867,7 +1867,7 @@ class Engine {
     let items = null, err = '';
     try {
       const json = await this.npc.structured('plan_extract', { system: PD.EXTRACT_SYSTEM, user: PD.extractUser(L.said, ctx, { rule: L.rule || [], d }), schema: PD.EXTRACT_SCHEMA, maxTokens: 500 });
-      items = PD.normalizeAI(json, ctx);
+      items = PD.checkAI(PD.normalizeAI(json, ctx), L.said, ctx, L.rule || []); // AI 自己編的日子、沒拆開的整句：不用
     } catch (e) { err = e.name === 'AbortError' ? '太久了' : String(e.message).slice(0, 40); }
     if (!this.pdDrafts()[d.week.start] || !d.log.includes(L)) return null; // 這段時間被撤銷或整份丟掉了
     L.pending = false;

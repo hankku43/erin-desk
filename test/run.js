@@ -3130,6 +3130,17 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   PD.addItems(nw, PD.ruleExtract('週一 9:00-10:00 站會；週五前交月報', { today: '2026-10-13', week: nw.week }));
   const md = PD.toMarkdown(nw, { title: '下週 10/19–10/23' });
   assert.ok(/^# 下週 10\/19–10\/23\n/.test(md) && /## 交月報 🔧 📅 10\/23/.test(md) && /09:00–10:00 📯 站會/.test(md), md);
+  // 規則和 AI 怎麼配合（使用者電腦實測：AI 會自己編截止日、把步驟那句整句當成新委託）
+  const rcx = { today: '2026-10-13', week: PD.weekOf('2026-10-13') };
+  const need = (t) => PD.needsAI(t, PD.ruleExtract(t, rcx));
+  assert.deepStrictEqual(['整理實驗報告', '這個任務的步驟有要先做文獻整理後寫初稿再接著請主管看', '週二下午兩點到三點開週會', '嗯……', '好，差不多就這些'].map(need), [false, false, false, false, false], '規則有把握：不問 AI');
+  assert.deepStrictEqual(['把客戶的需求整理一下然後跟業務對齊再回覆對方', '下午三點打電話'].map(need), [true, true], '沒把握：問 AI');
+  const ck = (t, items) => PD.checkAI(items, t, rcx, PD.ruleExtract(t, rcx));
+  assert.strictEqual(ck('整理實驗報告', [{ kind: 'quest', title: '整理實驗報告', tier: 'major', due: '2026-10-16', steps: [] }])[0].due, '', '原話沒說日子：AI 編的截止日拿掉');
+  assert.strictEqual(ck('這個任務的步驟有先收資料再寫初稿', [{ kind: 'quest', title: '這個任務的步驟有先收資料再寫初稿', tier: 'major', due: '', steps: [] }]), null, '整句當標題：不用 AI 的');
+  assert.strictEqual(ck('整理月報：收齊數字、寫摘要', [{ kind: 'quest', title: '整理月報', tier: 'major', due: '', steps: [] }]), null, '規則有步驟、AI 沒有：用規則的');
+  assert.deepStrictEqual(ck('把需求整理一下然後跟業務對齊', [{ kind: 'quest', title: '整理需求', tier: 'major', due: '', steps: ['整理', '跟業務對齊'] }]).map((x) => x.steps.length), [2], '沒把握的句子：用 AI 拆好的');
+  assert.strictEqual(ck('週會', [{ kind: 'row', date: '2026-10-13', start: '14:00', end: '', title: '週會', raid: true }])[0].kind, 'quest', '原話沒說時間：AI 編的時段不算');
   // AI 的格式：至少一項；步驟（kind steps）
   assert.strictEqual(PD.EXTRACT_SCHEMA.properties.items.minItems, 1, '不能回空清單');
   assert.deepStrictEqual(PD.normalizeAI({ items: [{ kind: 'steps', title: '上一個委託', steps: ['收資料', '寫初稿'] }] }, ctx), [{ kind: 'steps', ref: '', steps: ['收資料', '寫初稿'] }]);
@@ -3165,8 +3176,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
     if (event === 'plan_edit') { const ref = (o.user.match(/(q\d+) 委託「寫完週報」/) || [])[1]; return { ops: [{ op: 'edit', ref, day: '週四' }] }; }
     throw new Error('?');
   };
-  r = E.pdSay('準備面試，它的步驟有看履歷跟準備問題');
-  assert.ok(r.refine, '排隊給 AI');
+  r = E.pdSay('週五前寫完週報');
+  assert.ok(!r.refine, '規則有把握：不排 AI');
+  r = E.pdSay('準備面試要看履歷然後想問題還有約時間跟主管確認名單');
+  assert.ok(r.refine, '規則沒把握：排隊給 AI');
   await E.pdRefine(r.logId);
   assert.ok(/【規則初步整理】/.test(asked[0].user) && E.pdView().quests.find((q) => q.title === '準備面試').steps.length === 2, 'AI 整理（有給規則的結果）');
   r = E.pdSay('週報的截止日請你調整一下');
