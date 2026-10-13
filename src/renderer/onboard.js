@@ -162,7 +162,7 @@ function renderOnboard(el, v) {
         <div class="field">🗂 這週的名稱（選填）<input id="obPTitle" placeholder="留空會自動取名，例如「我的一週 10/5–10/9」" maxlength="60"></div></div>`;
       action = '<button class="btn gold" data-ob-create>📜 建立，下一步 →</button>';
     } else if (ob.planMode === 'ics') {
-      inner = `<div class="ob-help"><p><b>Google 日曆</b>：電腦版右上角 ⚙ 設定 →「匯入與匯出」→「匯出」，下載後解壓縮會得到 .ics 檔。</p><p><b>Outlook</b>：行事曆 → 檔案 →「另存行事曆」，存成 .ics。</p><p>${esc(name)}會把這週的行程抄進「今日行程」，整天的活動會變成那天的主題。要做的事再到任務板「＋ 新任務」登記。</p></div>`;
+      inner = `<div class="ob-help"><p><b>Google 日曆</b>：電腦版右上角 ⚙ 設定 →「匯入與匯出」→「匯出」，下載後解壓縮會得到 .ics 檔。</p><p><b>Outlook</b>：行事曆 → 檔案 →「另存行事曆」，存成 .ics。</p><p>${esc(name)}會把這週的行程抄進「今日行程」，整天的活動會變成那天的主題。要做的事再到週任務板「＋ 新任務」登記。</p></div>`;
       action = '<button class="btn gold" data-ob-ics>📥 選擇 .ics 檔</button>';
     } else if (ob.planMode === 'file') {
       inner = `<div class="ob-help"><p>選一個 .md（Markdown）檔，${esc(name)}會照裡面的「## 任務」和「- [ ] 目標」派任務給你。格式可以參考你資料夾裡的 <code>plans/_template.md</code>。</p></div>`;
@@ -199,7 +199,7 @@ function renderOnboard(el, v) {
     const times = [s.lunch && `${s.lunch} 午餐`, s.back && `${s.back} 開工`, s.wrap && `${s.wrap} 日報`].filter(Boolean).join('、') || '不提醒';
     body = say(`準備好了！從現在起，${esc(name)}就是你的專屬櫃台接待員。`)
       + `<div class="ob-summary"><div>🤖 大腦：<b>${esc(aiTxt)}</b></div><div>📜 計畫：<b>${esc(v.planTitle || '（還沒有）')}</b>・${v.quests.length} 個任務</div><div>⏰ 提醒：<b>${esc(times)}</b></div></div>`
-      + say(`任務板最上面有 7 個「新手任務」，照著做一遍就會用所有功能，每完成一個都有小獎勵喔～`);
+      + say(`週任務板最上面有 7 個「新手任務」，照著做一遍就會用所有功能，每完成一個都有小獎勵喔～`);
     foot = `${back}<span class="spacer"></span><button class="btn gold" data-ob-finish>⚔ 開始冒險！</button>`;
   }
   el.innerHTML = head('🎓 新手教學', '', '') + obStepsBar(ob.step) + `<div class="panel-body ob-body">${body}</div><div class="panel-foot">${foot}</div>`;
@@ -281,7 +281,7 @@ async function onboardClick(e) {
     if (!r || !r.ok) { toast(`⚠ ${r && r.error ? r.error : '匯入失敗'}`, 4000); return true; }
     if (r.canceled) return true;
     applyView(r.view);
-    ob.planDone = `${r.reason || '已匯入行事曆'}（記得到任務板「＋ 新任務」登記要做的事）`;
+    ob.planDone = `${r.reason || '已匯入行事曆'}（記得到週任務板「＋ 新任務」登記要做的事）`;
     renderPanel(); return true;
   }
   if (t.closest('[data-ob-choose]')) {
@@ -326,7 +326,7 @@ function onboardChange(e) {
   return false;
 }
 
-// ---- 新手任務清單（任務板最上面） ----
+// ---- 新手任務清單（週任務板最上面） ----
 function tutorialHtml(v) {
   const t = v.tutorial;
   if (!t) return '';

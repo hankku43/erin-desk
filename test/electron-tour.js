@@ -32,7 +32,7 @@ module.exports = ({ win, engine, app }) => {
       await click('[data-tab=hist]'); await wait(400); await shot('t10_history');
       await click('[data-act=daily]'); await wait(2200); await shot('t11_daily');
       await click('input[data-row]'); await wait(1500); await shot('t12_daily_checked');
-      await click('[data-act=report]'); await wait(700); await shot('t13_report');
+      await js(`openPanel('report'); 0`); await wait(700); await shot('t13_report');
       await js(`document.querySelector('#rDone').value='標示補完、上架申請寄出';document.querySelector('#rBlock').value='等審核';document.querySelector('#rNext').value='開始修 P-12'`);
       await click('#rSend'); await wait(2200); await shot('t14_report_done');
       await click('[data-act=chat]'); await wait(300);

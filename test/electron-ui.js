@@ -35,10 +35,10 @@ module.exports = ({ win, engine, app }) => {
       await wait(1800);
       wc.send('view:update', { view: engine.view() }); await wait(300); await flush();
 
-      // 1. 首頁選單：常用四個＋一排七個（📯 團戰＋玩法）；還不能交付時沒有交付鈕
+      // 1. 首頁選單：常用四個＋一排四個（魔法、回憶、日誌、雜貨舖）；還不能交付時沒有交付鈕
       await home();
-      assert((await js(`[...document.querySelectorAll('#choices > .btn:not(.hidden)')].map((b) => b.dataset.act).join()`)) === 'board,daily,chat,report', '常用四個');
-      assert((await js(`[...document.querySelectorAll('#choices .more button')].map((b) => b.dataset.act).join()`)) === 'raids,divine,fortune,notebook,journal,shop,ach', '團戰＋玩法一排七個');
+      assert((await js(`[...document.querySelectorAll('#choices > .btn:not(.hidden)')].map((b) => b.dataset.act).join()`)) === 'board,pd,daily,chat', '常用四個：週任務板、委託、今日行程、聊聊');
+      assert((await js(`[...document.querySelectorAll('#choices .more button')].map((b) => b.dataset.act).join()`)) === 'magic,memories,journal,shop', '魔法、回憶、日誌、雜貨舖一排四個');
       assert(await js(`document.querySelector('#btnSubmit').classList.contains('hidden')`), '還不能交付：沒有交付鈕');
       // 狀態欄：稱號在經驗條上、圖示列只有一行
       assert(await js(`!!document.querySelector('.xpbar #ptitle') && document.querySelector('#ptitle').textContent.length > 1`), '稱號在經驗條上');
@@ -110,7 +110,7 @@ module.exports = ({ win, engine, app }) => {
       await click('#panel [data-close]'); await wait(300);
 
       // 5. 成就：自己一個面板；字都不小於 12px
-      await click('[data-act=ach]'); await wait(900);
+      await click('[data-act=memories]'); await wait(500); await click('[data-hub=ach]'); await wait(900);
       assert(await js(`state.panel === 'ach' && document.querySelectorAll('.co-a').length > 20 && !!document.querySelector('.co-progrow span')`), '成就面板');
       const small = await js(`[...document.querySelectorAll('#panel *')].filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 12).map((el) => el.className + ':' + el.textContent.slice(0, 8))`);
       assert(!small.length, '成就面板沒有小於 12px 的字：' + small.join('、'));
@@ -119,7 +119,7 @@ module.exports = ({ win, engine, app }) => {
       await home();
 
       // 6. 小本子：每一則剛好在橫線上（26px 一行）
-      await click('[data-act=notebook]'); await wait(900); await flush();
+      await click('[data-act=memories]'); await wait(500); await click('[data-hub=notebook]'); await wait(900); await flush();
       const off = await js(`(() => { const p = document.querySelector('.nb-paper').getBoundingClientRect().top; return [...document.querySelectorAll('.nb-item, .nb-sec h3')].map((el) => Math.round(el.getBoundingClientRect().top - p) % 26); })()`);
       assert(off.length >= 6 && off.every((x) => x === 0), '小本子每行對齊橫線：' + off.join());
       await shot('u07_notebook');
@@ -148,7 +148,7 @@ module.exports = ({ win, engine, app }) => {
       await shot('u10_submit_row');
 
       // 9. 運勢：卡片蓋在狀態欄上，不擋選單；沒有另外飄字；成就等卡片翻開才出現
-      await click('[data-act=fortune]'); await wait(700);
+      await click('[data-act=magic]'); await wait(500); await click('[data-hub=fortune]'); await wait(700);
       assert(!(await js(`!!document.querySelector('.float-reward')`)), '運勢不另外飄字（卡片上就有獎勵）');
       assert(!(await js(`!!document.querySelector('.ach-pop')`)), '成就還沒出來');
       const fc = await rect('#fortuneCard'), ch = await rect('#choices');

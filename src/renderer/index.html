@@ -28,18 +28,15 @@
       <div class="choices" id="choices">
         <!-- 能交付時才出現：上面直接寫報酬 -->
         <button class="btn gold submit-row hidden" data-act="submit" id="btnSubmit" disabled>🏆 交付任務</button>
-        <button class="btn" data-act="board">📜 任務板</button>
+        <button class="btn" data-act="board">📜 週任務板</button>
+        <button class="btn" data-act="pd" data-tip="艾琳的筆記本：用說的加委託、改計畫、勾掉做完的">📓 委託</button>
         <button class="btn" data-act="daily">📅 今日行程</button>
         <button class="btn" data-act="chat">💬 聊聊</button>
-        <button class="btn" data-act="report">📝 下班回報</button>
         <div class="more" role="group" aria-label="更多玩法">
-          <button data-act="raids" data-tip="團戰（會議）：開始前提醒，開始時自動專注"><span>📯</span>團戰</button>
-          <button data-act="divine" data-tip="占卜魔法：問一件事，用星環起卦"><span>✨</span>占卜</button>
-          <button data-act="fortune" data-tip="今日運勢：一天抽一次，有小獎勵"><span>🔮</span>運勢</button>
-          <button data-act="notebook" data-tip="偷看艾琳的小本子：她記得你說過的事"><span>📒</span>小本子</button>
+          <button data-act="magic" data-tip="魔法：今日運勢、星環占卜"><span>✨</span>魔法</button>
+          <button data-act="memories" data-tip="回憶：艾琳的小本子、成就、回憶相簿"><span>📒</span>回憶</button>
           <button data-act="journal" data-tip="冒險日誌與工作週報"><span>📖</span>日誌</button>
           <button data-act="shop" data-tip="雲朵雜貨舖：買禮物、裝飾、抽星座卡"><span>🛒</span>雜貨舖</button>
-          <button data-act="ach" data-tip="成就與連續上工"><span>🏅</span>成就</button>
         </div>
       </div>
     </section>
@@ -92,6 +89,7 @@
   <script src="shop.js"></script>
   <script src="raids.js"></script>
   <script src="pdnote.js"></script>
+  <script src="hub.js"></script>
   <script src="twins.js"></script>
   <script src="stageup-script.js"></script>
   <script src="stageup.js"></script>

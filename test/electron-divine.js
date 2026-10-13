@@ -22,7 +22,7 @@ module.exports = ({ win, engine, app }) => {
       engine.state.player.gold = 50; wc.send('view:update', { view: engine.view() });
       await wait(2600);
       // 1. 對話選單的 ✨ 占卜 → 寫問題
-      await click('[data-act=divine]'); await wait(500);
+      await click('[data-act=magic]'); await wait(400); await click('[data-hub=divine]'); await wait(500); // ✨ 魔法 → 星環占卜
       await type('#dvQ', '這週的發表會會順利嗎？'); await wait(150); await shot('d01_ask');
       assert(/丙午|年/.test(await text('.dv-methods')), '此刻起卦顯示農曆時間：' + await text('.dv-methods'));
       // 2. 魔法陣：點兩下停下兩圈星環

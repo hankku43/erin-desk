@@ -364,7 +364,8 @@ function advance() {
   state.current = line; state.lastLine = line;
   if (!line.logId) line.logId = logPush('npc', line.text);
   setShown(line.logId);
-  if (line.topic) openReply(); // 她開了話題：把聊天框打開，方便回她
+  if (line.topic || line.reply) openReply(); // 她開了話題（或收工時問今天有沒有卡住）：把聊天框打開，方便回她
+  if (line.journal) setTimeout(() => { if (!state.panel) openJournal(line.journal, { quiet: true }); }, 1800); // 📖 這週最後一天：冒險日誌自動交
   setEmotion(line.emotion || 'normal');
   if (line.emotion === 'cheer' || line.emotion === 'surprised') jump();
   $('#npcWrap').classList.add('talking');
@@ -631,7 +632,7 @@ function renderTracker() {
     state.starSeen[a.id] = a.doneCount;
   } else {
     const allDone = v.quests.length && v.quests.every((q) => q.status === 'done');
-    html = `<div class="fl"><span class="fl-ico">${allDone ? '🎉' : '📜'}</span><div class="fl-main"><div class="fl-text">${allDone ? '本週任務全部完成！' : '目前沒有任務'}</div><div class="fl-sub">點這裡打開任務板</div></div></div>`;
+    html = `<div class="fl"><span class="fl-ico">${allDone ? '🎉' : '📜'}</span><div class="fl-main"><div class="fl-text">${allDone ? '本週任務全部完成！' : '目前沒有任務'}</div><div class="fl-sub">點這裡打開週任務板</div></div></div>`;
   }
   el.innerHTML = html;
   if (state.peekOpen) renderPeek();
@@ -671,7 +672,7 @@ function renderPeek() {
     html += `<div class="pk-slot"><div>${cur ? '⏳' : '🕒'} <b>${esc(r.row.slot)}</b> ${rich(txt)}</div>${out ? `<div class="pk-out">→ ${rich(out)}</div>` : ''}<div class="pk-meta">${meta}</div></div>`;
   }
   if (!html) html = '<div class="pk-obj">目前沒有任務或時段</div>';
-  html += '<div class="pk-hint">點一下打開任務板</div>';
+  html += '<div class="pk-hint">點一下打開週任務板</div>';
   const pk = $('#hudPeek');
   pk.innerHTML = html;
   pk.style.bottom = `${$('#hud').offsetHeight + 20}px`;
@@ -972,6 +973,9 @@ $('#choices').addEventListener('click', async (e) => {
   if (act === 'submit' && state.view.active) openPanel('submit', state.view.active.id);
   if (act === 'daily') { openPanel('daily'); run(() => api.daily(), { talk: true }); }
   if (act === 'report') openPanel('report');
+  if (act === 'pd') openPdNote(); // 📓 委託：艾琳的筆記本
+  if (act === 'magic') openPanel('magic'); // ✨ 今日運勢／星環占卜
+  if (act === 'memories') openPanel('memories'); // 📒 小本子／成就／回憶相簿
   if (act === 'chat') { $('#chatRow').classList.toggle('hidden'); $('#chatInput').focus(); }
   if (act === 'divine') openPanel('divine');
   if (act === 'fortune') drawFortune();
@@ -1002,7 +1006,7 @@ async function sendChat() {
   const inp = $('#chatInput');
   const text = inp.value.trim();
   if (!text || state.talking) return;
-  if (typeof pdChat === 'function' && await pdChat(text)) return; // 📓 筆記本模式／「幫我排這週」
+  if (typeof pdChat === 'function' && await pdChat(text)) return; // 📓「幫我排這週」：打開筆記本
   if (DV_RE.test(text) && !/(是什麼|什麼是|怎麼算|原理|準不準)/.test(text)) { inp.value = ''; openPanel('divine', { question: questionFromChat(text) }); return; }
   inp.value = ''; inp.placeholder = CHAT_HINT;
   logPush('me', text); logRefresh();
@@ -1028,7 +1032,6 @@ function openPanel(kind, arg) {
 }
 function closePanel() {
   cancelAnimationFrame(state.dvRaf);
-  if (state.panel === 'pdNote' && typeof pdOnClose === 'function') pdOnClose(); // 📓 收起筆記本＝先存著
   const wasForm = FORM_PANELS.has(state.panel);
   state.panel = null; state.panelBack = null; state.confirmDel = null; state.addingObj = null;
   document.body.classList.remove('panel-open');
@@ -1085,7 +1088,7 @@ function renderPanelInner(el, v) {
     return;
   }
   if (state.panel === 'board') {
-    const addBtn = v.editable && state.boardTab === 'quests' ? `<button class="tab add" data-new="quest" title="登記一筆新委託">＋ 新任務</button><button class="tab add" data-pd-open title="跟${esc(v.npc.name)}用聊的寫這週（或下週）的計畫">📓 用聊的排</button>` : '';
+    const addBtn = v.editable && state.boardTab === 'quests' ? `<button class="tab add" data-new="quest" title="登記一筆新委託">＋ 新任務</button><button class="tab add" data-pd-open title="在${esc(v.npc.name)}的筆記本用說的加委託、改計畫">📓 委託</button>` : '';
     const tabs = `<div class="tabs"><button class="tab ${state.boardTab === 'quests' ? 'on' : ''}" data-tab="quests">任務</button><button class="tab ${state.boardTab === 'hist' ? 'on' : ''}" data-tab="hist">紀錄</button>${addBtn}</div>`;
     let body = '';
     if (state.boardTab === 'quests') {
@@ -1121,7 +1124,7 @@ function renderPanelInner(el, v) {
         : '<p class="hint">還沒有紀錄。完成第一個目標，就會出現在這裡！</p>') + '</div>';
     }
     const done = v.quests.filter((q) => q.status === 'done').length;
-    el.innerHTML = head('📜 任務板', `${done}/${v.quests.length} 完成`, tabs) + `<div class="panel-body">${body}</div>`;
+    el.innerHTML = head('📜 週任務板', `${done}/${v.quests.length} 完成`, tabs) + `<div class="panel-body">${body}</div>`;
   }
 
   if (state.panel === 'daily') {
@@ -1157,7 +1160,7 @@ function renderPanelInner(el, v) {
       }).join('') + '</div>';
     }
     // 標題列只放標題；新增、團戰、請假、匯入匯出放到下面一列工具列（以前全部擠在標題列，Windows 的字比較寬，按鈕會斷成兩行）
-    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><span class="tool-sep" aria-hidden="true"></span><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="btn small tool" data-lv-open data-tip="請假、看接下來的國定假日">🌴 請假</button><button class="btn small tool ico" data-pd-open data-tip="用聊的寫週計畫：跟${esc(v.npc.name)}說這週要做什麼，她記成表格給你確認" aria-label="用聊的寫週計畫">📓</button>` : ''}<span class="spacer"></span>${v.editable ? '<button class="btn small tool ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="btn small tool ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
+    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><span class="tool-sep" aria-hidden="true"></span><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="btn small tool" data-lv-open data-tip="請假、看接下來的國定假日">🌴 請假</button><button class="btn small tool ico" data-pd-open data-tip="委託：在${esc(v.npc.name)}的筆記本用說的加、改、勾" aria-label="委託">📓</button><button class="btn small tool ico" data-report-open data-tip="收工：寫今天做了什麼、卡在哪（下班提醒時直接跟${esc(v.npc.name)}說也可以）" aria-label="收工">🌙</button>` : ''}<span class="spacer"></span>${v.editable ? '<button class="btn small tool ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="btn small tool ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
     el.innerHTML = head('📅 今日行程', '', '', '勾完一格 +10 XP。時段是那一天要做的事、提醒是到時候來叫你；團戰（會議）開始時會自動專注；📥📤 可以跟 Google／Outlook 行事曆互通（.ics 檔）') + tools + `<div class="panel-body">${body}</div>`;
   }
 
@@ -1228,7 +1231,8 @@ function renderPanelInner(el, v) {
   if (state.panel === 'raids') renderRaids(el, v);
   if (state.panel === 'raidForm') renderRaidForm(el, v);
   if (state.panel === 'leave') renderLeave(el, v);
-  if (state.panel === 'pdNote') renderPdNote(el, v); // 📓 用聊的寫週計畫
+  if (state.panel === 'magic') renderMagic(el, v);
+  if (state.panel === 'memories') renderMemories(el, v);
   if (state.panel === 'ach') renderAch(el, v);
   if (state.panel === 'album') Story.renderAlbum(el, v); // 🎬 回憶相簿
 
@@ -1237,7 +1241,7 @@ function renderPanelInner(el, v) {
     const doneRows = t.rows.filter((r) => r.done).map((r) => (t.branch && t.chosenBranch === 'b' ? r.b : r.a));
     const pt = v.progressToday || {};
     const pre = pt.done || doneRows.join('；');
-    el.innerHTML = head('📝 下班回報', esc(t.label), '', v.writeBack ? '會寫進計畫檔最後的「進度紀錄」，週五回報完會整理成冒險日誌和週報' : '只存在遊戲裡（回寫計畫檔已關閉）') + `<div class="panel-body">
+    el.innerHTML = head('🌙 收工：今天的進度', esc(t.label), '', v.writeBack ? `會寫進計畫檔最後的「進度紀錄」，整理成冒險日誌和週報。下班提醒時直接跟${esc(npcNameR())}說今天卡在哪也可以` : '只存在遊戲裡（回寫計畫檔已關閉）') + `<div class="panel-body">
       <div class="field">✅ 實際完成<textarea id="rDone" rows="3">${esc(pre)}</textarea></div>
       <div class="field-row">
         <div class="field">🧱 卡點<textarea id="rBlock" rows="2">${esc(pt.blocker || '')}</textarea></div>
@@ -1364,8 +1368,9 @@ async function panelClick(e) {
   if (state.panel === 'shop' && await shopClick(e)) return;
   if (['raids', 'raidForm', 'daily'].includes(state.panel) && await raidsClick(e)) return;
   if (['leave', 'daily'].includes(state.panel) && await leaveClick(e)) return;
-  if (state.panel === 'pdNote' && await pdNoteClick(e)) return;
-  if (t.closest('[data-pd-open]')) { openPdNote(); return; } // 任務板、今日行程上的「📓 用聊的排」
+  if (['magic', 'memories'].includes(state.panel) && await hubClick(e)) return;
+  if (t.closest('[data-pd-open]')) { openPdNote(); return; } // 週任務板、今日行程上的「📓」
+  if (t.closest('[data-report-open]')) { openPanel('report'); return; } // 今日行程的「🌙 收工」
   if (state.panel === 'ach' && await achClick(e)) return;
   if (state.panel === 'album' && await Story.albumClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }

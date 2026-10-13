@@ -30,7 +30,7 @@ module.exports = ({ win, engine, menuTemplate, runTick }) => {
       const sub = top.find((m) => /週計畫/.test(m.label));
       assert(sub && sub.submenu.some((m) => /📯 團戰/.test(m.label || '')), '週計畫選單有團戰');
       // 1. 首頁 📯 → 清單：計畫檔的週會
-      await click('[data-act=raids]'); await wait(500);
+      await js('openRaids(); 0'); await wait(500); // 主畫面的「📯 團戰」換成「📓 委託」：從今日行程或右鍵選單進
       assert(/週會/.test(await text('.rd-body')) && /計畫檔/.test(await text('.rd-body')), '計畫檔的團戰在清單裡');
       await shot('r01_list');
       // 2. 新團戰：每週一、三的專案站會

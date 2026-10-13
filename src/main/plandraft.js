@@ -1,5 +1,6 @@
-// 📓 用聊的寫週計畫：草稿（委託、時段、提醒、每天的主題、不確定的）＋規則速記＋AI 整理的格式＋轉成計畫檔／合併
-// AI 不直接寫 Markdown：只回結構化的項目（日期照原話），由這裡換成日期、套進草稿，最後用 planParser 的函式寫進檔案
+// 📓 艾琳的筆記本（委託）：一週的計畫＝計畫檔原本的（墨水）＋這次說的、改的（鉛筆），按「寫進計畫檔」才寫
+// 草稿：委託、時段、提醒、每天的主題、不確定的；原本就有的帶 orig（計畫檔裡的樣子），改了＝dirty、刪了＝del
+// AI 不直接寫 Markdown：只回結構化的項目（日期照原話），由這裡換成日期、套進草稿，最後用 planParser 的函式一項一項寫進檔案
 // 純函式，不碰檔案
 'use strict';
 
@@ -21,13 +22,15 @@ const clip = (s, n = 60) => String(s || '').replace(/[\r\n]+/g, ' ').trim().slic
 
 // ---------- 哪一週 ----------
 function mondayOf(iso) { const w = dowOf(iso) || 7; return addDays(iso, 1 - w); }
-function weekOf(today, which = 'this') {
-  const start = addDays(mondayOf(today), which === 'next' ? 7 : 0);
-  const end = addDays(start, 4);
-  return { which, start, end, label: `${md(start)}–${md(end)}`, name: which === 'next' ? '下週' : '本週' };
+function weekAt(start) { const s = mondayOf(start); const end = addDays(s, 4); return { start: s, end, label: `${md(s)}–${md(end)}` }; }
+function weekOf(today, which = 'this') { return { which, ...weekAt(addDays(mondayOf(today), which === 'next' ? 7 : 0)), name: which === 'next' ? '下週' : '這週' }; }
+// 週一～三預設這週；週四以後預設下週（很多人週五排下週）
+const defaultWhich = (today) => ([0, 4, 5, 6].includes(dowOf(today)) ? 'next' : 'this');
+const needAsk = (today) => [0, 4, 5, 6].includes(dowOf(today)); // 舊名字（測試、舊程式用）
+function weekName(start, today) {
+  const m = mondayOf(today);
+  return start === m ? '這週' : start === addDays(m, 7) ? '下週' : start === addDays(m, -7) ? '上週' : weekAt(start).label;
 }
-// 週一～三預設寫本週；週四以後先問（很多人週五排下週）
-const needAsk = (today) => [0, 4, 5, 6].includes(dowOf(today));
 
 // ---------- 中文日期、時間 ----------
 const CN = { 零: 0, 〇: 0, 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
@@ -107,6 +110,7 @@ function findTime(text) {
 // AI 回的時間欄位：「14:00」「下午兩點」都可以
 function normTime(s) { if (validHM(s)) return s; const t = findTime(s); return t ? t.start : ''; }
 const plusMin = (t, n) => { const [h, m] = t.split(':').map(Number); const x = Math.min(23 * 60 + 59, h * 60 + m + n); return `${pad(Math.floor(x / 60))}:${pad(x % 60)}`; };
+const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 
 // ---------- 規則速記：一句話 → 項目 ----------
 const RE_MEETING = /📯|團戰|會議|開會|週會|周會|例會|晨會|站會|月會|面談|面試|一對一|1\s*on\s*1|meeting|sync|review會|檢討會|討論|說明會|分享會|座談|研討會|工作坊|workshop|拜訪|見客戶|簡報/i;
@@ -123,11 +127,11 @@ const RE_ENOUGH = /^(?:(?:好|嗯|ok|okay)[，,\s]*)?(?:應該|大概|暫時)?(?
 const isEnough = (t) => { const x = String(t || '').trim(); return x.length <= 14 && RE_ENOUGH.test(x); }; // 「好，差不多就這些」：說完了，不是要記的事
 // 「週三做測試、週四修 bug、週五上線」：每一段有自己的日子就拆開；「週四上午做簡報，下午練講稿」也拆
 const RE_SPLIT = /[，,、]\s*(?=(?:(?:下下|下|這|本)?\s*(?:週|周|星期|禮拜)\s*[一二三四五六日天]|大後天|後天|明天|今天|\d{1,2}\s*[/月]\s*\d{1,2})|(?:上午|下午|早上|晚上|中午|傍晚)(?!茶))/;
-const FILLER_HEAD = /^(?:(?:上午|下午|早上|晚上|傍晚|中午(?!前|之前))(?!茶)|(?:這週|本週|下週|這禮拜|下禮拜|這星期|我們|我|你|一定要|必須要|必須|最重要的是|最重要的|最重要|最優先|有空的話|有空再|有空|有時間的話|有時間再|順便|順手|不急的|不急|要|得|需要|預計|打算|會|還要|另外|然後|再來|還有|記得|幫我|請|在|於)\s*)+/;
+const FILLER_HEAD = /^(?:(?:上午|下午|早上|晚上|傍晚|中午(?!前|之前))(?!茶)|(?:這週|本週|下週|這禮拜|下禮拜|這星期|我們|我|你|一定要|一定|必須要|必須|最重要的是|最重要的|最重要|最優先|有空的話|有空再|有空|有時間的話|有時間再|順便|順手|不急的|不急|要|得|需要|預計|打算|會|還要|另外|然後|再來|還有|記得|幫我|請|在|於)\s*)+/;
 const FILLER_TAIL = /(?:之前|以前|前|要交|交出去|截止|為止|左右|吧|喔|哦|囉|啦|了)\s*$/;
 function cleanText(s) {
   let t = String(s || '').replace(/^\s*(?:[-*+・•]|\d+[.、)])\s*/, '').replace(/^#+\s*/, '').replace(/\[[ xX]\]\s*/, '');
-  t = t.replace(/[⭐🔧🌿📯⏰📅]/gu, ' ').replace(/\s+/g, ' ').replace(/\s*([，、：；（）])\s*/g, '$1').trim();
+  t = t.replace(/[⭐🔧🌿📯⏰📅]/gu, ' ').replace(/\s+/g, ' ').replace(/\s*([，、：；（）])\s*/g, '$1').replace(/\s+(?=[\u4e00-\u9fff])/g, '').trim(); // 「後端API 做完」→「後端API做完」（「修 bug」不動）
   for (let i = 0; i < 3; i++) t = t.replace(FILLER_HEAD, '').replace(FILLER_TAIL, '').replace(/^[，,：:、\s]+|[，,。：:、\s]+$/g, '').trim();
   return t;
 }
@@ -137,14 +141,57 @@ function cutOut(text, ...hits) {
   for (const h of hits.filter(Boolean).sort((a, b) => b.index - a.index)) {
     let from = h.index, to = h.index + h.raw.length;
     const after = t.slice(to).match(/^\s*(?:(?:的)?(?:下班|上班|中午|午休|早上|上午|下午|晚上|一早|結束)\s*)?(之前|以前|前|為止)/); if (after) to += after[0].length;
-    const before = t.slice(0, from).match(/(在|於|到)\s*$/); if (before) from -= before[0].length;
+    const before = t.slice(0, from).match(/(?:要|得|會)?(在|於|到)\s*$/); if (before) from -= before[0].length;
     t = t.slice(0, from) + ' ' + t.slice(to);
   }
   return t;
 }
 const tierOf = (t) => (RE_MAIN.test(t) ? 'main' : RE_SIDE.test(t) ? 'side' : 'major');
 
-// 回傳項目陣列：{ kind: quest|row|reminder|theme|unsure, … }
+// ---- 步驟 ----
+// 「X 的步驟有／是／包括…」「X 分成三步：…」「X 的步驟加上 Y」
+const RE_STEP_INTRO = /(?:的)?(?:步驟|流程|做法|作法|程序)\s*(?:大概|大致|主要|應該|基本上|會)?\s*(?:(?:要|就)?\s*(?:有|是|為|包括|包含|如下|分成|分為|再加上|加上|新增|補上|多加|加)\s*[：:]?|[：:]|(?=(?:要|就|得)?\s*(?:先|首先|第一步|1\s*[.、]|①)))|(?:分成|分為|拆成)\s*[一二三四五六七八九十兩\d]+\s*(?:個)?\s*(?:步驟?|階段|部分)\s*[：:，,]?/;
+// 「整理月報的步驟：」「步驟如下」（後面換行再列）
+const RE_INTRO_END = /^(.{0,40}?)(?:的)?(?:步驟|流程|做法|作法|程序)\s*(?:(?:要|就)?(?:有|是|為|包括|包含))?\s*(?:如下\s*[：:]?|[：:])\s*$/;
+// 指上一個委託：「這個任務」「這件事」「它」
+const RE_REF = /^(?:這個|這件|那個|那件|該|上面的?|剛剛的?|剛才的?|前面的?)?\s*(?:任務|委託|事情|事|工作|案子)?$|^(?:它|他|這|那)$/;
+// 「(要)先做 A 後 B 再接著 C，最後 D」「1. A 2. B」「首先…接著…」→ 一個一個步驟
+const RE_SEQ = /\s*(?:[、，,；;]\s*(?:再接著|然後|接著|再來|之後|最後|再|後)?|(?<=\S)(?:跟|和|以及|還有)(?![進著上蹤單解平諧好])|再接著|然後|接著|再來|之後|最後|再(?!次|生|利用|版|三)|(?<![前最然之午今以落背日])後(?![端台續製測面天來半期段續]))\s*/;
+const RE_NUMBERED = /(?:^|\s|[，,、；;])\s*(?:\d{1,2}\s*[.、)）]|[①②③④⑤⑥⑦⑧⑨⑩]|第[一二三四五六七八九十\d]+步(?:是)?\s*[，、:：]?)\s*/;
+// 步驟的文字：只拿掉開頭的「要、先、再、然後…」和結尾的語助詞（「請主管看」的「請」要留著）
+function stepText(x) {
+  let t = String(x || '').replace(/^\s*(?:[-*+・•]\s*(?:\[[ xX]\]\s*)?|\d{1,2}\s*[.、)）]|[①②③④⑤⑥⑦⑧⑨⑩])\s*/, '');
+  t = t.replace(/[⭐🔧🌿📯⏰📅]/gu, ' ').replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 2; i++) t = t.replace(/^(?:要|得|需要|就|會|先|首先|再|然後|接著|再來|之後|最後|去)\s*/, '').replace(/(?:吧|喔|哦|囉|啦|了|就好)\s*$/, '').replace(/^[，,：:、\s]+|[，,。：:、\s]+$/g, '').trim();
+  return clip(t);
+}
+function seqSteps(s) {
+  const t = String(s || '').replace(/^[\s：:，,]+/, '').replace(/^(?:要|得|需要|就)?\s*(?:首先|先)\s*(?:做(?![完好出成]))?\s*/, ''); // 「要先做文獻整理」→「文獻整理」
+  const parts = RE_NUMBERED.test(t) ? t.split(new RegExp(RE_NUMBERED.source, 'g')) : t.split(new RegExp(RE_SEQ.source, 'g'));
+  return parts.map(stepText).filter((x) => x.length >= 2).slice(0, 10);
+}
+// 一段話裡的步驟：回傳 { title, steps } 或 null（title＝''：沒說是哪個委託，接到上一個）
+function findSteps(rest) {
+  const s = String(rest || '');
+  const m = s.match(RE_STEP_INTRO);
+  if (m) {
+    const steps = seqSteps(s.slice(m.index + m[0].length));
+    if (!steps.length) return null;
+    const head = cleanText(s.slice(0, m.index)).replace(/[的，,：:\s]+$/, '');
+    return { title: RE_REF.test(head) ? '' : clip(head), steps, ref: true };
+  }
+  // 「寫週報要先收資料再整理然後寄出」：前面是委託、「先」後面有「再／然後／接著／最後／後」
+  const f = s.match(/^(.*?)(?:，|,)?\s*(?:要|得|需要|就)?\s*(?:首先|先)(.+)$/);
+  if (f && new RegExp(RE_SEQ.source).test(f[2]) && !/^[，,、；;]/.test(f[2])) {
+    const steps = seqSteps(f[2]);
+    if (steps.length >= 2) {
+      const head = cleanText(f[1]).replace(/[的，,：:\s]+$/, '');
+      return { title: RE_REF.test(head) ? '' : clip(head), steps, bare: !head };
+    }
+  }
+  return null;
+}
+
 function splitUnits(line, ctx) {
   const out = [];
   for (const part of String(line).split(/[。；;]\s*/).map((x) => x.trim()).filter(Boolean)) {
@@ -164,17 +211,21 @@ function splitUnits(line, ctx) {
   }
   return out;
 }
+// 回傳項目陣列：{ kind: quest|row|reminder|theme|unsure|steps, … }；steps＝{ ref: 委託名稱或 ''（上一個）, steps }
 function ruleExtract(text, ctx) {
   const out = [];
   let lastQuest = null;
+  let listFor = null; // 「…的步驟：」之後一行一行列的
   const lines = String(text || '').replace(/\r/g, '').split('\n');
   for (const rawLine of lines) {
-    if (!rawLine.trim()) continue;
-    // 縮排或「- 」開頭、接在委託後面：那個委託的步驟
-    if (lastQuest && /^\s+[-*+・•]|^\s*[-*+・•]\s+\[?[ xX]?\]?/.test(rawLine) && /^\s/.test(rawLine)) {
-      const st = cleanText(rawLine);
-      if (st) { lastQuest.steps.push(clip(st)); continue; }
+    if (!rawLine.trim()) { listFor = null; continue; }
+    // 縮排或「- 」「1.」開頭、接在委託（或「步驟：」）後面：那個委託的步驟
+    const listy = /^\s*(?:[-*+・•]|\d{1,2}\s*[.、)）]|[①②③④⑤⑥⑦⑧⑨⑩])\s*/.test(rawLine);
+    if ((listFor && listy) || (lastQuest && listy && /^\s/.test(rawLine))) {
+      const st = stepText(rawLine.replace(/^\s*(?:[-*+・•]\s*(?:\[[ xX]\]\s*)?|\d{1,2}\s*[.、)）]|[①②③④⑤⑥⑦⑧⑨⑩])\s*/, ''));
+      if (st) { (listFor || lastQuest).steps.push(st); continue; }
     }
+    listFor = null;
     let lastDay = null;
     for (const unit of splitUnits(rawLine, ctx)) {
       if (isChatter(unit) || isEnough(unit)) continue;
@@ -198,29 +249,54 @@ function ruleExtract(text, ctx) {
         out.push({ kind: 'theme', date: day.date, title: clip(cleanText(rest.replace(RE_ALLDAY, ' '))) || '整天' });
         lastQuest = null; continue;
       }
+      // 步驟：「X 的步驟有先 A 後 B」「這個任務的步驟…」「X 要先 A 再 B」
+      const st = findSteps(rest);
+      if (st && st.bare && /^\s*(?:首先|第一步)/.test(rest) && (lastQuest || true)) { // 「首先…接著…最後…」：上一個委託的步驟
+        if (lastQuest) for (const s of st.steps) lastQuest.steps.push(s); else out.push({ kind: 'steps', ref: '', steps: st.steps });
+        continue;
+      }
+      if (st && st.bare) { // 「先寫週報再開會」（沒說是哪個委託）：各算一件
+        for (const s of st.steps) { const q = { kind: 'quest', title: s, tier: tierOf(unit), tierSet: RE_MAIN.test(unit) || RE_SIDE.test(unit), due: day ? day.date : '', steps: [] }; out.push(q); lastQuest = q; }
+        continue;
+      }
+      if (st) {
+        if (st.title) { const q = { kind: 'quest', title: st.title, tier: tierOf(unit), tierSet: RE_MAIN.test(unit) || RE_SIDE.test(unit), due: day ? day.date : '', steps: st.steps, ...(st.ref ? { ref: true } : {}) }; out.push(q); lastQuest = q; }
+        else if (lastQuest) for (const s of st.steps) lastQuest.steps.push(s);
+        else out.push({ kind: 'steps', ref: '', steps: st.steps });
+        continue;
+      }
+      // 「整理月報的步驟：」接著下一行開始列
+      const intro = rest.trim().match(RE_INTRO_END);
+      if (intro) {
+        const head = clip(cleanText(intro[1]).replace(/[的，,\s]+$/, ''));
+        if (head && !RE_REF.test(head)) { const q = { kind: 'quest', title: head, tier: tierOf(unit), tierSet: RE_MAIN.test(unit) || RE_SIDE.test(unit), due: day ? day.date : '', steps: [], ref: true }; out.push(q); lastQuest = q; listFor = q; }
+        else if (lastQuest) listFor = lastQuest;
+        else { const s = { kind: 'steps', ref: '', steps: [] }; out.push(s); listFor = s; }
+        continue;
+      }
       // 委託：「標題：步驟、步驟」
-      const cm = cleanText(rest).match(/^(.{2,40}?)\s*[：:]\s*(.+)$/);
+      const cm = cleanText(rest).match(/^(.{2,40}?)\s*[：:]\s*(.*)$/);
       const title = clip(cm ? cm[1] : cleanText(rest));
       if (!title) continue;
-      const steps = cm ? cm[2].split(/[、，,；;]|然後|再來/).map((x) => clip(cleanText(x))).filter((x) => x.length >= 2) : [];
+      const steps = cm && cm[2] ? seqSteps(cm[2]) : [];
       const q = { kind: 'quest', title, tier: tierOf(unit), tierSet: RE_MAIN.test(unit) || RE_SIDE.test(unit), due: day ? day.date : '', steps };
       out.push(q); lastQuest = q;
+      if (cm && !cm[2]) listFor = q; // 「整理月報：」換行再列
     }
   }
-  return out;
+  return out.filter((x) => x.kind !== 'steps' || x.steps.length);
 }
-
 // ---------- AI ----------
-// 逐句整理：照原話寫日子（day），時間寫 HH:MM；沒把握的放 unclear
+// 逐句整理：程式先用規則猜一次，AI 拿去改正、補步驟（一定要回至少一項：空清單是小模型最容易「偷懶」的答案）
 const EXTRACT_SCHEMA = {
   type: 'object',
   properties: {
     items: {
-      type: 'array',
+      type: 'array', minItems: 1, maxItems: 6,
       items: {
         type: 'object',
         properties: {
-          kind: { type: 'string', enum: ['task', 'schedule', 'reminder', 'theme', 'unclear'] },
+          kind: { type: 'string', enum: ['task', 'steps', 'schedule', 'reminder', 'theme', 'unclear'] },
           title: { type: 'string' },
           day: { type: 'string' },
           start: { type: 'string' },
@@ -237,20 +313,38 @@ const EXTRACT_SCHEMA = {
   required: ['items'],
 };
 const EXTRACT_SYSTEM = [
-  '你是整理週計畫的小幫手。把使用者這一句話整理成週計畫的項目，用 JSON 回答 items 陣列，一句話通常 1～3 個項目，沒有要記的就回空陣列。',
-  'kind 的意思：task＝要完成的工作（委託），day 寫截止日；schedule＝有固定時間的行程（會議、拜訪、課），day 寫哪一天、start／end 寫 24 小時制時間；reminder＝到時候要提醒的事，day＋start；theme＝某一天整天的狀態（出差、外訓、請假）；unclear＝看不懂或缺日期的，question 寫要問使用者什麼。',
-  'title 用使用者原本的用字，簡短，不要加日期和時間。day 照原話寫（例如：週五、下週三、明天、10/16），沒說就留空。上班時間說「3 點」是下午 15:00。',
-  'importance：main＝很重要／一定要，side＝有空再做，其他 major。steps：使用者有列出步驟才寫。meeting：會議、討論、拜訪這類要跟別人碰面的寫 true。',
+  '你是整理週計畫的小幫手。把【使用者說】整理成週計畫的項目，用 JSON 回答 items。',
+  '【規則初步整理】是程式先猜的，可能有錯或漏（特別是步驟），參考它、改正後把全部項目完整寫出來。',
+  'kind：task＝要完成的工作（委託），day 寫截止日；steps＝幫已經有的委託補步驟，title 寫那個委託的名稱（說「這個任務」就寫【上一個委託】）；schedule＝有固定時間的行程（會議、拜訪、上課），要有 day 和 start；reminder＝到時間要提醒的事（day＋start）；theme＝某一天整天的狀態（出差、外訓、請假）；unclear＝看不懂或缺日期，question 寫要問什麼。',
+  '步驟：說「先 A 後 B 再 C」「步驟有 A、B、C」「1. A 2. B」時，A、B、C 一個一個放進 steps；不要把整句當成一個步驟，也不要把步驟當成新的委託。',
+  'title 用使用者的原話，簡短，不含日期和時間。day 照原話寫（週五、下週三、明天、10/16），沒說就不寫。時間 24 小時制，上班時間說「3 點」是 15:00。importance：main＝很重要／一定要，side＝有空再做，其他 major。meeting：要跟別人碰面的寫 true。',
 ].join('\n');
-function extractUser(text, ctx) {
-  const days = [0, 1, 2, 3, 4].map((i) => dayLabel(addDays(ctx.week.start, i))).join('、');
-  return `【要寫的這一週】${days}\n【今天】${dayLabel(ctx.today)}\n【使用者說】${String(text).slice(0, 600)}`;
+// 規則的結果換成 AI 的格式（給 AI 參考）
+function toAIItems(items, d) {
+  const lastQ = d && d.lastQ ? (findItem(d, d.lastQ) || {}).item : null;
+  return items.map((it) => {
+    if (it.kind === 'quest') return { kind: 'task', title: it.title, ...(it.due ? { day: md(it.due) } : {}), importance: it.tier || 'major', ...(it.steps && it.steps.length ? { steps: it.steps } : {}) };
+    if (it.kind === 'steps') return { kind: 'steps', title: it.ref || (lastQ ? lastQ.title : '上一個委託'), steps: it.steps };
+    if (it.kind === 'row') return { kind: 'schedule', title: it.title, day: md(it.date), start: it.start, ...(it.end ? { end: it.end } : {}), meeting: !!it.raid };
+    if (it.kind === 'reminder') return { kind: 'reminder', title: it.title, day: md(it.date), start: it.time };
+    if (it.kind === 'theme') return { kind: 'theme', title: it.title, day: md(it.date) };
+    return { kind: 'unclear', title: it.title, question: it.question || '' };
+  });
 }
+function extractUser(text, ctx, { rule = [], d = null } = {}) {
+  const days = [0, 1, 2, 3, 4].map((i) => dayLabel(addDays(ctx.week.start, i))).join('、');
+  const qs = d ? live(d.quests).slice(-12).map((q) => q.title) : [];
+  const lastQ = d && d.lastQ ? (findItem(d, d.lastQ) || {}).item : null;
+  return `【這一週】${days}\n【今天】${dayLabel(ctx.today)}\n${qs.length ? `【已經有的委託】${qs.join('、')}\n` : ''}${lastQ ? `【上一個委託】${lastQ.title}\n` : ''}【規則初步整理】${JSON.stringify({ items: toAIItems(rule, d) })}\n【使用者說】${String(text).slice(0, 600)}`;
+}
+const RE_LAST = /^(?:上一個(?:委託|任務)?|這個(?:委託|任務)?|它|這件事)$/;
 // AI 的項目 → 跟規則一樣的格式；日子、時間換成日期，壞的丟掉
 function normalizeAI(json, ctx) {
   const out = [];
   for (const it of (json && Array.isArray(json.items) ? json.items : []).slice(0, 8)) {
     if (!it || typeof it !== 'object') continue;
+    const steps = (Array.isArray(it.steps) ? it.steps : []).map(stepText).filter((x) => x.length >= 2).slice(0, 10);
+    if (it.kind === 'steps') { if (steps.length) out.push({ kind: 'steps', ref: RE_LAST.test(String(it.title || '').trim()) ? '' : clip(cleanText(it.title || '')), steps }); continue; }
     const title = clip(cleanText(it.title || ''));
     if (!title) continue;
     const date = it.day ? resolveDay(String(it.day), ctx) : null;
@@ -268,18 +362,18 @@ function normalizeAI(json, ctx) {
     } else if (kind === 'unclear') {
       out.push({ kind: 'unsure', title, question: clip(it.question || '要記成什麼呢？', 40) });
     } else {
-      out.push({ kind: 'quest', title, tier: TIERS.includes(it.importance) ? it.importance : 'major', tierSet: it.importance === 'main' || it.importance === 'side', due: date || '', steps: (Array.isArray(it.steps) ? it.steps : []).map((x) => clip(cleanText(x))).filter((x) => x.length >= 2).slice(0, 8) });
+      out.push({ kind: 'quest', title, tier: TIERS.includes(it.importance) ? it.importance : 'major', tierSet: it.importance === 'main' || it.importance === 'side', due: date || '', steps });
     }
   }
   return out;
 }
 
-// 修改：草稿目錄（q1／r1／m1／u1）＋使用者的指示 → 變更
+// 修改：這一週的目錄（q1／r1／m1）＋使用者的指示 → 變更
 const EDIT_SCHEMA = {
   type: 'object',
   properties: {
     ops: {
-      type: 'array',
+      type: 'array', minItems: 1, maxItems: 6,
       items: {
         type: 'object',
         properties: {
@@ -300,29 +394,79 @@ const EDIT_SCHEMA = {
   required: ['ops'],
 };
 const EDIT_SYSTEM = [
-  '你是整理週計畫的小幫手。下面是目前的週計畫草稿，每一項前面有代號（q＝委託、r＝時段、m＝提醒）。照使用者的指示改草稿，用 JSON 回答 ops 陣列，只改指示說到的地方。',
-  'op：edit＝改某一項（ref 寫代號，只填要改的欄位：title、day、start、end、importance、meeting）；delete＝刪掉某一項（ref）；add_step＝幫某個委託加步驟（ref＋steps）；add_task／add_schedule／add_reminder＝新增（欄位同上）；set_theme＝某一天整天的狀態（day＋title）。',
-  'day 照原話寫（例如：週五、10/16），時間寫 24 小時制；上班時間說「3 點」是 15:00。換到別天就用 edit 改 day。',
+  '你是整理週計畫的小幫手。下面是這一週的計畫，每一項前面有代號（q＝委託、r＝時段、m＝提醒）。照使用者的指示改，用 JSON 回答 ops，只改指示說到的地方，越少越好。',
+  'op：edit＝改某一項（ref 寫代號，只寫要改的欄位：title、day、start、end、importance、meeting，沒有要改的欄位不要寫）；delete＝刪掉（ref）；add_step＝幫委託加步驟（ref＋steps）；add_task／add_schedule／add_reminder＝新增；set_theme＝某一天整天的狀態（day＋title）。',
+  'day 照原話寫（週五、10/16），時間 24 小時制；上班時間說「3 點」是 15:00。換到別天就用 edit 改 day。',
 ].join('\n');
 function indexText(d) {
   const L = [];
-  d.quests.forEach((q) => L.push(`${q.id} 委託「${q.title}」${TIER_NAME[q.tier]}${q.due ? `，${dayLabel(q.due)}前` : ''}${q.steps.length ? `，步驟：${q.steps.map((s) => s.text).join('、')}` : ''}`));
-  d.rows.forEach((r) => L.push(`${r.id} 時段 ${dayLabel(r.date)} ${r.start}${r.end ? `–${r.end}` : ''}「${r.title}」${r.raid ? '（會議）' : ''}`));
-  d.reminders.forEach((m) => L.push(`${m.id} 提醒 ${dayLabel(m.date)} ${m.time}「${m.title}」`));
-  Object.entries(d.themes).forEach(([date, t]) => L.push(`${dayLabel(date)} 整天：${t}`));
+  live(d.quests).forEach((q) => L.push(`${q.id} 委託「${q.title}」${TIER_NAME[q.tier]}${q.due ? `，${dayLabel(q.due)}前` : ''}${q.steps.length ? `，步驟：${q.steps.map((s) => s.text).join('、')}` : ''}`));
+  live(d.rows).forEach((r) => L.push(`${r.id} 時段 ${dayLabel(r.date)} ${r.start}${r.end ? `–${r.end}` : ''}「${r.title}」${r.raid ? '（會議）' : ''}`));
+  live(d.reminders).forEach((m) => L.push(`${m.id} 提醒 ${dayLabel(m.date)} ${m.time}「${m.title}」`));
+  Object.entries(d.themes).filter(([, t]) => t).forEach(([date, t]) => L.push(`${dayLabel(date)} 整天：${t}`));
   return L.join('\n') || '（還是空的）';
 }
 function editUser(d, instruction, ctx) {
-  return `【這一週】${[0, 1, 2, 3, 4].map((i) => dayLabel(addDays(ctx.week.start, i))).join('、')}\n【草稿】\n${indexText(d)}\n【使用者說】${String(instruction).slice(0, 300)}`;
+  return `【這一週】${[0, 1, 2, 3, 4].map((i) => dayLabel(addDays(ctx.week.start, i))).join('、')}\n【計畫】\n${indexText(d)}\n【使用者說】${String(instruction).slice(0, 300)}`;
+}
+
+// ---------- 用規則改（不等 AI）：「把週報移到週五」「站會改十點」「刪掉讀書會」 ----------
+const RE_EDIT_DEL = /刪掉|刪除|拿掉|去掉|劃掉|不要了|不用了|取消/;
+const RE_EDIT_MOVE = /移到|改到|換到|挪到|延到|延後到|提前到|改成|改為|換成|調到|改在|延後|提前|改一下|改改|改(?=.{0,6}(?:\d|點|週|星期|禮拜|明天|後天|今天))/;
+// 「調整、修改」也可能是新的工作（「調整參數」）：說到筆記本裡已經有的東西、或說到截止日／時間，才算要改
+const RE_EDIT_WEAK = /調整|修改|更動|變更|改一下|改改/;
+const isEditStrong = (t) => RE_EDIT_DEL.test(String(t || '')) || RE_EDIT_MOVE.test(String(t || ''));
+function looksLikeEdit(t, d = null) {
+  const s = String(t || '');
+  if (RE_EDIT_DEL.test(s) || RE_EDIT_MOVE.test(s)) return true;
+  if (!RE_EDIT_WEAK.test(s)) return false;
+  if (/截止|期限|時間|日期|幾點|哪天/.test(s)) return true;
+  if (!d) return false;
+  const ns = norm(s);
+  return [...live(d.quests), ...live(d.rows), ...live(d.reminders)].some((x) => { const n = norm(x.title); return n.length >= 2 && (ns.includes(n) || [...Array(Math.max(0, n.length - 1)).keys()].some((i) => ns.includes(n.slice(i, i + 2)) && n.length <= 4)); });
+}
+function ruleEdit(d, text, ctx) {
+  const t = String(text || '');
+  const del = RE_EDIT_DEL.test(t), mv = t.match(RE_EDIT_MOVE);
+  if (!del && !mv) return null;
+  const nt = norm(t);
+  const items = [...live(d.quests), ...live(d.rows), ...live(d.reminders)];
+  // 句子裡出現的名稱（取最長、而且只有一個）；沒有就用動詞前那段去找名稱裡有它的
+  let hits = items.filter((x) => norm(x.title).length >= 2 && nt.includes(norm(x.title)));
+  if (!hits.length) {
+    const head = cleanText(t.split(mv ? mv[0] : RE_EDIT_DEL)[0].replace(/^(?:把|將|請|幫我)/, '').replace(RE_EDIT_DEL, '')).replace(/^(?:把|將)/, '');
+    const nh = norm(head);
+    if (nh.length >= 2) hits = items.filter((x) => norm(x.title).includes(nh));
+  }
+  if (!hits.length) return null;
+  const best = Math.max(...hits.map((x) => norm(x.title).length));
+  const top = hits.filter((x) => norm(x.title).length === best);
+  if (top.length !== 1) return null;
+  const x = top[0];
+  if (del && !(mv && mv.index > (t.search(RE_EDIT_DEL)))) return { ops: [{ op: 'delete', ref: x.id }] };
+  const after = t.slice(mv.index + mv[0].length);
+  const day = findDay(after, ctx), time = findTime(after);
+  if (day || time) return { ops: [{ op: 'edit', ref: x.id, ...(day ? { day: day.raw } : {}), ...(time ? { start: time.start, ...(time.end ? { end: time.end } : {}) } : {}) }] };
+  if (/改成|改為|換成/.test(mv[0])) { const title = clip(cleanText(after)); if (title) return { ops: [{ op: 'edit', ref: x.id, title }] }; }
+  return null;
 }
 
 // ---------- 草稿 ----------
+// 項目：新加的沒有 orig；原本就有的帶 orig（計畫檔裡的樣子）；del＝刪掉（寫進去之前都還能復原）
+const live = (list) => list.filter((x) => !x.del);
 function blank(week, now) {
-  return { v: 1, week, active: true, quests: [], rows: [], reminders: [], themes: {}, unsure: [], log: [], seq: 1, createdAt: now, updatedAt: now, history: [] };
+  return { v: 2, week: weekAt(week.start), quests: [], rows: [], reminders: [], themes: {}, themeOrig: {}, unsure: [], log: [], seq: 1, lastQ: null, createdAt: now, updatedAt: now, history: [] };
+}
+// 舊版（第一期）的草稿
+function upgrade(d) {
+  if (!d) return d;
+  if (!d.themeOrig) d.themeOrig = {};
+  if (!d.v || d.v < 2) { d.v = 2; d.week = weekAt(d.week.start); }
+  return d;
 }
 const nextId = (d, p) => `${p}${d.seq++}`;
 function snapshot(d) {
-  d.history = [...(d.history || []), JSON.stringify({ quests: d.quests, rows: d.rows, reminders: d.reminders, themes: d.themes, unsure: d.unsure })].slice(-20);
+  d.history = [...(d.history || []), JSON.stringify({ quests: d.quests, rows: d.rows, reminders: d.reminders, themes: d.themes, unsure: d.unsure, lastQ: d.lastQ })].slice(-20);
 }
 function undo(d) {
   const s = (d.history || []).pop();
@@ -334,34 +478,56 @@ function findItem(d, id) {
   for (const k of ['quests', 'rows', 'reminders', 'unsure']) { const x = d[k].find((i) => i.id === id); if (x) return { list: k, item: x }; }
   return null;
 }
+// 「週報的步驟…」：名稱只有一部分也找得到（只有一個符合才算）
+function findQuest(d, title, { fuzzy = false } = {}) {
+  const n = norm(title);
+  if (!n) return null;
+  const qs = live(d.quests);
+  const exact = qs.find((q) => norm(q.title) === n);
+  if (exact || !fuzzy || n.length < 2) return exact || null;
+  const near = qs.filter((q) => norm(q.title).includes(n) || (norm(q.title).length >= 2 && n.includes(norm(q.title))));
+  return near.length === 1 ? near[0] : null;
+}
+const remember = (restore, list, x) => { if (restore && !restore.some((r) => r.id === x.id)) restore.push({ list, id: x.id, before: JSON.stringify(x) }); };
 
-// 套用項目（規則或 AI 整理出來的）；log＝哪一句話記的（撤銷用）。回傳新增／更新的 id
-function addItems(d, items, log = null) {
+// 套用項目（規則或 AI 整理出來的）；log＝哪一句話記的（撤銷用）；restore 收集被改到的舊項目（撤銷時改回來）。回傳新增／更新的 id
+function addItems(d, items, log = null, restore = null) {
   const ids = [];
+  const addSteps = (q, steps) => { for (const s of steps || []) if (!q.steps.some((x) => norm(x.text) === norm(s))) q.steps.push({ id: nextId(d, 's'), text: s }); };
   for (const it of items) {
     if (it.kind === 'quest') {
-      const same = d.quests.find((q) => norm(q.title) === norm(it.title));
+      const same = findQuest(d, it.title, { fuzzy: !!it.ref });
       if (same) { // 同一個委託又說了一次：補上截止日、類型、步驟
+        remember(restore, 'quests', same);
         if (it.due) same.due = it.due;
         if (it.tierSet) { same.tier = it.tier; same.tierSet = true; }
-        for (const s of it.steps || []) if (!same.steps.some((x) => norm(x.text) === norm(s))) same.steps.push({ id: nextId(d, 's'), text: s });
-        ids.push(same.id); continue;
+        addSteps(same, it.steps);
+        d.lastQ = same.id; ids.push(same.id); continue;
       }
       const q = { id: nextId(d, 'q'), title: it.title, tier: TIERS.includes(it.tier) ? it.tier : 'major', tierSet: !!it.tierSet, due: validISO(it.due) ? it.due : '', project: clip(it.project || '', 30), steps: (it.steps || []).map((s) => ({ id: nextId(d, 's'), text: s })), log };
-      d.quests.push(q); ids.push(q.id);
+      d.quests.push(q); ids.push(q.id); d.lastQ = q.id;
+    } else if (it.kind === 'steps') { // 幫某個委託補步驟（沒說是哪個＝上一個）
+      const last = d.lastQ && (findItem(d, d.lastQ) || {}).item;
+      const q = it.ref ? findQuest(d, it.ref, { fuzzy: true }) : last && !last.del ? last : null;
+      if (q) { remember(restore, 'quests', q); addSteps(q, it.steps); ids.push(q.id); d.lastQ = q.id; continue; }
+      if (it.ref) { const nq = { id: nextId(d, 'q'), title: clip(it.ref), tier: 'major', tierSet: false, due: '', project: '', steps: it.steps.map((s) => ({ id: nextId(d, 's'), text: s })), log }; d.quests.push(nq); ids.push(nq.id); d.lastQ = nq.id; continue; }
+      const u = { id: nextId(d, 'u'), title: `步驟：${it.steps.join('、')}`, question: '要加在哪個委託？', guess: { kind: 'steps', steps: it.steps }, log };
+      d.unsure.push(u); ids.push(u.id);
     } else if (it.kind === 'row') {
       if (!validISO(it.date) || !validHM(it.start)) continue;
-      if (d.rows.some((r) => r.date === it.date && r.start === it.start && norm(r.title) === norm(it.title))) continue;
+      const same = live(d.rows).find((r) => r.date === it.date && r.start === it.start && norm(r.title) === norm(it.title));
+      if (same) { if (it.end && it.end !== same.end && it.end > same.start) { remember(restore, 'rows', same); same.end = it.end; ids.push(same.id); } continue; }
       const r = { id: nextId(d, 'r'), date: it.date, start: it.start, end: validHM(it.end) && it.end > it.start ? it.end : '', title: it.title, output: '', raid: !!it.raid, log };
       d.rows.push(r); ids.push(r.id);
     } else if (it.kind === 'reminder') {
       if (!validISO(it.date) || !validHM(it.time)) continue;
-      const m = { id: nextId(d, 'm'), date: it.date, time: it.time, title: it.title, log };
+      if (live(d.reminders).some((m) => m.date === it.date && m.time === it.time && norm(m.title) === norm(it.title))) continue;
+      const m = { id: nextId(d, 'm'), date: it.date, time: it.time, title: it.title, action: '', log };
       d.reminders.push(m); ids.push(m.id);
     } else if (it.kind === 'theme') {
       if (!validISO(it.date)) continue;
+      if (restore && !restore.some((r) => r.theme === it.date)) restore.push({ theme: it.date, before: d.themes[it.date] === undefined ? null : d.themes[it.date] });
       d.themes[it.date] = d.themes[it.date] && !d.themes[it.date].includes(it.title) ? `${d.themes[it.date]}、${it.title}` : it.title;
-      d.themeLog = { ...(d.themeLog || {}), [it.date]: log };
       ids.push(`t:${it.date}`);
     } else if (it.kind === 'unsure') {
       const u = { id: nextId(d, 'u'), title: it.title, question: it.question || '', guess: it.guess || null, log };
@@ -375,21 +541,46 @@ function sortDraft(d) {
   d.rows.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
   d.reminders.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 }
-// 撤銷某一句話記下的全部
-function removeLog(d, logId) {
+// 撤銷某一句話：那句新加的拿掉（自己改過的留著），那句改到的舊項目改回來
+function removeLog(d, logId, restore = []) {
   const keep = (x) => x.log !== logId || x.touched;
   d.quests = d.quests.filter(keep); d.rows = d.rows.filter(keep); d.reminders = d.reminders.filter(keep); d.unsure = d.unsure.filter(keep);
-  for (const [date, l] of Object.entries(d.themeLog || {})) if (l === logId) { delete d.themes[date]; delete d.themeLog[date]; }
+  for (const r of [...(restore || [])].reverse()) {
+    if (r.theme) { if (r.before === null) delete d.themes[r.theme]; else d.themes[r.theme] = r.before; continue; }
+    const list = d[r.list]; const i = list ? list.findIndex((x) => x.id === r.id) : -1;
+    if (i >= 0) list[i] = JSON.parse(r.before);
+    else if (i < 0 && list) list.push(JSON.parse(r.before)); // 那句刪掉的，放回來
+  }
+  for (const [date, l] of Object.entries(d.themeLog || {})) if (l === logId) { delete d.themes[date]; delete d.themeLog[date]; } // 第一期的草稿
 }
+// 刪掉：新加的直接拿掉；原本就有的標成刪掉（寫進去前可以復原）
 function removeItem(d, id) {
-  if (id.startsWith('t:')) { delete d.themes[id.slice(2)]; return true; }
-  for (const k of ['quests', 'rows', 'reminders', 'unsure']) { const n = d[k].length; d[k] = d[k].filter((x) => x.id !== id); if (d[k].length !== n) return true; }
+  if (id.startsWith('t:')) { const date = id.slice(2); if (d.themeOrig[date]) d.themes[date] = ''; else delete d.themes[date]; return true; }
+  for (const k of ['quests', 'rows', 'reminders', 'unsure']) {
+    const x = d[k].find((i) => i.id === id);
+    if (!x) continue;
+    if (x.orig) x.del = true; else d[k] = d[k].filter((i) => i.id !== id);
+    return true;
+  }
   for (const q of d.quests) { const n = q.steps.length; q.steps = q.steps.filter((s) => s.id !== id); if (q.steps.length !== n) return true; }
   return false;
 }
+function restoreItem(d, id) {
+  if (id.startsWith('t:')) { const date = id.slice(2); if (d.themeOrig[date] === undefined) return false; d.themes[date] = d.themeOrig[date]; return true; }
+  const hit = findItem(d, id);
+  if (!hit || !hit.item.del) return false;
+  hit.item.del = false;
+  return true;
+}
+// 整頁擦掉重寫：原本的全部標成刪掉
+function wipe(d) {
+  for (const k of ['quests', 'rows', 'reminders']) for (const x of d[k]) { if (x.orig) x.del = true; }
+  d[`quests`] = d.quests.filter((x) => x.orig); d.rows = d.rows.filter((x) => x.orig); d.reminders = d.reminders.filter((x) => x.orig);
+  for (const date of Object.keys(d.themes)) { if (d.themeOrig[date]) d.themes[date] = ''; else delete d.themes[date]; }
+}
 // 手動改（大視窗的表單）：欄位都檢查過才改
 function editItem(d, id, f = {}) {
-  if (id.startsWith('t:')) { const t = clip(f.title || '', 40); if (t) d.themes[id.slice(2)] = t; else delete d.themes[id.slice(2)]; return true; }
+  if (id.startsWith('t:')) { const t = clip(f.title || '', 40); const date = id.slice(2); if (t) d.themes[date] = t; else if (d.themeOrig[date]) d.themes[date] = ''; else delete d.themes[date]; return true; }
   const hit = findItem(d, id);
   if (!hit) throw new Error('找不到這一項');
   const x = hit.item;
@@ -398,7 +589,8 @@ function editItem(d, id, f = {}) {
     if (f.tier !== undefined && TIERS.includes(f.tier)) { x.tier = f.tier; x.tierSet = true; }
     if (f.due !== undefined) { if (f.due && !validISO(f.due)) throw new Error('日期格式不對'); x.due = f.due || ''; }
     if (f.project !== undefined) x.project = clip(f.project, 30);
-    if (Array.isArray(f.steps)) x.steps = f.steps.map((s) => clip(s)).filter(Boolean).map((text) => ({ id: (x.steps.find((s) => s.text === text) || {}).id || nextId(d, 's'), text }));
+    if (Array.isArray(f.steps)) x.steps = f.steps.map((s) => clip(s)).filter(Boolean).map((text) => { const o = x.steps.find((s) => s.text === text); return o || { id: nextId(d, 's'), text }; });
+    d.lastQ = x.id;
   } else if (hit.list === 'rows') {
     if (f.date !== undefined) { if (!validISO(f.date)) throw new Error('日期格式不對'); x.date = f.date; }
     if (f.start !== undefined) { if (!validHM(f.start)) throw new Error('開始時間格式不對'); x.start = f.start; }
@@ -412,51 +604,59 @@ function editItem(d, id, f = {}) {
   sortDraft(d);
   return true;
 }
-// 不確定的 → 變成委託／時段（照猜的那樣，沒猜就當委託）
+// 不確定的 → 變成委託／時段／某個委託的步驟
 function resolveUnsure(d, id, as = 'quest', f = {}) {
   const u = d.unsure.find((x) => x.id === id);
   if (!u) throw new Error('找不到這一項');
   const g = u.guess || {};
   let ids;
-  if (as === 'row') ids = addItems(d, [{ kind: 'row', date: f.date || g.date, start: f.start || g.start, end: f.end || g.end || '', title: f.title || g.title || u.title, raid: f.raid !== undefined ? f.raid : !!g.raid }], u.log);
-  else ids = addItems(d, [{ kind: 'quest', title: f.title || g.title || u.title, tier: 'major', due: f.due || '', steps: [] }], u.log);
+  if (as === 'steps') {
+    const q = f.quest && findItem(d, f.quest);
+    if (!q || q.list !== 'quests') throw new Error('要先選委託');
+    ids = addItems(d, [{ kind: 'steps', ref: q.item.title, steps: g.steps || [] }], u.log);
+  } else if (as === 'row') ids = addItems(d, [{ kind: 'row', date: f.date || g.date, start: f.start || g.start, end: f.end || g.end || '', title: f.title || g.title || u.title, raid: f.raid !== undefined ? f.raid : !!g.raid }], u.log);
+  else ids = addItems(d, [{ kind: 'quest', title: f.title || g.title || u.title.replace(/^步驟：/, ''), tier: 'major', due: f.due || '', steps: g.kind === 'steps' ? g.steps : [] }], u.log);
   if (!ids.length) throw new Error(as === 'row' ? '要先選日期和開始時間' : '加不進去');
   d.unsure = d.unsure.filter((x) => x.id !== id);
   return ids;
 }
 
-// AI 的修改 → 套進草稿；回傳改到的 id 和給人看的摘要
-function applyEdits(d, json, ctx) {
+// AI（或規則）的修改 → 套進草稿；回傳改到的 id 和給人看的摘要
+function applyEdits(d, json, ctx, { log = null, restore = null } = {}) {
   const changed = [], said = [];
   for (const op of (json && Array.isArray(json.ops) ? json.ops : []).slice(0, 12)) {
     if (!op || typeof op !== 'object') continue;
     const date = op.day ? resolveDay(String(op.day), ctx) : null;
     const start = op.start ? normTime(op.start) : '', end = op.end ? normTime(op.end) : '';
-    const hit = op.ref ? findItem(d, String(op.ref).trim()) : null;
+    const hit0 = op.ref ? findItem(d, String(op.ref).trim()) : null;
+    const hit = hit0 && !hit0.item.del ? hit0 : null;
     try {
-      if (op.op === 'delete' && hit) { removeItem(d, hit.item.id); said.push(`刪掉「${hit.item.title}」`); continue; }
+      if (op.op === 'delete' && hit) { remember(restore, hit.list, hit.item); removeItem(d, hit.item.id); changed.push(hit.item.id); said.push(`刪掉「${hit.item.title}」`); continue; }
       if (op.op === 'edit' && hit) {
         const f = {};
-        if (op.title) f.title = op.title;
-        if (hit.list === 'quests') { if (date) f.due = date; if (TIERS.includes(op.importance)) f.tier = op.importance; }
-        if (hit.list === 'rows') { if (date) f.date = date; if (start) f.start = start; if (end && end > (start || hit.item.start)) f.end = end; else if (start && hit.item.end) { const len = toMin(hit.item.end) - toMin(hit.item.start); f.end = plusMin(start, len); } if (op.meeting !== undefined) f.raid = !!op.meeting; }
+        if (op.title && op.title !== hit.item.title) f.title = op.title;
+        if (hit.list === 'quests') { if (date) f.due = date; if (TIERS.includes(op.importance) && op.importance !== hit.item.tier) f.tier = op.importance; }
+        if (hit.list === 'rows') { if (date) f.date = date; if (start) f.start = start; if (end && end > (start || hit.item.start)) f.end = end; else if (start && hit.item.end) { const len = toMin(hit.item.end) - toMin(hit.item.start); f.end = plusMin(start, len); } if (op.meeting !== undefined && !!op.meeting !== !!hit.item.raid) f.raid = !!op.meeting; }
         if (hit.list === 'reminders') { if (date) f.date = date; if (start) f.time = start; }
         if (!Object.keys(f).length) continue;
+        const old = hit.item.title;
+        remember(restore, hit.list, hit.item);
         editItem(d, hit.item.id, f); // 請 AI 改的也算自己改的：晚到的整理結果不會蓋掉
-        changed.push(hit.item.id); said.push(`「${hit.item.title}」${f.date || f.due ? `→ ${dayLabel(f.date || f.due)}` : ''}${f.start ? ` ${f.start}` : ''}${f.tier ? ` ${TIER_NAME[f.tier]}` : ''}`.trim());
+        changed.push(hit.item.id); said.push(`「${old}」${f.title ? `→「${f.title}」` : ''}${f.date || f.due ? `→ ${dayLabel(f.date || f.due)}` : ''}${f.start ? ` ${f.start}` : ''}${f.tier ? ` ${TIER_NAME[f.tier]}` : ''}`.trim());
         continue;
       }
       if (op.op === 'add_step' && hit && hit.list === 'quests') {
-        const steps = (Array.isArray(op.steps) ? op.steps : [op.title]).map((s) => clip(cleanText(s))).filter((s) => s && s.length >= 2);
+        const steps = (Array.isArray(op.steps) ? op.steps : [op.title]).map(stepText).filter((s) => s && s.length >= 2);
+        remember(restore, 'quests', hit.item);
         for (const s of steps) if (!hit.item.steps.some((x) => norm(x.text) === norm(s))) hit.item.steps.push({ id: nextId(d, 's'), text: s });
-        if (steps.length) { changed.push(hit.item.id); said.push(`「${hit.item.title}」加了 ${steps.length} 個步驟`); }
+        if (steps.length) { hit.item.touched = true; changed.push(hit.item.id); said.push(`「${hit.item.title}」加了 ${steps.length} 個步驟`); }
         continue;
       }
-      if (op.op === 'set_theme' && date && op.title) { d.themes[date] = clip(op.title, 40); changed.push(`t:${date}`); said.push(`${dayLabel(date)}：${op.title}`); continue; }
+      if (op.op === 'set_theme' && date && op.title) { if (restore && !restore.some((r) => r.theme === date)) restore.push({ theme: date, before: d.themes[date] === undefined ? null : d.themes[date] }); d.themes[date] = clip(op.title, 40); changed.push(`t:${date}`); said.push(`${dayLabel(date)}：${op.title}`); continue; }
       const kind = { add_task: 'task', add_schedule: 'schedule', add_reminder: 'reminder' }[op.op];
       if (kind) {
         const items = normalizeAI({ items: [{ kind, title: op.title, day: op.day, start: op.start, end: op.end, importance: op.importance, steps: op.steps, meeting: op.meeting }] }, ctx);
-        const ids = addItems(d, items, null);
+        const ids = addItems(d, items, log, restore);
         changed.push(...ids);
         if (ids.length) said.push(`加了「${clip(op.title, 20)}」`);
       }
@@ -465,7 +665,6 @@ function applyEdits(d, json, ctx) {
   sortDraft(d);
   return { changed, said };
 }
-const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 
 // 一句話記下的東西，給人看的短句：「📜 週報（週五前）、📯 週二 14:00 週會」
 function itemsText(d, ids) {
@@ -475,7 +674,7 @@ function itemsText(d, ids) {
     const hit = findItem(d, id);
     if (!hit) continue;
     const x = hit.item;
-    if (hit.list === 'quests') parts.push(`📜 ${x.title}${x.due ? `（${dayLabel(x.due)}前）` : ''}`);
+    if (hit.list === 'quests') parts.push(`📜 ${x.title}${x.due ? `（${dayLabel(x.due)}前）` : ''}${x.steps.length ? `：${x.steps.map((s) => s.text).join('→')}` : ''}`);
     else if (hit.list === 'rows') parts.push(`${x.raid ? '📯' : '🕘'} ${dayLabel(x.date)} ${x.start} ${x.title}`);
     else if (hit.list === 'reminders') parts.push(`⏰ ${dayLabel(x.date)} ${x.time} ${x.title}`);
     else parts.push(`❓ ${x.title}`);
@@ -483,133 +682,237 @@ function itemsText(d, ids) {
   return parts.join('、');
 }
 function summary(d) {
-  const raids = d.rows.filter((r) => r.raid).length;
-  const parts = [`${d.quests.length} 個委託`, `${d.rows.length - raids} 格行程`];
+  const rows = live(d.rows), raids = rows.filter((r) => r.raid).length;
+  const parts = [`${live(d.quests).length} 個委託`, `${rows.length - raids} 格行程`];
   if (raids) parts.push(`${raids} 場團戰`);
-  if (d.reminders.length) parts.push(`${d.reminders.length} 個提醒`);
+  if (live(d.reminders).length) parts.push(`${live(d.reminders).length} 個提醒`);
   if (d.unsure.length) parts.push(`${d.unsure.length} 件不確定`);
   return parts.join('、');
 }
 
-// 檢查：時間重疊、排在放假日、日期不在這週、沒有截止日
+// ---------- 原本就有的（計畫檔）＋這次改的 ----------
+const stepKey = (steps) => steps.map((s) => norm(s.text)).sort().join('|');
+function questState(q) {
+  if (!q.orig) return q.del ? 'del' : 'new';
+  if (q.del) return 'del';
+  const o = q.orig;
+  return q.title !== o.title || q.tier !== o.tier || (q.due || '') !== (o.due || '') || (q.project || '') !== (o.project || '') || stepKey(q.steps) !== stepKey(o.steps) ? 'dirty' : '';
+}
+function rowState(r) {
+  if (!r.orig) return 'new';
+  if (r.del) return 'del';
+  const o = r.orig;
+  return r.date !== o.date || r.start !== o.start || (r.end || '') !== (o.end || '') || r.title !== o.title || !!r.raid !== !!o.raid ? 'dirty' : '';
+}
+function remState(m) {
+  if (!m.orig) return 'new';
+  if (m.del) return 'del';
+  const o = m.orig;
+  return m.date !== o.date || m.time !== o.time || m.title !== o.title ? 'dirty' : '';
+}
+// 還沒寫進計畫檔的改變有幾處
+function changes(d) {
+  let n = 0;
+  n += d.quests.filter((q) => questState(q)).length;
+  n += d.rows.filter((r) => rowState(r)).length;
+  n += d.reminders.filter((m) => remState(m)).length;
+  for (const date of new Set([...Object.keys(d.themes), ...Object.keys(d.themeOrig)])) if ((d.themes[date] || '') !== (d.themeOrig[date] || '')) n++;
+  return n;
+}
+// 從計畫檔讀進來：原本就有的放進草稿（墨水）；沒改過的跟著檔案更新，改過的保留你的版本（勾選狀態一樣跟著檔案）
+// plan＝這一週的計畫（parsePlan 的結果），null＝這一週還沒有計畫檔
+function syncPlan(d, plan) {
+  const inWeek = (iso) => iso >= d.week.start && iso <= addDays(d.week.start, 6);
+  const drop = (list, stateOf) => list.filter((x) => {
+    if (!x.orig || x._seen) return true;
+    if (x.del || !stateOf(x)) return false; // 檔案裡已經沒有了：沒改過的就拿掉
+    delete x.orig; return true; // 改過的變成新加的
+  });
+  // 委託
+  for (const pq of plan ? plan.quests : []) {
+    const o = { key: pq.id, title: pq.title, tier: pq.tier, due: pq.deadlineLabel === '本週內' ? '' : pq.deadline || '', project: pq.project || '', steps: pq.objectives.filter((x) => !x.implicit).map((x) => ({ text: x.text, done: !!x.done })), reason: pq.reason || '', implicit: !!pq.implicit, done: pq.implicit ? !!(pq.objectives[0] && pq.objectives[0].done) : undefined };
+    let q = d.quests.find((x) => x.orig && x.orig.key === o.key);
+    if (!q) { q = { id: nextId(d, 'q'), title: o.title, tier: o.tier, tierSet: true, due: o.due, project: o.project, steps: o.steps.map((s) => ({ id: nextId(d, 's'), text: s.text, done: s.done })), orig: o }; d.quests.push(q); }
+    else if (!questState(q)) Object.assign(q, { title: o.title, tier: o.tier, due: o.due, project: o.project, steps: o.steps.map((s) => ({ id: (q.steps.find((x) => norm(x.text) === norm(s.text)) || {}).id || nextId(d, 's'), text: s.text, done: s.done })) });
+    else for (const s of q.steps) { const m = o.steps.find((x) => norm(x.text) === norm(s.text)); s.done = m ? m.done : undefined; }
+    q.orig = o; q._seen = true;
+  }
+  d.quests = drop(d.quests, questState);
+  // 時段
+  const seenKeys = {};
+  for (const day of plan ? plan.days.filter((x) => inWeek(x.date)) : []) {
+    for (const pr of day.rows) {
+      let key = `${day.date}|${pr.start}|${norm(pr.a)}`;
+      seenKeys[key] = (seenKeys[key] || 0) + 1; if (seenKeys[key] > 1) key += `#${seenKeys[key]}`;
+      const o = { key, date: day.date, start: pr.start, end: pr.end || '', title: pr.a, output: pr.b || '', raid: !!pr.raid, done: !!pr.done, canceled: !!pr.canceled };
+      let r = d.rows.find((x) => x.orig && x.orig.key === key);
+      if (!r) { r = { id: nextId(d, 'r'), date: o.date, start: o.start, end: o.end, title: o.title, output: o.output, raid: o.raid }; d.rows.push(r); }
+      else if (!rowState(r)) Object.assign(r, { date: o.date, start: o.start, end: o.end, title: o.title, output: o.output, raid: o.raid });
+      r.done = o.done; r.canceled = o.canceled; r.orig = o; r._seen = true;
+    }
+  }
+  d.rows = drop(d.rows, rowState);
+  // 提醒
+  const seenR = {};
+  for (const pd of plan ? plan.decisions.filter((x) => inWeek(x.date)) : []) {
+    let key = `${pd.date}|${pd.time}|${norm(pd.condition)}`;
+    seenR[key] = (seenR[key] || 0) + 1; if (seenR[key] > 1) key += `#${seenR[key]}`;
+    const o = { key, date: pd.date, time: pd.time, title: pd.condition, action: pd.action || '' };
+    let m = d.reminders.find((x) => x.orig && x.orig.key === key);
+    if (!m) { m = { id: nextId(d, 'm'), date: o.date, time: o.time, title: o.title, action: o.action }; d.reminders.push(m); }
+    else if (!remState(m)) Object.assign(m, { date: o.date, time: o.time, title: o.title });
+    m.orig = o; m._seen = true;
+  }
+  d.reminders = drop(d.reminders, remState);
+  for (const k of ['quests', 'rows', 'reminders']) for (const x of d[k]) delete x._seen;
+  // 每天的主題：沒改過的跟著檔案
+  const themeOrig = {};
+  for (const day of plan ? plan.days.filter((x) => inWeek(x.date)) : []) if (day.theme) themeOrig[day.date] = day.theme;
+  for (const date of new Set([...Object.keys(themeOrig), ...Object.keys(d.themeOrig)])) {
+    const was = d.themeOrig[date] || '';
+    const cur = d.themes[date] === undefined ? was : d.themes[date];
+    if (cur === was) { if (themeOrig[date]) d.themes[date] = themeOrig[date]; else delete d.themes[date]; }
+  }
+  d.themeOrig = themeOrig;
+  sortDraft(d);
+  return d;
+}
+
+// ---------- 寫進計畫檔 ----------
+const dueLabel = (iso) => (iso ? md(iso) : '');
+// 整份新寫（這一週還沒有計畫檔）
+function toMarkdown(d, { title } = {}) {
+  let c = `# ${title || `我的一週 ${d.week.label}`}\n`;
+  for (const q of live(d.quests)) c = P.addQuest(c, { title: q.title, tier: q.tier, deadlineLabel: dueLabel(q.due), objectives: q.steps.map((s) => s.text), project: q.project || '' });
+  for (const r of live(d.rows)) c = P.addScheduleRow(c, r.date, { start: r.start, end: r.end, text: r.title, output: r.output || '', raid: r.raid });
+  for (const m of live(d.reminders)) c = P.addReminder(c, { at: `${m.date}T${m.time}:00`, text: m.title, action: m.action || '' });
+  for (const [date, t] of Object.entries(d.themes)) if (t) c = P.setDayTheme(c, date, t);
+  return tidy(c);
+}
+// 標題前空一行、不要連續好幾個空行、檔尾一個換行
+const tidy = (c) => c.replace(/([^\n])\n(#{1,6} )/g, '$1\n\n$2').replace(/\n{3,}/g, '\n\n').replace(/\s*$/, '\n');
+// 寫進已經有的計畫檔：一項一項改（刪掉的、改過的、新加的），其他內容（說明、子目標、進度紀錄、自己加的段落）都不動
+function applyToContent(content, d) {
+  let c = content;
+  const stats = { added: 0, edited: 0, deleted: 0, missing: 0 };
+  const plan = () => P.parsePlan(c);
+  const later = { quests: [], rows: [], reminders: [] };
+  for (const q of d.quests) {
+    const st = questState(q);
+    if (!q.orig) { if (!q.del) later.quests.push(q); continue; }
+    if (!st) continue;
+    const pq = plan().quests.find((x) => x.id === q.orig.key);
+    if (!pq) { stats.missing++; if (!q.del) later.quests.push(q); continue; }
+    if (q.del) { c = P.deleteQuest(c, pq.id); stats.deleted++; continue; }
+    const o = q.orig, f = {};
+    if (q.title !== o.title) f.title = q.title;
+    if (q.tier !== o.tier) f.tier = q.tier;
+    if ((q.due || '') !== (o.due || '')) f.deadlineLabel = dueLabel(q.due);
+    if ((q.project || '') !== (o.project || '')) f.project = q.project || '';
+    if (Object.keys(f).length) c = P.editQuest(c, pq.id, f);
+    const qid = f.title ? (plan().quests.find((x) => norm(x.title) === norm(q.title)) || {}).id : pq.id;
+    if (qid) {
+      const now = q.steps.map((s) => norm(s.text)), was = o.steps.map((s) => norm(s.text));
+      for (const s of o.steps.filter((x) => !now.includes(norm(x.text)))) {
+        const pq2 = plan().quests.find((x) => x.id === qid);
+        const i = pq2 ? pq2.objectives.findIndex((x) => !x.implicit && norm(x.text) === norm(s.text)) : -1;
+        if (i >= 0) c = P.deleteObjective(c, qid, i);
+      }
+      for (const s of q.steps.filter((x) => !was.includes(norm(x.text)))) c = P.addObjective(c, qid, s.text);
+    }
+    stats.edited++;
+  }
+  const findRow = (o) => { const day = plan().days.find((x) => x.date === o.date); return day && day.rows.find((x) => x.start === o.start && norm(x.a) === norm(o.title)); };
+  for (const r of d.rows) {
+    const st = rowState(r);
+    if (!r.orig) { if (!r.del) later.rows.push(r); continue; }
+    if (!st) continue;
+    const pr = findRow(r.orig);
+    if (!pr) { stats.missing++; if (!r.del) later.rows.push(r); continue; }
+    if (r.del) { c = P.removeLine(c, pr.line); stats.deleted++; continue; }
+    if (r.date === r.orig.date) c = P.editScheduleRow(c, pr.line, { start: r.start, end: r.end || '', text: r.title, raid: !!r.raid });
+    else { c = P.removeLine(c, pr.line); c = P.addScheduleRow(c, r.date, { start: r.start, end: r.end, text: r.title, output: r.output || '', raid: r.raid }); }
+    stats.edited++;
+  }
+  const findRem = (o) => plan().decisions.find((x) => x.date === o.date && x.time === o.time && norm(x.condition) === norm(o.title));
+  for (const m of d.reminders) {
+    const st = remState(m);
+    if (!m.orig) { if (!m.del) later.reminders.push(m); continue; }
+    if (!st) continue;
+    const pd = findRem(m.orig);
+    if (!pd) { stats.missing++; if (!m.del) later.reminders.push(m); continue; }
+    c = P.removeLine(c, pd.line);
+    if (m.del) { stats.deleted++; continue; }
+    c = P.addReminder(c, { at: `${m.date}T${m.time}:00`, text: m.title, action: m.action || m.orig.action || '' });
+    stats.edited++;
+  }
+  for (const date of new Set([...Object.keys(d.themes), ...Object.keys(d.themeOrig)])) {
+    const t = d.themes[date] || '', was = d.themeOrig[date] || '';
+    if (t === was) continue;
+    c = P.setDayTheme(c, date, t);
+    if (t && was) stats.edited++; else if (t) stats.added++; else stats.deleted++;
+  }
+  for (const q of later.quests) { c = P.addQuest(c, { title: q.title, tier: q.tier, deadlineLabel: dueLabel(q.due), objectives: q.steps.map((s) => s.text), project: q.project || '' }); stats.added++; }
+  for (const r of later.rows) { c = P.addScheduleRow(c, r.date, { start: r.start, end: r.end, text: r.title, output: r.output || '', raid: r.raid }); stats.added++; }
+  for (const m of later.reminders) { c = P.addReminder(c, { at: `${m.date}T${m.time}:00`, text: m.title, action: m.action || '' }); stats.added++; }
+  return { content: c.replace(/\n{3,}/g, '\n\n'), stats };
+}
+
+// 檢查：時間重疊、排在放假日、日期不在這週
 function checks(d, { offDay = null } = {}) {
   const out = [];
   const byDay = {};
-  for (const r of d.rows) (byDay[r.date] = byDay[r.date] || []).push(r);
+  for (const r of live(d.rows).filter((x) => !x.canceled)) (byDay[r.date] = byDay[r.date] || []).push(r);
   for (const rows of Object.values(byDay)) {
     for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
       const a = rows[i], b = rows[j];
       const ae = a.end || plusMin(a.start, 30), be = b.end || plusMin(b.start, 30);
-      if (a.start < be && b.start < ae) out.push({ ids: [a.id, b.id], text: `${dayLabel(a.date)} ${a.start}「${a.title}」和「${b.title}」時間重疊` });
+      if (a.start < be && b.start < ae && (rowState(a) || rowState(b))) out.push({ ids: [a.id, b.id], text: `${dayLabel(a.date)} ${a.start}「${a.title}」和「${b.title}」時間重疊` }); // 原本就重疊的不再囉嗦
     }
   }
-  const dates = [...new Set([...d.rows.map((r) => r.date), ...d.reminders.map((m) => m.date), ...d.quests.map((q) => q.due).filter(Boolean)])];
+  const qs = live(d.quests);
+  const dates = [...new Set([...live(d.rows).map((r) => r.date), ...live(d.reminders).map((m) => m.date), ...qs.map((q) => q.due).filter(Boolean)])];
   for (const date of dates) {
     const off = offDay ? offDay(date) : null;
-    const who = [...d.rows.filter((r) => r.date === date), ...d.quests.filter((q) => q.due === date)];
-    if (off && off.off && off.kind !== 'weekend' && who.length) out.push({ ids: who.map((x) => x.id), text: `${dayLabel(date)} 是${off.name}，排了「${who[0].title}」` });
+    const who = [...live(d.rows).filter((r) => r.date === date && rowState(r)), ...qs.filter((q) => q.due === date && questState(q))];
+    if (!who.length) continue;
+    if (off && off.off && off.kind !== 'weekend') out.push({ ids: who.map((x) => x.id), text: `${dayLabel(date)} 是${off.name}，排了「${who[0].title}」` });
     if (date < d.week.start || date > addDays(d.week.start, 6)) out.push({ ids: who.map((x) => x.id), text: `${dayLabel(date)} 不在這一週（${d.week.label}）` });
   }
   return out;
 }
 
-// ---------- 寫進計畫檔 ----------
-const dueLabel = (iso) => (iso ? md(iso) : '');
-// 整份新寫（新的一週，或「整份重寫」）
-function toMarkdown(d, { title } = {}) {
-  let c = `# ${title || `我的一週 ${d.week.label}`}\n`;
-  return addAll(c, d);
-}
-function addAll(content, d) {
-  let c = content;
-  for (const q of d.quests) c = P.addQuest(c, { title: q.title, tier: q.tier, deadlineLabel: dueLabel(q.due), objectives: q.steps.map((s) => s.text), project: q.project || '' });
-  for (const r of d.rows) c = P.addScheduleRow(c, r.date, { start: r.start, end: r.end, text: r.title, output: r.output || '', raid: r.raid });
-  for (const m of d.reminders) c = P.addReminder(c, { at: `${m.date}T${m.time}:00`, text: m.title });
-  for (const [date, t] of Object.entries(d.themes)) c = P.setDayTheme(c, date, t);
-  return tidy(c);
-}
-// 標題前空一行、不要連續好幾個空行、檔尾一個換行
-const tidy = (c) => c.replace(/([^\n])\n(#{1,6} )/g, '$1\n\n$2').replace(/\n{3,}/g, '\n\n').replace(/\s*$/, '\n');
-// 合併進現有的計畫：重複的（同名委託、同一天同時間或同名的時段、同時間的提醒）覆蓋，其他照加
-// 覆蓋委託時，原本已經做完的同名步驟保持打勾
-function merge(content, d, now = new Date()) {
-  let c = content;
-  const replaced = [];
-  const plan0 = P.parsePlan(c);
-  for (const q of d.quests) {
-    const old = P.parsePlan(c).quests.find((x) => norm(x.title) === norm(q.title));
-    let doneSteps = [];
-    let project = q.project || '', tier = q.tier, due = dueLabel(q.due), steps = q.steps.map((s) => s.text);
-    if (old) { // 覆蓋：這次有講的欄位用新的，沒講的（類型、截止日、步驟）沿用原本的
-      doneSteps = old.objectives.filter((o) => o.done).map((o) => norm(o.text));
-      if (!project && old.project) project = old.project;
-      if (!q.tierSet) tier = old.tier;
-      if (!due && old.deadlineLabel && old.deadlineLabel !== '本週內') due = old.deadlineLabel;
-      if (!steps.length && !old.implicit) steps = old.objectives.map((o) => o.text);
-      c = P.deleteQuest(c, old.id);
-      replaced.push(`委託「${old.title}」`);
-    }
-    c = P.addQuest(c, { title: q.title, tier, deadlineLabel: due, objectives: steps, project });
-    if (doneSteps.length) {
-      const nq = P.parsePlan(c).quests.find((x) => norm(x.title) === norm(q.title));
-      if (nq) nq.objectives.forEach((o, i) => { if (doneSteps.includes(norm(o.text))) c = P.setObjective(c, nq.id, i, true, now); });
-    }
-  }
-  for (const r of d.rows) {
-    const day = P.parsePlan(c).days.find((x) => x.date === r.date);
-    const old = day && day.rows.filter((x) => x.start === r.start || norm(x.a) === norm(r.title)).sort((a, b) => b.line - a.line);
-    for (const o of old || []) { c = P.removeLine(c, o.line); replaced.push(`${dayLabel(r.date)} ${o.slot} ${o.a}`); }
-    c = P.addScheduleRow(c, r.date, { start: r.start, end: r.end, text: r.title, output: r.output || '', raid: r.raid });
-  }
-  for (const m of d.reminders) {
-    const old = P.parsePlan(c).decisions.filter((x) => x.date === m.date && x.time === m.time).sort((a, b) => b.line - a.line);
-    for (const o of old) { c = P.removeLine(c, o.line); replaced.push(`提醒 ${o.label}`); }
-    c = P.addReminder(c, { at: `${m.date}T${m.time}:00`, text: m.title });
-  }
-  for (const [date, t] of Object.entries(d.themes)) {
-    const day = P.parsePlan(c).days.find((x) => x.date === date);
-    if (day && day.theme && day.theme !== t) replaced.push(`${dayLabel(date)} 的主題「${day.theme}」`);
-    c = P.setDayTheme(c, date, t);
-  }
-  return { content: tidy(c), replaced, before: plan0.quests.length };
-}
-// 合併前先看會蓋掉哪些（大視窗上提醒）
-function conflicts(content, d) {
-  if (!content) return [];
-  const plan = P.parsePlan(content);
-  const out = [];
-  for (const q of d.quests) { const o = plan.quests.find((x) => norm(x.title) === norm(q.title)); if (o) out.push({ id: q.id, text: `委託「${o.title}」` }); }
-  for (const r of d.rows) {
-    const day = plan.days.find((x) => x.date === r.date);
-    for (const o of (day ? day.rows : []).filter((x) => x.start === r.start || norm(x.a) === norm(r.title))) out.push({ id: r.id, text: `${dayLabel(r.date)} ${o.slot} ${o.a}` });
-  }
-  for (const m of d.reminders) for (const o of plan.decisions.filter((x) => x.date === m.date && x.time === m.time)) out.push({ id: m.id, text: `提醒 ${o.label}` });
-  return out;
-}
-
-// 給畫面看的草稿（不含 history）
-function view(d, { offDay = null, content = '', mode = 'merge' } = {}) {
+// 給畫面看的草稿（不含 history）；每一項多一個 st：new／dirty／del／''（原本的、沒改）
+function view(d, { offDay = null, today = null } = {}) {
   if (!d) return null;
   const days = [];
-  const last = [...d.rows.map((r) => r.date), ...d.reminders.map((m) => m.date)].sort().pop() || '';
+  const last = [...live(d.rows).map((r) => r.date), ...live(d.reminders).map((m) => m.date)].sort().pop() || '';
   const n = last > addDays(d.week.start, 4) ? Math.min(7, Math.round((new Date(`${last}T00:00:00`) - new Date(`${d.week.start}T00:00:00`)) / 86400000) + 1) : 5;
   for (let i = 0; i < n; i++) {
     const date = addDays(d.week.start, i);
     const off = offDay ? offDay(date) : null;
-    days.push({ date, label: dayLabel(date), theme: d.themes[date] || '', off: off && off.off && off.kind !== 'weekend' ? off.name : '' });
+    const theme = d.themes[date] === undefined ? '' : d.themes[date];
+    days.push({ date, label: dayLabel(date), theme, themeSt: theme === (d.themeOrig[date] || '') ? '' : !d.themeOrig[date] ? 'new' : !theme ? 'del' : 'dirty', themeWas: d.themeOrig[date] || '', off: off && off.off && off.kind !== 'weekend' ? off.name : '' });
   }
+  const strip = (x) => { const { orig, ...rest } = x; return rest; };
   return {
-    week: d.week, active: !!d.active, quests: d.quests, rows: d.rows, reminders: d.reminders, themes: d.themes, unsure: d.unsure,
-    log: d.log.slice(-30), days, summary: summary(d), checks: checks(d, { offDay }), conflicts: mode === 'merge' ? conflicts(content, d) : [],
-    canUndo: !!(d.history && d.history.length), count: d.quests.length + d.rows.length + d.reminders.length + Object.keys(d.themes).length + d.unsure.length,
+    week: { ...d.week, name: today ? weekName(d.week.start, today) : d.week.label },
+    quests: d.quests.map((q) => ({ ...strip(q), st: questState(q), was: q.orig ? { title: q.orig.title, due: q.orig.due } : null, reason: q.orig ? q.orig.reason : '', implicit: q.orig ? q.orig.implicit : false, doneSelf: q.orig ? q.orig.done : undefined, key: q.orig ? q.orig.key : null })),
+    rows: d.rows.map((r) => ({ ...strip(r), st: rowState(r), was: r.orig ? { date: r.orig.date, start: r.orig.start, title: r.orig.title } : null })),
+    reminders: d.reminders.map((m) => ({ ...strip(m), st: remState(m) })),
+    themes: d.themes, unsure: d.unsure,
+    log: d.log.slice(-30).map((l) => ({ id: l.id, said: l.said, at: l.at, by: l.by, pending: l.pending, text: l.text, edit: !!l.edit })),
+    days, summary: summary(d), checks: checks(d, { offDay }), changes: changes(d),
+    canUndo: !!(d.history && d.history.length),
+    count: live(d.quests).length + live(d.rows).length + live(d.reminders).length + Object.values(d.themes).filter(Boolean).length + d.unsure.length,
     pending: d.log.filter((l) => l.pending).length,
   };
 }
 
 module.exports = {
-  WD, TIER_NAME, weekOf, mondayOf, needAsk, findDay, resolveDay, findTime, normTime, ruleExtract, splitUnits, cleanText, isChatter,
-  isEnough,
-  EXTRACT_SCHEMA, EXTRACT_SYSTEM, extractUser, normalizeAI, EDIT_SCHEMA, EDIT_SYSTEM, editUser, indexText, applyEdits,
-  blank, snapshot, undo, addItems, removeLog, removeItem, editItem, resolveUnsure, findItem, itemsText, summary, checks,
-  toMarkdown, merge, conflicts, view, dayLabel, addDays, validISO, validHM,
+  WD, TIER_NAME, weekOf, weekAt, weekName, mondayOf, needAsk, defaultWhich, findDay, resolveDay, findTime, normTime, ruleExtract, splitUnits, cleanText, isChatter,
+  isEnough, findSteps, seqSteps, stepText, looksLikeEdit, isEditStrong, ruleEdit,
+  EXTRACT_SCHEMA, EXTRACT_SYSTEM, extractUser, normalizeAI, toAIItems, EDIT_SCHEMA, EDIT_SYSTEM, editUser, indexText, applyEdits,
+  blank, upgrade, snapshot, undo, addItems, removeLog, removeItem, restoreItem, wipe, editItem, resolveUnsure, findItem, findQuest, itemsText, summary, checks,
+  questState, rowState, remState, changes, syncPlan, toMarkdown, applyToContent, view, dayLabel, addDays, validISO, validHM, live,
 };

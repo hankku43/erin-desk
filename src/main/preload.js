@@ -40,12 +40,7 @@ contextBridge.exposeInMainWorld('api', {
   raidCancel: (key, scope) => ipcRenderer.invoke('raids:cancel', key, scope),
   raidRestore: (key) => ipcRenderer.invoke('raids:restore', key),
   setLeave: (date, on, note) => ipcRenderer.invoke('calendar:leave', date, on, note),
-  pdStart: (which) => ipcRenderer.invoke('pd:start', which),
-  pdSay: (text) => ipcRenderer.invoke('pd:say', text),
-  pdUndoLog: (logId) => ipcRenderer.invoke('pd:undoLog', logId),
-  pdPause: () => ipcRenderer.invoke('pd:pause'),
-  pdDiscard: () => ipcRenderer.invoke('pd:discard'),
-  pdReview: () => ipcRenderer.invoke('pd:review'),
+  pdOpen: (which) => ipcRenderer.invoke('pd:open', which), // 📓 打開艾琳的筆記本（委託）
   focusPeek: () => ipcRenderer.invoke('focus:peek'),
   drawFortune: () => ipcRenderer.invoke('fortune:draw'),
   divineInfo: () => ipcRenderer.invoke('divine:info'),
@@ -100,7 +95,7 @@ contextBridge.exposeInMainWorld('api', {
   openMenu: () => ipcRenderer.send('win:menu'),
   setMini: (on) => ipcRenderer.send('win:mini', on),
   on: (channel, fn) => {
-    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:raid', 'pd:update', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor', 'opening:done'];
+    const allowed = ['view:update', 'npc:lines', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:raid', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor', 'opening:done'];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, payload) => fn(payload));
   },

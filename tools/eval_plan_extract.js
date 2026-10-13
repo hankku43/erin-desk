@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// 📓 用聊的寫週計畫：抽取準確率評分
-//   node tools/eval_plan_extract.js                 只評規則
-//   node tools/eval_plan_extract.js --ai            規則＋本機 AI（Ollama），用 config 的模型
-//   node tools/eval_plan_extract.js --ai --model qwen3:8b --host http://127.0.0.1:11434 --verbose
-//   加 --holdout：改評「調完規則才寫的」那組句子（看規則有沒有只配合測試集）
-// 測試句子在 test/fixtures/plan_chat_eval.json（虛構的）。AI 那一路跟 App 一樣：先規則、AI 回得出來就用 AI 的結果
+// 📓 筆記本（委託）抽取準確率評分
+//   node tools/eval_plan_extract.js                     只評規則（一般句子）
+//   node tools/eval_plan_extract.js --set steps         評「步驟」的說法（也可以 holdout、steps_holdout、all）
+//   node tools/eval_plan_extract.js --ai -v             規則＋本機 AI（Ollama），用 config.json 的模型
+//   node tools/eval_plan_extract.js --ai --model qwen3:8b --host http://127.0.0.1:11434
+// 測試句子在 test/fixtures/plan_chat_eval.json（虛構的）。每一題用一本空的筆記本，一句一句說（say 是陣列＝分好幾句說），最後比對筆記本裡的東西
+// AI 那一路跟 App 一樣：規則先記、把規則的結果一起給 AI 改正；AI 回空或失敗就留規則的。另外列出「AI 單獨」和「回空幾次」，才知道 AI 有沒有真的在做事
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -22,28 +23,42 @@ const host = opt('--host', llm.baseUrl || 'http://127.0.0.1:11434').replace(/\/$
 const model = opt('--model', llm.model || 'qwen3:4b');
 const verbose = flag('--verbose') || flag('-v');
 const timeoutMs = Number(opt('--timeout', 120000));
+const setName = flag('--holdout') ? 'holdout' : opt('--set', 'cases');
+const sets = setName === 'all' ? ['cases', 'holdout', 'steps', 'steps_holdout'] : [setName];
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[\s，。、；：:!！?？「」()（）]/g, '');
-const KIND = { task: 'quest', schedule: 'row', unclear: 'unsure' };
-// 一個預測項目對不對得上一個期待項目：種類一樣、寫了的欄位都對（title 用包含比對）
+const has = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x.includes(y) || y.includes(x)); };
+// 筆記本裡的東西 → 比對用的清單
+function itemsOf(d) {
+  return [
+    ...PD.live(d.quests).map((q) => ({ kind: 'quest', title: q.title, due: q.due, tier: q.tier, steps: q.steps.map((s) => s.text) })),
+    ...PD.live(d.rows).map((r) => ({ kind: 'row', title: r.title, date: r.date, start: r.start, end: r.end, raid: !!r.raid })),
+    ...PD.live(d.reminders).map((m) => ({ kind: 'reminder', title: m.title, date: m.date, time: m.time })),
+    ...Object.entries(d.themes).filter(([, t]) => t).map(([date, t]) => ({ kind: 'theme', title: t, date })),
+    ...d.unsure.map((u) => ({ kind: 'unsure', title: u.title })),
+  ];
+}
+// 一個項目對不對得上期待：種類一樣、寫了的欄位都對（title 用包含比對；steps 是數字＝幾個、陣列＝每個關鍵字都要在、而且個數一樣）
 function fits(p, e) {
-  if ((KIND[p.kind] || p.kind) !== e.kind) return false;
+  if (p.kind !== e.kind) return false;
   for (const [k, v] of Object.entries(e)) {
     if (k === 'kind') continue;
-    if (k === 'title') { const a = norm(p.title), b = norm(v); if (!a || !(a.includes(b) || b.includes(a))) return false; continue; }
-    if (k === 'steps') { if ((p.steps || []).length !== v) return false; continue; }
-    if (k === 'due') { if ((p.due || '') !== v) return false; continue; }
-    if (k === 'date') { if ((p.date || '') !== v) return false; continue; }
+    if (k === 'title') { if (!has(p.title, v)) return false; continue; }
+    if (k === 'steps') {
+      const st = p.steps || [];
+      if (typeof v === 'number') { if (st.length !== v) return false; continue; }
+      if (st.length !== v.length || !v.every((w, i) => has(st[i], w) || st.some((s) => has(s, w)))) return false;
+      continue;
+    }
     if (k === 'start') { if ((p.start || p.time || '') !== v) return false; continue; }
     if (k === 'time') { if ((p.time || p.start || '') !== v) return false; continue; }
-    if (k === 'end') { if ((p.end || '') !== v) return false; continue; }
     if (k === 'raid') { if (!!p.raid !== v) return false; continue; }
     if (k === 'tier') { if ((p.tier || 'major') !== v) return false; continue; }
+    if ((p[k] || '') !== v) return false;
   }
   return true;
 }
-// 只看種類＋名稱（欄位錯了但東西有抓到）
-const roughFits = (p, e) => (KIND[p.kind] || p.kind) === e.kind && (() => { const a = norm(p.title), b = norm(e.title); return !!a && (a.includes(b) || b.includes(a)); })();
+const rough = (p, e) => p.kind === e.kind && has(p.title, e.title);
 function score(pred, exp, fn) {
   const used = new Set();
   let hit = 0;
@@ -51,7 +66,7 @@ function score(pred, exp, fn) {
   return hit;
 }
 
-async function askAI(text, ctx) {
+async function askAI(text, ctx, rule, d) {
   const prefix = /^qwen3:(?!.*instruct)/.test(model) ? (llm.noThinkPrefix || '/no_think\n') : '';
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
@@ -61,7 +76,7 @@ async function askAI(text, ctx) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
       body: JSON.stringify({
         model, stream: false, think: false, keep_alive: '30m', format: PD.EXTRACT_SCHEMA,
-        messages: [{ role: 'system', content: PD.EXTRACT_SYSTEM }, { role: 'user', content: `${prefix}${PD.extractUser(text, ctx)}` }],
+        messages: [{ role: 'system', content: PD.EXTRACT_SYSTEM }, { role: 'user', content: `${prefix}${PD.extractUser(text, ctx, { rule, d })}` }],
         options: { temperature: 0.2, num_predict: 500, num_ctx: llm.numCtx || 6144 },
       }),
     });
@@ -69,42 +84,67 @@ async function askAI(text, ctx) {
     const r = await res.json();
     const content = String((r.message && r.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     const json = JSON.parse((content.match(/\{[\s\S]*\}/) || [content])[0]);
-    return { items: PD.normalizeAI(json, ctx), ms: Date.now() - t0, evalTok: r.eval_count || 0 };
+    return { items: PD.normalizeAI(json, ctx), raw: content, ms: Date.now() - t0, tok: r.eval_count || 0 };
   } finally { clearTimeout(timer); }
 }
 
 (async () => {
   const ctx = { today: fixture.today, week: PD.weekOf(fixture.today, fixture.week || 'this') };
   const useAI = flag('--ai');
-  const tally = { rule: { exp: 0, pred: 0, hit: 0, rough: 0 }, ai: { exp: 0, pred: 0, hit: 0, rough: 0, fail: 0, ms: 0, n: 0 } };
+  const blank = () => ({ exp: 0, pred: 0, hit: 0, rough: 0, perfect: 0 });
+  const T = { rule: blank(), ai: blank(), both: blank() };
+  const aiStat = { calls: 0, empty: 0, fail: 0, ms: 0, tok: 0 };
   if (useAI) {
     try { const r = await fetch(`${host}/api/tags`); if (!r.ok) throw new Error(`HTTP ${r.status}`); } catch (e) { console.error(`連不到 Ollama（${host}）：${e.message}`); process.exit(2); }
-    console.log(`模型：${model}（${host}）— 每句大約要等 10～40 秒`);
+    console.log(`模型：${model}（${host}）— 每句大約要等 5～40 秒`);
   }
   const misses = [];
-  const set = flag('--holdout') ? 'holdout' : 'cases'; // --holdout：調規則之後才寫的句子
-  const cases = fixture[set] || [];
-  for (const [i, c] of cases.entries()) {
-    const rule = PD.ruleExtract(c.say, ctx);
-    const add = (t, pred) => { t.exp += c.expect.length; t.pred += pred.length; t.hit += score(pred, c.expect, fits); t.rough += score(pred, c.expect, roughFits); };
-    add(tally.rule, rule);
-    let ai = null;
-    if (useAI) {
-      try { const r = await askAI(c.say, ctx); ai = r.items.length ? r.items : rule; tally.ai.ms += r.ms; tally.ai.n++; } catch (e) { tally.ai.fail++; ai = rule; if (verbose) console.log(`  ⚠ AI 失敗：${e.name === 'AbortError' ? '逾時' : e.message}`); }
-      add(tally.ai, ai);
+  let n = 0;
+  for (const set of sets) {
+    for (const [i, c] of (fixture[set] || []).entries()) {
+      n++;
+      const says = Array.isArray(c.say) ? c.say : [c.say];
+      const D = { rule: PD.blank(ctx.week, ''), ai: PD.blank(ctx.week, ''), both: PD.blank(ctx.week, '') };
+      const raws = [];
+      for (const say of says) {
+        const rule = PD.ruleExtract(say, ctx);
+        PD.addItems(D.rule, rule);
+        if (!useAI) continue;
+        let ai = null;
+        aiStat.calls++;
+        try {
+          const r = await askAI(say, ctx, PD.ruleExtract(say, ctx), D.both);
+          aiStat.ms += r.ms; aiStat.tok += r.tok; raws.push(r.raw);
+          ai = r.items;
+          if (!ai.length) aiStat.empty++;
+        } catch (e) { aiStat.fail++; raws.push(`（失敗：${e.name === 'AbortError' ? '逾時' : e.message}）`); }
+        PD.addItems(D.ai, ai || []);
+        PD.addItems(D.both, ai && ai.length ? ai : rule);
+      }
+      const add = (t, d) => { const pred = itemsOf(d); t.exp += c.expect.length; t.pred += pred.length; const h = score(pred, c.expect, fits); t.hit += h; t.rough += score(pred, c.expect, rough); if (h === c.expect.length && pred.length === c.expect.length) t.perfect++; return h === c.expect.length && pred.length === c.expect.length; };
+      const okRule = add(T.rule, D.rule);
+      let ok = okRule;
+      if (useAI) { add(T.ai, D.ai); ok = add(T.both, D.both); }
+      const final = useAI ? D.both : D.rule;
+      if (!ok) misses.push({ n, say: says.join(' ／ '), expect: c.expect, got: itemsOf(final), raws });
+      if (verbose || useAI) process.stdout.write(`${ok ? '✔' : '✘'} ${String(n).padStart(2)} ${says.join(' ／ ').replace(/\n/g, ' ⏎ ')}\n`);
     }
-    const final = ai || rule;
-    const ok = score(final, c.expect, fits) === c.expect.length && final.length === c.expect.length;
-    if (!ok) misses.push({ i: i + 1, say: c.say, expect: c.expect, got: final });
-    if (verbose || useAI) process.stdout.write(`${ok ? '✔' : '✘'} ${String(i + 1).padStart(2)} ${c.say.replace(/\n/g, ' ⏎ ')}\n`);
   }
   const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(0)}%` : '—');
-  const line = (name, t) => `${name}：精確率 ${pct(t.hit, t.pred)}、召回率 ${pct(t.hit, t.exp)}（全對 ${t.hit}/${t.exp}；只看種類＋名稱 ${pct(t.rough, t.exp)}；共抽出 ${t.pred} 項）`;
-  console.log(`\n${set === 'holdout' ? '（holdout）' : ''}${cases.length} 句、期待 ${tally.rule.exp} 項`);
-  console.log(line('規則', tally.rule));
-  if (useAI) console.log(`${line('規則＋AI', tally.ai)}\n  AI 平均 ${(tally.ai.ms / Math.max(1, tally.ai.n) / 1000).toFixed(1)} 秒／句，失敗 ${tally.ai.fail} 句`);
+  const line = (name, t) => `${name}：全對 ${t.perfect}/${n} 題；項目精確率 ${pct(t.hit, t.pred)}、召回率 ${pct(t.hit, t.exp)}（只看種類＋名稱 ${pct(t.rough, t.exp)}）`;
+  console.log(`\n【${sets.join('＋')}】${n} 題、期待 ${T.rule.exp} 項`);
+  console.log(line('規則', T.rule));
+  if (useAI) {
+    console.log(line('AI 單獨', T.ai));
+    console.log(line('規則＋AI（App 的做法）', T.both));
+    console.log(`  AI：問了 ${aiStat.calls} 次，回空 ${aiStat.empty} 次、失敗 ${aiStat.fail} 次；平均 ${(aiStat.ms / Math.max(1, aiStat.calls - aiStat.fail) / 1000).toFixed(1)} 秒、${Math.round(aiStat.tok / Math.max(1, aiStat.calls - aiStat.fail))} tok／句`);
+    if (aiStat.empty > aiStat.calls / 2) console.log('  ⚠ AI 大多回空：AI 其實沒在幫忙，請把這份結果傳給開發者');
+  }
   if (verbose && misses.length) {
     console.log('\n沒全對的：');
-    for (const m of misses) console.log(`#${m.i} ${m.say.replace(/\n/g, ' ⏎ ')}\n   期待 ${JSON.stringify(m.expect)}\n   得到 ${JSON.stringify(m.got.map(({ tierSet, ...x }) => ({ ...x, steps: x.steps ? x.steps.length : undefined })))}`);
+    for (const m of misses) {
+      console.log(`#${m.n} ${m.say.replace(/\n/g, ' ⏎ ')}\n   期待 ${JSON.stringify(m.expect)}\n   得到 ${JSON.stringify(m.got)}`);
+      for (const r of m.raws) console.log(`   AI 回 ${String(r).slice(0, 300)}`);
+    }
   }
 })();

@@ -46,7 +46,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       assert(!leftover(menuText) && /小雪的小本子/.test(menuText), '選單');
       // 4. 說明小卡、待機小字、面板台詞
       const tips = await js(`[...document.querySelectorAll('[data-tip]')].map((e) => e.dataset.tip).join('｜')`);
-      assert(!leftover(tips) && /只留小雪/.test(tips) && /偷看小雪的小本子/.test(tips), '說明小卡：' + tips);
+      assert(!leftover(tips) && /只留小雪/.test(tips) && /回憶：小雪的小本子/.test(tips), '說明小卡：' + tips);
       await js(`closeDialog(); idleDebug.showWhisper('艾琳才、才沒有睡著喔。', 4000); 0`); await wait(300);
       assert((await js(`document.querySelector('#idleWhisper').textContent`)) === '小雪才、才沒有睡著喔。', '待機小字');
       await shot('rn04_whisper');

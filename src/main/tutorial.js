@@ -2,7 +2,7 @@
 'use strict';
 
 const TUTORIAL = [
-  { key: 'objective', icon: '☑', label: '勾選一個目標', hint: '打開任務板，把做完的目標勾起來' },
+  { key: 'objective', icon: '☑', label: '勾選一個目標', hint: '打開週任務板，把做完的目標勾起來' },
   { key: 'chat', icon: '💬', label: '跟艾琳聊一句', hint: '按「💬 聊聊」，說什麼都可以' },
   { key: 'progress', icon: '🗣', label: '用聊天回報進度', hint: '在聊聊裡說「OO 做完了」，再按確認' },
   { key: 'submit', icon: '🏆', label: '交付一個任務', hint: '目標都完成後，按「🏆 交付任務」' },

@@ -294,42 +294,43 @@ function endOpening() {
   push('opening:done', { view: engine.view(), replay: openingReplay });
 }
 
-// ---- 📓 用聊的寫週計畫：攤開的大視窗、AI 在背景一句一句整理 ----
+// ---- 📓 艾琳的筆記本（委託）：大視窗、AI 在背景一句一句整理 ----
 let pdWin = null;
 const pdWinLines = []; // 大視窗打開時要說的話（視窗載好再拿）
 function pdPush(extra = {}) {
-  const payload = { planDraft: engine.pdView(), ...extra };
-  push('pd:update', payload);
-  if (pdWin && !pdWin.isDestroyed()) pdWin.webContents.send('pd:update', payload);
+  if (!pdWin || pdWin.isDestroyed()) return;
+  pdWin.webContents.send('pd:update', { planDraft: engine.pdView(), ...extra });
 }
 function pdAfter(r) { pdPush(); return r; }
+// AI 一次只做一件：整理一句、或改一次
 let pdChain = Promise.resolve();
-function pdQueueRefine(logId) {
+function pdQueue(kind, logId) {
   pdChain = pdChain.then(async () => {
     try {
-      const r = await engine.pdRefine(logId);
-      if (r) { pdPush({ refined: logId }); if (r.lines && r.lines.length) push('npc:lines', r.lines); }
+      const r = kind === 'edit' ? await engine.pdAiEditLog(logId) : await engine.pdRefine(logId);
+      if (r) pdPush({ refined: logId, changed: r.changed || [], lines: r.lines || [] });
     } catch (e) { console.error(e); pdPush(); }
   });
 }
 function openPdWin(lines = []) {
   pdWinLines.splice(0, pdWinLines.length, ...lines);
-  if (pdWin && !pdWin.isDestroyed()) { pdWin.focus(); pdPush(); return pdWin; }
+  if (pdWin && !pdWin.isDestroyed()) { pdWin.show(); pdWin.focus(); pdPush({ lines }); return pdWin; }
   const wa = targetDisplay().workArea;
-  const w = Math.max(960, Math.min(1280, Math.round(wa.width * 0.86))), h = Math.max(640, Math.min(860, Math.round(wa.height * 0.88)));
+  const w = Math.max(960, Math.min(1320, Math.round(wa.width * 0.88))), h = Math.max(640, Math.min(900, Math.round(wa.height * 0.9)));
   pdWin = new BrowserWindow({
     x: Math.round(wa.x + (wa.width - w) / 2), y: Math.round(wa.y + (wa.height - h) / 2), width: w, height: h, minWidth: 900, minHeight: 600,
-    frame: false, resizable: true, backgroundColor: '#f6efdf', show: false,
-    title: `${engine.config.npc.name}的筆記本・週計畫`, icon: path.join(APP_DIR, 'build', 'icon.png'),
+    frame: false, resizable: true, backgroundColor: '#3b2a1c', show: false,
+    title: `${engine.config.npc.name}的筆記本・委託`, icon: path.join(APP_DIR, 'build', 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'plandraft-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   pdWin.on('page-title-updated', (e) => e.preventDefault());
   pdWin.once('ready-to-show', () => pdWin && pdWin.show());
   pdWin.loadFile(path.join(APP_DIR, 'src', 'renderer', 'plandraft.html'));
-  pdWin.on('closed', () => { pdWin = null; if (win && !win.isDestroyed() && !win.isVisible()) win.show(); });
-  if (win && !win.isDestroyed() && win.isVisible()) win.hide(); // 艾琳在大視窗裡陪你看
+  pdWin.on('closed', () => { pdWin = null; if (win && !win.isDestroyed() && !win.isVisible()) win.show(); push('view:update', { view: engine.view() }); });
+  if (win && !win.isDestroyed() && win.isVisible()) win.hide(); // 艾琳在大視窗裡陪你
   return pdWin;
 }
+function pdOpen(which) { const r = engine.pdOpen(which); openPdWin(r.lines); return r; }
 function closePdWin() { if (pdWin && !pdWin.isDestroyed()) pdWin.close(); else if (win && !win.isDestroyed() && !win.isVisible()) win.show(); }
 
 function wrap(fn) {
@@ -345,6 +346,7 @@ function wrap(fn) {
 function reloadPlan(reason) {
   engine.loadPlan();
   push('view:update', { view: engine.view(), reason });
+  if (pdWin && !pdWin.isDestroyed()) pdPush(); // 📓 筆記本開著：原本的部分跟著檔案更新
 }
 
 function watchPlan() {
@@ -568,9 +570,9 @@ function menuTemplate() {
   return [
     { label: mini ? '🔼 展開' : '🐾 縮小化（變回貓咪）', click: () => (mini ? setMini(false) : push('ui:shrink')) }, // 縮小走前端，先播變身動畫
     { type: 'separator' },
-    { label: '📜 任務板', click: open('board') },
+    { label: '📜 週任務板', click: open('board') },
     { label: '📅 今日行程', click: open('daily') },
-    { label: '📝 下班回報', click: open('report') },
+    { label: (() => { const n = engine.pdSummary().changes; return n ? `📓 委託（${n} 處還沒寫進計畫檔）` : `📓 委託：${npcName}的筆記本`; })(), click: () => pdOpen() },
     engine.state.focus
       ? { label: engine.state.focus.raid ? `📯 團戰「${engine.state.focus.raid.title}」結束了（還剩 ${engine.focusInfo().leftMin} 分鐘）` : `🍅 結束專注（還剩 ${engine.focusInfo().leftMin} 分鐘）`, click: stopFocus }
       : { label: `🍅 專注 ${engine.focusCfg().minutes} 分鐘`, click: () => { if (mini) setMini(false); push('ui:focus'); } },
@@ -587,8 +589,9 @@ function menuTemplate() {
     { type: 'separator' },
     ...(engine.config.window.hud === false && !mini ? [{ label: '📊 顯示狀態欄', click: () => { const r = engine.setHud(true); push('view:update', { view: r.view }); } }] : []), // 狀態欄收起來時：第一層就找得到
     { label: '📂 週計畫・團戰', submenu: [
-      { label: engine.state.planDraft ? `📓 繼續寫週計畫（筆記本裡有 ${(engine.pdView() || {}).count || 0} 筆）` : '📓 跟艾琳一起寫週計畫（用聊的）', click: open('pdNote') },
+      { label: (() => { const n = engine.pdSummary().changes; return n ? `📓 委託：${npcName}的筆記本（${n} 處還沒寫進計畫檔）` : `📓 委託：${npcName}的筆記本（用聊的加、改、勾）`; })(), click: () => pdOpen() },
       { label: '📯 團戰（會議）：新增、改時間、取消…', click: open('raids') },
+      { label: '🌙 收工：寫今天做了什麼、卡在哪', click: open('report') },
       engine.dayOff(engine.calendarView().today.date).kind === 'leave'
         ? { label: '🌴 取消今天的請假', click: menuSafe(() => engine.setLeave(engine.calendarView().today.date, false)) }
         : { label: '🌴 今天請假（不提醒、連續上工不斷）', click: menuSafe(() => engine.setLeave(engine.calendarView().today.date, true)) },
@@ -812,43 +815,60 @@ app.whenReady().then(async () => {
   ipcMain.handle('raids:cancel', raidWrap((key, scope) => engine.cancelRaid(key, scope)));
   ipcMain.handle('raids:restore', raidWrap((key) => engine.restoreRaid(key)));
   ipcMain.handle('calendar:leave', raidWrap((date, on, note) => engine.setLeave(date, on !== false, note)));
-  // 📓 用聊的寫週計畫：主視窗（筆記本模式）
-  ipcMain.handle('pd:start', wrap((which) => engine.pdStart(which)));
-  ipcMain.handle('pd:say', wrap((text) => { const r = engine.pdSay(text); if (r.refine) pdQueueRefine(r.logId); return r; }));
-  ipcMain.handle('pd:undoLog', wrap((logId) => { const r = engine.pdUndoLog(logId); pdPush(); return r; }));
-  ipcMain.handle('pd:pause', wrap(() => { closePdWin(); return engine.pdPause(); }));
-  ipcMain.handle('pd:discard', wrap(() => { closePdWin(); return engine.pdDiscard(); }));
-  ipcMain.handle('pd:review', wrap(() => { const r = engine.pdReview(); openPdWin(r.lines); return r; }));
-  // 📓 大視窗（攤開的筆記本）
+  // 📓 艾琳的筆記本（委託）：主視窗只負責打開
+  ipcMain.handle('pd:open', wrap((which) => { pdOpen(which); return {}; }));
+  // 大視窗
   ipcMain.handle('pd:get', wrap(() => {
     const normal = findImage('normal');
-    const faces = Object.fromEntries(['normal', 'happy', 'write', 'thinking', 'worried', 'cheer', 'surprised'].map((e) => [e, findImage(e) || normal]));
+    const faces = Object.fromEntries(['normal', 'happy', 'write', 'thinking', 'worried', 'cheer', 'surprised', 'shy'].map((e) => [e, findImage(e) || normal]));
     return { planDraft: engine.pdView(), faces, name: engine.config.npc.name, lines: pdWinLines.splice(0) };
   }));
-  ipcMain.handle('pd:edit', wrap((id, f) => pdAfter(engine.pdEdit(id, f))));
-  ipcMain.handle('pd:remove', wrap((id) => pdAfter(engine.pdRemove(id))));
-  ipcMain.handle('pd:add', wrap((kind, f) => pdAfter(engine.pdAdd(kind, f))));
-  ipcMain.handle('pd:resolve', wrap((id, as, f) => pdAfter(engine.pdResolve(id, as, f))));
-  ipcMain.handle('pd:undo', wrap(() => pdAfter(engine.pdUndo())));
-  ipcMain.handle('pd:mode', wrap((m) => pdAfter(engine.pdSetMode(m))));
-  ipcMain.handle('pd:aiEdit', wrap(async (text) => pdAfter(await engine.pdAiEdit(text))));
-  ipcMain.handle('pd:back', wrap(() => { closePdWin(); push('view:update', { view: engine.view() }); push('ui:open', 'pdNote'); return {}; }));
-  // 大視窗的「✕ 先收起來」：說的話要給主視窗的艾琳說
-  ipcMain.handle('pd:winPause', wrap(() => {
+  ipcMain.handle('pd:switch', wrap((which) => engine.pdSwitch(which)));
+  ipcMain.handle('pd:say', wrap((text) => {
+    const r = engine.pdSay(text);
+    if (r.refine) pdQueue('refine', r.logId);
+    if (r.aiEdit) pdQueue('edit', r.logId);
+    return r;
+  }));
+  ipcMain.handle('pd:undoLog', wrap((logId) => engine.pdUndoLog(logId)));
+  ipcMain.handle('pd:edit', wrap((id, f) => engine.pdEdit(id, f)));
+  ipcMain.handle('pd:remove', wrap((id) => engine.pdRemove(id)));
+  ipcMain.handle('pd:restore', wrap((id) => engine.pdRestore(id)));
+  ipcMain.handle('pd:add', wrap((kind, f) => engine.pdAdd(kind, f)));
+  ipcMain.handle('pd:resolve', wrap((id, as, f) => engine.pdResolve(id, as, f)));
+  ipcMain.handle('pd:undo', wrap(() => engine.pdUndo()));
+  ipcMain.handle('pd:wipe', wrap(() => engine.pdWipe()));
+  ipcMain.handle('pd:discard', wrap(() => engine.pdDiscard()));
+  // 完成委託（立刻寫進計畫檔、給獎勵）：主視窗也要更新
+  const pdPlay = (fn) => wrap(async (...a) => { const r = await fn(...a); push('view:update', { view: engine.view() }); return r; });
+  ipcMain.handle('pd:check', pdPlay((id, step, done) => engine.pdCheck(id, step, done)));
+  ipcMain.handle('pd:submit', pdPlay((id) => engine.pdSubmit(id)));
+  ipcMain.handle('pd:rowDone', pdPlay((id, done) => engine.pdRowDone(id, done)));
+  // ✕ 收起來：修改都留著；說的話給主視窗的艾琳說
+  ipcMain.handle('pd:close', wrap(() => {
     const r = engine.pdPause();
-    closePdWin(); pdPush();
-    push('view:update', { view: engine.view() });
+    closePdWin();
     setTimeout(() => push('npc:lines', r.lines), 400);
     return {};
   }));
+  // 寫進計畫檔：這一週還沒有檔案 → 先跳存檔視窗（預設照「每週一個資料夾」的習慣）
   ipcMain.handle('pd:commit', wrap(async () => {
-    const r = await engine.pdCommit();
-    closePdWin();
+    const v = engine.pdView();
+    let file = null, title;
+    if (v && v.target && v.target.kind === 'new') {
+      const hint = engine.pdNewFileHint(v.week.start);
+      let made = false;
+      if (!fs.existsSync(hint.dir)) { try { fs.mkdirSync(hint.dir, { recursive: true }); made = true; } catch (_) { /* 開不了就讓視窗自己選 */ } }
+      const r = process.env.QUEST_NPC_TEST && global.pdSavePath ? { canceled: false, filePath: global.pdSavePath } : await dialog.showSaveDialog(pdWin || win, {
+        title: `${v.week.name}（${v.week.label}）的計畫檔要存在哪裡？`, defaultPath: hint.defaultPath, filters: [{ name: 'Markdown', extensions: ['md'] }],
+      });
+      if (r.canceled || !r.filePath) { if (made) { try { fs.rmdirSync(hint.dir); } catch (_) { /* 不是空的就留著 */ } } return { canceled: true }; }
+      file = /\.md$/i.test(r.filePath) ? r.filePath : `${r.filePath}.md`; title = hint.title;
+    }
+    const r = await engine.pdCommit({ file, title });
     if (engine.planSwitched) { engine.planSwitched = false; watchPlan(); }
-    pdPush();
-    push('view:update', { view: r.view, reason: r.replaced && r.replaced.length ? `📓 寫進計畫檔了（蓋掉 ${r.replaced.length} 項舊的）` : '📓 寫進計畫檔了' });
-    setTimeout(() => { push('npc:lines', r.lines); if (r.reward) setTimeout(() => push('fx:reward', r.reward), 1200); }, 500);
-    return { ok: true, file: r.file };
+    push('view:update', { view: r.view, reason: '📓 寫進計畫檔了' });
+    return { ok: true, file: r.file, stats: r.stats, lines: r.lines, reward: r.reward, planDraft: r.planDraft };
   }));
   ipcMain.handle('focus:peek', wrap(() => engine.focusPeek()));
   ipcMain.handle('fortune:draw', wrap(() => engine.drawFortune()));
@@ -939,7 +959,7 @@ app.whenReady().then(async () => {
   scheduleFocus(4000); // 上次關程式時還在專注：時間到了就補結算（等畫面載好）
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
-  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, runTick, updater, pdWin: () => pdWin, opening: { start: startOpening, win: () => openingWin } });
+  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, runTick, updater, pdWin: () => pdWin, pdOpen, opening: { start: startOpening, win: () => openingWin } });
 });
 
 app.on('second-instance', () => { if (openingWin && !openingWin.isDestroyed()) { openingWin.focus(); return; } if (win) { win.restore(); win.focus(); } });

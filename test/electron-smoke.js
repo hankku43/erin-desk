@@ -31,7 +31,7 @@ module.exports = ({ win, engine, app }) => {
       await shot('6_after');
       await js(`document.querySelector('[data-act=daily]').click()`); await wait(2500);
       await shot('7_daily');
-      await js(`document.querySelector('[data-act=report]').click()`); await wait(800);
+      await js(`openPanel('report'); 0`); await wait(800); // 🌙 收工（今日行程的 🌙）
       await shot('8_report');
       await js(`document.querySelector('[data-act=chat]').click();document.querySelector('#chatInput').value='今天先做哪個？';document.querySelector('#chatSend').click()`); await wait(2500);
       await shot('9_chat');

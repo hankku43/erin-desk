@@ -49,9 +49,9 @@ function renderJournal(el) {
   const name = esc(npcName());
   const tabs = `<div class="tabs"><button class="tab ${jn.tab === 'log' ? 'on' : ''}" data-jn-tab="log">冒險日誌</button><button class="tab ${jn.tab === 'report' ? 'on' : ''}" data-jn-tab="report">工作週報</button></div>`;
   const info = jn.tab === 'report' ? '依專案分類（計畫檔任務標題的 #專案，或寫在專案標題底下；沒有的歸在「其他」）。最後一天回報的「卡點」會掛在對應的任務底下'
-    : `每週最後一天下班回報後，${name}會整理好交給你`;
+    : `每週最後一天下班後，${name}會整理好交給你`;
   if (!w) {
-    el.innerHTML = head('📖 冒險日誌', '', tabs, info) + `<div class="panel-body"><p class="hint">${d ? '還沒有日誌。先在任務板完成一個目標，這週的冒險就會記在這裡。' : '翻開中……'}</p></div>`;
+    el.innerHTML = head('📖 冒險日誌', '', tabs, info) + `<div class="panel-body"><p class="hint">${d ? '還沒有日誌。先在週任務板完成一個目標，這週的冒險就會記在這裡。' : '翻開中……'}</p></div>`;
     return;
   }
   const nav = `<div class="jn-nav"><button class="icon-btn" data-jn-go="${esc(d.prev || '')}" ${d.prev ? '' : 'disabled'} title="上一週">◀</button>

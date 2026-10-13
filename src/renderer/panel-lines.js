@@ -5,12 +5,12 @@
   else root.PanelLines = factory();
 }(typeof self !== 'undefined' ? self : this, () => {
   // 面板裡自己有人說話（雙胞胎、健康檢查的小對話），或開了之後艾琳本來就會講話（日誌、小本子、今日行程）：泡泡先收起來
-  const QUIET = new Set(['shop', 'health', 'onboard', 'log', 'journal', 'notebook', 'daily', 'divine', 'questForm', 'rowForm', 'remForm', 'raidForm', 'leave', 'pdNote']);
+  const QUIET = new Set(['shop', 'health', 'onboard', 'log', 'journal', 'notebook', 'daily', 'divine', 'questForm', 'rowForm', 'remForm', 'raidForm', 'leave']);
   const short = (s, n = 14) => { const t = String(s || '').replace(/`/g, ''); return t.length > n ? t.slice(0, n) + '…' : t; };
 
   function board(v) {
     const qs = v.quests || [];
-    if (!qs.length) return v.editable ? { text: '任務板還是空的～按「＋ 新任務」登記第一筆委託吧！', emotion: 'normal' } : { text: '這份計畫檔裡還沒有任務喔。', emotion: 'thinking' };
+    if (!qs.length) return v.editable ? { text: '週任務板還是空的～按「＋ 新任務」登記第一筆委託吧！', emotion: 'normal' } : { text: '這份計畫檔裡還沒有任務喔。', emotion: 'thinking' };
     if (qs.every((q) => q.status === 'done')) return { text: '這週的委託全部完成了！冒險者好厲害～', emotion: 'cheer' };
     const a = v.active;
     if (!a) return { text: '要先做哪一個呢？按「📌 設為當前任務」，艾琳就幫你盯著那一個。', emotion: 'thinking' };
@@ -27,6 +27,8 @@
     if (!v || QUIET.has(kind)) return null;
     if (kind === 'board') return board(v);
     if (kind === 'report') return { text: '今天辛苦啦！寫幾句就好，艾琳會幫你整理進週報。', emotion: 'happy' };
+    if (kind === 'magic') return v.fortune ? { text: `今天的運勢是「${short(v.fortune.rank, 6)}」～還想問星環什麼嗎？`, emotion: 'happy' } : { text: '要抽今天的運勢，還是請星環回答一個問題？', emotion: 'happy' };
+    if (kind === 'memories') return { text: '這些都是艾琳跟冒險者一起留下來的～想翻哪一本？', emotion: 'shy' };
     if (kind === 'submit') {
       const q = (v.quests || []).find((x) => x.id === extra.questId);
       return { text: q ? `報酬都準備好了～確認一下就可以交付「${short(q.title)}」囉！` : '報酬都準備好了～', emotion: 'cheer' };

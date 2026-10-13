@@ -39,6 +39,7 @@
       "assets/ui/**/*",
       "assets/shop/*.png",
       "assets/opening/*",
+      "assets/stageup/*",
       "plans/_template.md",
       "plans/week_sample.md",
       "build/icon.png"
