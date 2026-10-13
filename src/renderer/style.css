@@ -1204,3 +1204,27 @@ body.mini #twinsVisit, body.mini .dr-stage { display: none; }
 .panel-tools .tool-sep { width: 1px; align-self: stretch; margin: 3px 2px; background: var(--line); }
 .panel-tools .btn.small { box-shadow: 0 1px 0 var(--navy-2); }
 .panel-tools .btn.ico { min-width: 34px; padding: 3px 6px; font-size: var(--fs-m); }
+
+/* ---------- 📓 用聊的寫週計畫（筆記本模式） ---------- */
+.pd-body { padding-top: 6px; }
+.pd-log { display: flex; flex-direction: column; gap: 0; padding: 2px 4px 6px;
+  background: repeating-linear-gradient(180deg, transparent 0 27px, color-mix(in srgb, var(--sky) 22%, transparent) 27px 28px);
+  border-left: 2px solid color-mix(in srgb, var(--rose) 45%, transparent); padding-left: 12px; }
+.pd-entry { position: relative; padding: 5px 26px 6px 0; border-bottom: 1px dashed var(--line); }
+.pd-entry:last-child { border-bottom: none; }
+.pd-entry.pending .pd-got { opacity: .65; }
+.pd-said { font-size: var(--fs-s); color: var(--ink-soft); }
+.pd-got { font-size: var(--fs-m); line-height: 1.55; margin-top: 2px; }
+.pd-busy { display: inline-block; margin-left: 6px; font-size: var(--fs-xs); color: var(--gold-text); background: var(--gold-soft); border-radius: var(--r-s); padding: 0 6px; animation: pdBusy 1.2s ease-in-out infinite; }
+@keyframes pdBusy { 50% { opacity: .45; } }
+.pd-quick { display: inline-block; margin-left: 6px; font-size: var(--fs-xs); color: var(--ink-soft); border: 1px solid var(--line); border-radius: var(--r-s); padding: 0 5px; }
+.pd-entry .del { position: absolute; right: 0; top: 4px; }
+.pd-help { font-size: var(--fs-m); line-height: 1.75; color: var(--ink); padding: 4px 0; }
+.pd-help .hint { margin-top: 6px; }
+.pd-ask { display: flex; gap: 10px; padding: 14px; }
+.pd-ask .btn { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 12px 8px; }
+.pd-ask small { font-size: var(--fs-s); font-weight: 400; }
+.pd-confirm { display: flex; align-items: center; gap: 8px; font-size: var(--fs-s); background: var(--rose-soft); border-radius: var(--r-m); padding: 6px 10px; margin-bottom: 8px; }
+.pd-confirm .btn:first-of-type { margin-left: auto; }
+.chat-row.pd-on input { border-color: var(--gold); background: var(--gold-wash); }
+.chat-row.pd-on::before { content: '📓'; align-self: center; font-size: var(--fs-l); }

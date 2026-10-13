@@ -364,6 +364,35 @@ const TEMPLATES = {
   raid_cancel_all: [
     ['「{raid}」（{repeat}）整個系列都拿掉了。辛苦它了～', 'normal'],
   ],
+  // 📓 用聊的寫週計畫（都是內建台詞：每句都要馬上回）
+  pd_open: [
+    ['📓 好～{self}拿出筆記本了！{week}要做什麼，一件一件跟{self}說吧。像是「週五前寫完週報」「週二下午兩點開會」這樣就好～', 'happy'],
+    ['筆記本翻到新的一頁了！{week}的事，想到什麼就說什麼，{self}幫你記下來、整理好。', 'cheer'],
+  ],
+  pd_resume: [['筆記本翻回上次那頁了，已經記了 {n} 筆。繼續說吧～', 'happy']],
+  pd_ask: [['今天已經{today}了，要排的是這週剩下的幾天，還是下週呢？', 'thinking']],
+  pd_noted: [
+    ['記下了：{items}。還有嗎？', 'happy'],
+    ['嗯嗯，{items}，寫好了～', 'normal'],
+    ['好～{items}。下一件是什麼？', 'happy'],
+  ],
+  pd_unsure: [['這句{self}先記在「不確定」那邊：{items}。等等攤開來一起看～', 'thinking']],
+  pd_empty: [['嗯……這句{self}不知道要記成什麼。可以說「哪天要做什麼」或「幾點有什麼會」喔。', 'thinking']],
+  pd_enough: [['好～那攤開來看看吧？按上面的「📖 攤開確認」，{self}把表格畫給你看。', 'happy']],
+  pd_enough_none: [['筆記本還是空的耶……想到這週要做的事再跟{self}說喔。', 'thinking']],
+  pd_review: [['攤開來給你看～要改的地方直接跟{self}說，或是點表格自己改。', 'happy']],
+  pd_paused: [['好，筆記本先收起來，下次再翻開繼續寫～', 'normal']],
+  pd_discard: [['這一頁撕掉了。要寫的時候再叫{self}喔。', 'normal']],
+  pd_done: [
+    ['📓 週計畫寫好了！{summary}。{self}會照這個幫你派任務、到時間叫你～', 'cheer'],
+    ['寫進計畫檔了：{summary}。這週也一起加油吧！', 'cheer'],
+  ],
+  pd_done_next: [['📓 {week}的計畫存好了：{summary}。{start} 那天{self}會自動換上～', 'cheer']],
+  pd_switched: [['新的一週開始了！{self}已經換上之前一起寫的「{title}」，先看看任務板吧～', 'cheer']],
+  pd_edit: [['改好了：{changes}。還有要改的嗎？', 'happy'], ['好～{changes}。這樣可以嗎？', 'happy']],
+  pd_edit_none: [['嗯……{self}不太確定要改哪裡。可以說得更清楚一點嗎？例如「把週報移到週五」「站會改十點」。', 'thinking']],
+  pd_edit_off: [['AI 現在沒開，{self}只能幫你把新的事加上去：{changes}。要改舊的，直接點表格改就好～', 'normal']],
+  pd_edit_off_none: [['AI 現在沒開，{self}看不懂要怎麼改。直接點表格裡那一項改就好喔～', 'thinking']],
   // 🌴 請假
   leave_set: [
     ['🌴 好～{when}請假（{note}），{self}記下來了。那天不叫你、團戰也不吵你，連續上工也不會斷，好好休息！', 'happy'],
@@ -775,6 +804,26 @@ class NPC {
     this.llm.enabled = !!on;
     this.backoffUntil = 0;
     return this.checkStatus();
+  }
+
+  // 結構化的工作（不是聊天）：照 schema 回 JSON，不帶角色設定和對話紀錄（📓 寫週計畫用）。失敗就丟錯，讓呼叫的人退回規則
+  async structured(event, { system, user, schema, maxTokens = 400, timeoutMs } = {}) {
+    if (!this.llm.enabled || !this.status.online) throw new Error('AI 沒有開');
+    const prefix = /^qwen3:(?!.*instruct)/.test(this.llm.model || '') ? this.llm.noThinkPrefix || '' : '';
+    const t0 = Date.now();
+    try {
+      const r = await this.fetchJSON('/api/chat', {
+        model: this.llm.model, stream: false, think: false, keep_alive: this.llm.keepAlive || '30m', format: schema,
+        messages: [{ role: 'system', content: system }, { role: 'user', content: `${prefix}${user}` }],
+        options: { temperature: 0.2, num_predict: maxTokens, num_ctx: this.numCtx() },
+      }, timeoutMs || this.timeoutFor('chat'));
+      this.logCall(event, t0, r);
+      const content = String((r.message && r.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      return JSON.parse((content.match(/\{[\s\S]*\}/) || [content])[0]);
+    } catch (e) {
+      this.logCall(event, t0, null, e.name === 'AbortError' ? 'timeout' : String(e.message).slice(0, 80));
+      throw e;
+    }
   }
 
   async fetchJSON(pathname, body, timeoutMs) {

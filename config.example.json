@@ -69,6 +69,10 @@
     "holidays": {},
     "workdays": {}
   },
+  "planDraft": {
+    "xp": 20,
+    "gold": 10
+  },
   "raids": {
     "enabled": true,
     "remind": [15, 5, 0],

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; img-src 'self' file: data:; style-src 'self' 'unsafe-inline';">
+<title>筆記本・週計畫</title>
+<link rel="stylesheet" href="plandraft.css">
+</head>
+<body>
+  <header id="bar">
+    <div class="ttl"><span class="book">📓</span><b id="ttl">筆記本</b><span id="wk" class="wk"></span></div>
+    <div id="sum" class="sum"></div>
+    <span class="grow"></span>
+    <div id="target" class="target"></div>
+    <button class="tb" id="bUndo" data-tip="復原上一個修改">↶ 復原</button>
+    <button class="tb" id="bBack" data-tip="回去主畫面繼續用聊的記">← 回去繼續講</button>
+    <button class="tb gold" id="bCommit">✔ 寫進計畫檔</button>
+    <button class="tb x" id="bClose" aria-label="先收起來" data-tip="先收起來（筆記本會留著，下次接著寫）">✕</button>
+  </header>
+  <div id="confirm" class="confirm hidden"></div>
+  <div id="warns" class="warns hidden"></div>
+  <main id="main">
+    <aside id="left">
+      <section class="col-quests">
+        <h2><span>📜 委託</span><button class="add" data-add="quest">＋ 委託</button></h2>
+        <div id="quests"></div>
+      </section>
+      <section class="col-unsure hidden" id="unsureBox">
+        <h2><span>❓ 不確定</span></h2>
+        <div id="unsure"></div>
+      </section>
+    </aside>
+    <section id="week">
+      <div id="days" class="days"></div>
+    </section>
+  </main>
+  <footer id="foot">
+    <img id="face" alt="" draggable="false">
+    <div class="bubble"><div id="say"></div></div>
+    <form id="aiForm" autocomplete="off">
+      <input id="aiInput" maxlength="300" placeholder="跟艾琳說要怎麼改…（例：把週報移到週五、站會改十點）">
+      <button class="tb" id="aiSend" type="submit">請她改</button>
+    </form>
+  </footer>
+  <div id="pop" class="pop hidden" role="dialog" aria-modal="true"></div>
+  <div id="tip" class="tip hidden"></div>
+  <script src="plandraft.js"></script>
+</body>
+</html>

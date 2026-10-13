@@ -3011,3 +3011,203 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const p of [...sjs.matchAll(/pose\('(\w+)'/g)].map((m) => m[1])) assert.ok(fs.existsSync(path.join(root, 'assets', 'character', p + '.png')), '立繪：' + p);
   console.log('好感升階動畫測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 📓 用聊的寫週計畫：日子／時間、規則速記、草稿、組成計畫檔、合併、引擎流程（AI 用假的） ----------
+(async () => {
+  const os = require('os');
+  const PD = require('../src/main/plandraft');
+  const P = require('../src/main/planParser');
+  const { Engine } = require('../src/main/engine');
+  // 1. 哪一週、要不要先問
+  assert.deepStrictEqual(PD.weekOf('2026-10-13', 'this'), { which: 'this', start: '2026-10-12', end: '2026-10-16', label: '10/12–10/16', name: '本週' });
+  assert.strictEqual(PD.weekOf('2026-10-16', 'next').start, '2026-10-19');
+  assert.deepStrictEqual(['2026-10-12', '2026-10-14', '2026-10-15', '2026-10-17', '2026-10-18'].map(PD.needAsk), [false, false, true, true, true], '週四以後先問');
+  const ctx = { today: '2026-10-13', week: PD.weekOf('2026-10-13') };
+  const day = (s) => (PD.findDay(s, ctx) || {}).date;
+  assert.deepStrictEqual(['週五', '明天', '後天', '下週三', '這週一', '10/20', '10月21日'].map(day), ['2026-10-16', '2026-10-14', '2026-10-15', '2026-10-21', '2026-10-12', '2026-10-20', '2026-10-21']);
+  const tm = (s) => { const t = PD.findTime(s); return t ? `${t.start}-${t.end}` : ''; };
+  assert.deepStrictEqual(['下午兩點半到四點', '9:00-10:30', '3點', '早上十點', '中午訂便當', '中午前回信'].map(tm), ['14:30-16:00', '09:00-10:30', '15:00-', '10:00-', '12:00-', ''], '上班時間的 3 點＝15:00；中午前是截止');
+  // 2. 規則速記
+  const rx = (s) => PD.ruleExtract(s, ctx).map((x) => [x.kind, x.title, x.due || x.date || '', x.start || x.time || '', x.end || '', x.raid ? '📯' : '', x.tier || '', (x.steps || []).length || ''].filter((v, i) => i < 2 || v !== '').join('|'));
+  assert.deepStrictEqual(rx('週五前寫完週報'), ['quest|寫完週報|2026-10-16|major']);
+  assert.deepStrictEqual(rx('一定要在週四中午前送出報價單'), ['quest|送出報價單|2026-10-15|main']);
+  assert.deepStrictEqual(rx('週二下午兩點到三點開週會'), ['row|開週會|2026-10-13|14:00|15:00|📯']);
+  assert.deepStrictEqual(rx('明天10點跟客戶開會'), ['row|跟客戶開會|2026-10-14|10:00|11:00|📯'], '團戰沒說結束：一小時');
+  assert.deepStrictEqual(rx('提醒我週四下午四點打給廠商'), ['reminder|打給廠商|2026-10-15|16:00']);
+  assert.deepStrictEqual(rx('週三整天出差；週二請假'), ['theme|出差|2026-10-14', 'theme|請假|2026-10-13']);
+  assert.deepStrictEqual(rx('整理月報：收齊數字、寫摘要、寄出'), ['quest|整理月報|major|3']);
+  assert.deepStrictEqual(rx('寫報告\n  - 收資料\n  - 寫初稿\n有空的話整理桌面'), ['quest|寫報告|major|2', 'quest|整理桌面|side']);
+  assert.deepStrictEqual(rx('週三下午做系統測試、週四修 bug、週五上線'), ['quest|做系統測試|2026-10-14|major', 'quest|修 bug|2026-10-15|major', 'quest|上線|2026-10-16|major'], '各有日子就拆');
+  assert.deepStrictEqual(rx('週四上午做簡報，下午三點練講稿'), ['quest|做簡報|2026-10-15|major', 'row|練講稿|2026-10-15|15:00'], '下午跟前一段同一天');
+  assert.deepStrictEqual(rx('看一下訓練計畫，週五前給意見'), ['quest|看一下訓練計畫，給意見|2026-10-16|major'], '截止日是前面那件的');
+  assert.deepStrictEqual(rx('下午三點打電話'), ['unsure|15:00 打電話'], '沒說哪天：不確定');
+  assert.deepStrictEqual([rx('嗯……我想想'), rx('好，差不多就這些'), rx('好了再寄給主管').length], [[], [], 1]);
+  // 評分用的虛構句子：規則至少要九成
+  const ev = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'plan_chat_eval.json'), 'utf8'));
+  const ectx = { today: ev.today, week: PD.weekOf(ev.today, ev.week) };
+  const n = (s) => String(s || '').replace(/\s/g, '');
+  let exp = 0, hit = 0;
+  for (const c of [...ev.cases, ...ev.holdout]) {
+    const got = PD.ruleExtract(c.say, ectx);
+    exp += c.expect.length;
+    for (const e of c.expect) if (got.some((g) => g.kind === e.kind && n(g.title).includes(n(e.title)) && (!e.due || g.due === e.due) && (!e.date || g.date === e.date))) hit++;
+  }
+  assert.ok(ev.cases.length >= 40 && hit / exp >= 0.9, `規則抽取 ${hit}/${exp}`);
+
+  // 3. 草稿：加、合併同名、撤銷、自己改、不確定
+  const d = PD.blank(ctx.week, '2026-10-13T09:00:00');
+  const ids1 = PD.addItems(d, PD.ruleExtract('週五前寫完週報', ctx), 'l1');
+  PD.addItems(d, PD.ruleExtract('週二下午兩點到三點開週會；提醒我週四下午四點打給廠商；週三整天出差', ctx), 'l2');
+  const ids3 = PD.addItems(d, PD.ruleExtract('寫完週報：收資料、寫初稿', ctx), 'l3');
+  assert.ok(ids3[0] === ids1[0] && d.quests.length === 1 && d.quests[0].due === '2026-10-16' && d.quests[0].steps.length === 2, '同名委託合成一個（截止日留著）');
+  PD.snapshot(d);
+  PD.removeLog(d, 'l2');
+  assert.ok(!d.rows.length && !d.reminders.length && !Object.keys(d.themes).length, '撤銷那句');
+  assert.ok(PD.undo(d) && d.rows.length === 1 && d.reminders.length === 1 && d.themes['2026-10-14'] === '出差', '復原');
+  const row = d.rows[0];
+  assert.throws(() => PD.editItem(d, row.id, { end: '13:00' }), /結束時間/);
+  assert.throws(() => PD.editItem(d, row.id, { start: '25:00' }), /開始時間/);
+  PD.editItem(d, row.id, { start: '10:00', end: '11:00', title: '週會（改時間）' });
+  assert.ok(row.touched && row.start === '10:00', '自己改的有記號');
+  PD.addItems(d, PD.ruleExtract('下午三點打電話', ctx), 'l4');
+  assert.throws(() => PD.resolveUnsure(d, d.unsure[0].id, 'row', {}), /日期/);
+  PD.resolveUnsure(d, d.unsure[0].id, 'row', { date: '2026-10-15' });
+  assert.ok(!d.unsure.length && d.rows.some((r) => r.date === '2026-10-15' && r.start === '15:00' && r.title === '打電話'), '不確定 → 時段');
+  const off = (iso) => (iso === '2026-10-16' ? { off: true, kind: 'holiday', name: '測試假日' } : { off: false });
+  PD.addItems(d, PD.ruleExtract('週二 10:30-11:30 讀文件', ctx), 'l5');
+  const v = PD.view(d, { offDay: off });
+  assert.ok(v.checks.some((c) => /重疊/.test(c.text)), '重疊檢查：' + JSON.stringify(v.checks));
+  assert.ok(v.checks.some((c) => /測試假日/.test(c.text)), '排到放假日：' + JSON.stringify(v.checks));
+  assert.ok(v.days.length === 5 && v.days[4].off === '測試假日' && /1 個委託/.test(v.summary), v.summary);
+  // 4. 組成計畫檔：解析回來一樣
+  const mdText = PD.toMarkdown(d, { title: '測試週' });
+  const pp = P.parsePlan(mdText);
+  assert.ok(pp.quests.length === 1 && pp.quests[0].title === '寫完週報' && pp.quests[0].deadline === '2026-10-16' && pp.quests[0].objectives.length === 2, mdText);
+  const allRows = pp.days.flatMap((x) => x.rows.map((r) => `${x.date.slice(5)} ${r.slot} ${r.a}${r.raid ? '📯' : ''}`));
+  assert.ok(allRows.includes('10-13 10:00–11:00 週會（改時間）📯') && allRows.includes('10-15 15:00 打電話'), allRows.join(' / '));
+  assert.ok(pp.days.find((x) => x.date === '2026-10-14').theme === '出差' && pp.decisions.some((x) => x.time === '16:00'), '主題、提醒');
+  assert.ok(!/\n{3,}/.test(mdText) && /\n$/.test(mdText) && !/\n\n$/.test(mdText), '沒有多的空行');
+  // 5. 合併：一樣的蓋掉、沒說的欄位留著、做完的步驟保持勾著
+  const old = '# 2026 測試週\n\n## 寫完週報 ⭐ 📅 10/15\n- [x] 收資料\n\n## 週二 10/13\n- 10:00–11:00 舊的週會\n- 15:00–16:00 寫程式\n';
+  const m = PD.merge(old, d, new Date('2026-10-13T09:00:00'));
+  const mp = P.parsePlan(m.content);
+  const q = mp.quests.find((x) => x.title === '寫完週報');
+  assert.ok(q && q.tier === 'main' && q.objectives.find((o) => o.text === '收資料').done && q.objectives.some((o) => o.text === '寫初稿'), '保留 ⭐、勾過的步驟：' + m.content);
+  const tue = mp.days.find((x) => x.date === '2026-10-13').rows.map((r) => r.a);
+  assert.ok(tue.includes('週會（改時間）') && !tue.includes('舊的週會') && tue.includes('寫程式'), '同一個開始時間蓋掉，其他保留：' + tue.join(','));
+  assert.ok(m.replaced.length >= 2, '列出蓋掉的：' + JSON.stringify(m.replaced));
+  assert.ok(PD.conflicts(old, d).length >= 2, '合併前先警告');
+
+  // 6. 引擎：開筆記本、說話、AI（假的）整理、撤銷、AI 改、寫進計畫檔、獎勵一週一次、下週的檔案到了週一才換上
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-pd-'));
+  fs.writeFileSync(path.join(dir, 'plan.md'), '# 2026 測試週\n\n## 寫完週報 🔧 📅 10/16\n- [ ] 收資料\n\n## 週一 10/12\n- 09:00–10:00 寫報告\n');
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, achievements: { enabled: false }, streak: { enabled: false }, llm: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] } }));
+  let t = new Date('2026-10-13T09:00:00').getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  const ev2 = (r) => r.lines.map((l) => l.event).join(',');
+  let r = E.pdStart();
+  assert.ok(!r.ask && ev2(r) === 'pd_open' && E.state.planDraft.week.start === '2026-10-12' && r.planDraft.target.kind === 'current', '週二：直接寫本週，寫進現在的計畫檔');
+  r = E.pdSay('週五前寫完週報');
+  assert.ok(!r.refine && ev2(r) === 'pd_noted' && /寫完週報/.test(r.lines[0].text), 'AI 關著：規則速記');
+  r = E.pdSay('嗯……');
+  assert.ok(!r.lines.length && E.state.planDraft.log.length === 1, '語助詞不記');
+  r = E.pdSay('就這樣');
+  assert.strictEqual(ev2(r), 'pd_enough');
+  // AI 開著（假的）：先速記，背景整理後換掉；冒險者改過的不換
+  E.config.llm.enabled = true; E.npc.status = { online: true };
+  const calls = [];
+  E.npc.structured = async (event, o) => {
+    calls.push(event);
+    if (event === 'plan_extract' && /協調/.test(o.user)) return { items: [{ kind: 'schedule', title: '跨部門協調', day: '週四', start: '14:00', end: '15:30', meeting: true }] };
+    if (event === 'plan_extract' && /隨便/.test(o.user)) return { items: [] };
+    if (event === 'plan_extract') return { items: [{ kind: 'task', title: 'AI 版的名稱', day: '週三' }] };
+    if (event === 'plan_edit') { const ref = (o.user.match(/(r\d+) 時段.*協調/) || [])[1]; return { ops: [{ op: 'edit', ref, day: '週五', start: '10:00' }, { op: 'add_task', title: '寄會議紀錄', day: '週五' }] }; }
+    throw new Error('?');
+  };
+  r = E.pdSay('週四下午兩點跟其他部門協調');
+  assert.ok(r.refine && E.state.planDraft.log.at(-1).pending, '排隊給 AI');
+  const lid = r.logId;
+  r = await E.pdRefine(lid);
+  const dr = E.state.planDraft;
+  const coord = dr.rows.find((x) => x.title === '跨部門協調');
+  assert.ok(coord && coord.end === '15:30' && coord.raid && !dr.rows.some((x) => x.title === '跟其他部門協調') && dr.log.find((l) => l.id === lid).by === 'ai', 'AI 的結果換掉速記：' + JSON.stringify(dr.rows));
+  r = E.pdSay('週三整理共用雲端');
+  E.pdEdit(dr.quests.find((x) => /雲端/.test(x.title)).id, { title: '整理共用雲端資料夾' });
+  await E.pdRefine(r.logId);
+  assert.ok(dr.quests.some((x) => x.title === '整理共用雲端資料夾') && !dr.quests.some((x) => x.title === 'AI 版的名稱'), '自己改過的不被 AI 蓋掉');
+  r = E.pdSay('隨便講講而已啦');
+  await E.pdRefine(r.logId);
+  assert.ok(!dr.quests.some((x) => /隨便/.test(x.title)), 'AI 說沒有要記的：拿掉整句變成的委託');
+  r = E.pdSay('週二 16:00 讀文件');
+  const before = dr.rows.length;
+  E.pdUndoLog(r.logId);
+  assert.ok(dr.rows.length === before - 1 && !dr.log.some((l) => l.id === r.logId), '撤銷一句');
+  // 大視窗：手動加、AI 改、復原、模式
+  r = E.pdAdd('reminder', { date: '2026-10-15', time: '17:00', title: '交週報' });
+  assert.ok(r.changed.length === 1 && r.planDraft.reminders.length === 1);
+  assert.throws(() => E.pdAdd('row', { title: '沒時間', date: '2026-10-14' }), /開始時間/);
+  r = await E.pdAiEdit('協調會改到週五早上十點，再加一個週五寄會議紀錄');
+  const moved = dr.rows.find((x) => x.title === '跨部門協調');
+  assert.ok(moved.date === '2026-10-16' && moved.start === '10:00' && moved.end === '11:30' && dr.quests.some((x) => x.title === '寄會議紀錄') && ev2(r) === 'pd_edit', 'AI 改（保留長度）：' + JSON.stringify(moved));
+  assert.ok(r.changed.includes(moved.id), '標出改了哪裡');
+  E.pdUndo();
+  assert.ok(dr.rows.find((x) => x.title === '跨部門協調').date === '2026-10-15', '復原 AI 的修改');
+  r = await E.pdAiEdit('協調會改到週五早上十點，再加一個週五寄會議紀錄');
+  E.config.llm.enabled = false;
+  r = await E.pdAiEdit('把那個改一下');
+  assert.strictEqual(ev2(r), 'pd_edit_off_none', 'AI 關著又看不懂');
+  r = await E.pdAiEdit('週四 11:00 打電話給印刷廠');
+  assert.ok(ev2(r) === 'pd_edit_off' && dr.rows.some((x) => x.title === '打電話給印刷廠'), 'AI 關著：用規則加新的');
+  assert.ok(E.pdView().conflicts.some((c) => /寫完週報/.test(c.text)), '會蓋掉計畫檔裡的委託');
+  // 寫進計畫檔（合併）
+  const gold0 = E.state.player.gold;
+  r = await E.pdCommit();
+  const txt = fs.readFileSync(path.join(dir, 'plan.md'), 'utf8');
+  const cp = P.parsePlan(txt);
+  assert.ok(cp.quests.some((x) => x.title === '寫完週報') && cp.quests.filter((x) => x.title === '寫完週報').length === 1 && cp.quests.some((x) => x.title === '寄會議紀錄'), txt);
+  assert.ok(cp.days.find((x) => x.date === '2026-10-12').rows.some((x) => x.a === '寫報告'), '原本的時段留著');
+  assert.ok(cp.days.find((x) => x.date === '2026-10-16').rows.some((x) => x.a === '跨部門協調' && x.raid), '團戰寫進去');
+  assert.ok(r.reward && E.state.player.gold === gold0 + 10 && !E.state.planDraft && ev2(r).startsWith('pd_done'), '一週一次的獎勵：' + JSON.stringify(r.reward));
+  assert.ok(E.view().quests.some((x) => x.title === '寄會議紀錄'), '任務板跟著換');
+  t += 60000; E.pdStart(); E.pdSay('週五前整理桌面');
+  r = await E.pdCommit();
+  assert.ok(!r.reward, '同一週第二次不給');
+  // 整份重寫
+  t += 60000; E.pdStart(); E.pdSay('週五前只做這件'); E.pdSetMode('rewrite');
+  await E.pdCommit();
+  assert.deepStrictEqual(P.parsePlan(fs.readFileSync(path.join(dir, 'plan.md'), 'utf8')).quests.map((x) => x.title), ['只做這件'], '整份重寫');
+  assert.ok(fs.readdirSync(path.join(dir, 'data', 'backups')).length >= 3, '每次寫進去之前都備份');
+  // 週四：先問哪一週 → 下週：寫成新檔，下週一才換上
+  t = new Date('2026-10-15T17:00:00').getTime();
+  r = E.pdStart();
+  assert.ok(r.ask && r.ask.map((o) => o.which).join() === 'this,next' && ev2(r) === 'pd_ask', '週四先問');
+  r = E.pdStart('next');
+  assert.ok(E.state.planDraft.week.start === '2026-10-19' && r.planDraft.target.kind === 'new' && !r.planDraft.target.switchNow, '下週：新檔');
+  E.pdSay('週一 9:00-10:00 下週的站會');
+  E.pdPause();
+  assert.ok(E.state.planDraft && !E.state.planDraft.active, '先存著');
+  r = E.pdStart();
+  assert.ok(ev2(r) === 'pd_resume' && E.state.planDraft.week.which === 'next', '接著寫');
+  r = await E.pdCommit();
+  const nf = path.join(dir, 'plans', '我的一週 10_19–10_23.md');
+  assert.ok(fs.existsSync(nf) && E.state.pendingPlan && E.state.pendingPlan.start === '2026-10-19' && ev2(r).startsWith('pd_done_next') && r.reward, '新檔＋排好換上：' + fs.readdirSync(path.join(dir, 'plans')));
+  assert.ok(E.planFile().endsWith('plan.md'), '這週的計畫還沒換');
+  assert.strictEqual(E.pdSwitchDue('2026-10-18'), null);
+  const sw = E.pdSwitchDue('2026-10-19');
+  assert.ok(sw && sw.event === 'pd_switched' && E.planFile() === nf && E.planSwitched && !E.state.pendingPlan, '週一換上');
+  // 丟掉
+  E.pdStart('this'); E.pdSay('週五前寫心得'); r = E.pdDiscard();
+  assert.ok(!E.state.planDraft && ev2(r) === 'pd_discard');
+  assert.throws(() => E.pdSay('x'), /筆記本/);
+  fs.rmSync(dir, { recursive: true, force: true });
+  // 7. 畫面：載入順序、IPC、大視窗只開放草稿
+  const root = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(root, 'src/renderer/index.html'), 'utf8');
+  assert.ok(html.indexOf('src="pdnote.js"') > html.indexOf('src="renderer.js"'), 'index.html');
+  const big = fs.readFileSync(path.join(root, 'src/renderer/plandraft.html'), 'utf8');
+  assert.ok(/Content-Security-Policy/.test(big) && /plandraft\.js/.test(big) && !/http/.test(big.replace(/http-equiv/g, '')), '大視窗：CSP、不連外');
+  const pre = fs.readFileSync(path.join(root, 'src/main/plandraft-preload.js'), 'utf8');
+  assert.ok(!/ipcRenderer\.(send|invoke)\(['"](?!pd:)/.test(pre), '大視窗只能叫 pd:*');
+  console.log('週計畫筆記本測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

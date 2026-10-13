@@ -36,6 +36,7 @@ const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 const F = require('./fortune'); // 🔮 今日運勢的文案
 const R = require('./raids'); // 📯 團戰（會議）：提醒、自動專注
 const CAL = require('./calendar'); // 📆 週末、台灣國定假日、請假
+const PD = require('./plandraft'); // 📓 用聊的寫週計畫
 const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建的「艾琳」換成現在的名字
 const OS = require('../renderer/opening-script'); // 🎬 開場：名字規則
 const SU = require('../renderer/stageup-script'); // 💗 好感升階動畫：哪幾階有、舊存檔補演
@@ -474,6 +475,7 @@ class Engine {
       focus: this.focusInfo(),
       raids: this.raidsView(), // 📯 今天起 7 天的團戰
       calendar: this.calendarView(), // 📆 今天放不放假、接下來的國定假日、請假
+      planDraft: this.pdView(), // 📓 用聊的寫週計畫（沒在寫＝null）
       divination: this.divineInfo(),
       fortune: this.fortuneToday(),
       affection: { cold: this.isCold(), fond: this.affOn() && this.affStage() >= 4, shows: this.showInfo() }, // 好感度本身不給畫面看；fond＝很熟了（待機會冒 ♡）；shows＝💗 頭上「!」要演哪一階、回憶相簿
@@ -1674,6 +1676,225 @@ class Engine {
   streakOn() { return (this.config.streak || {}).enabled !== false; }
   streakOpts() { const c = { ...(this.config.streak || {}) }; delete c.enabled; return { ...c, plan: this.plan, calendar: this.calOpts() }; }
 
+  // ---- 📓 用聊的寫週計畫：筆記本模式（每句先規則速記、AI 在背景整理）→ 大視窗確認（AI 改、自己改）→ 寫進計畫檔 ----
+  pdCfg() { return { xp: 20, gold: 10, ...(this.config.planDraft || {}) }; }
+  aiOn() { return !!(this.config.llm.enabled && this.npc.status && this.npc.status.online); }
+  pdCtx(d = this.state.planDraft) { const today = G.todayISO(this.now()); return { today, week: d ? d.week : PD.weekOf(today) }; }
+  pdLine(key, f = {}) { return { ...this.npc.template(key, f), event: key }; }
+  // 寫到哪裡：現在的計畫檔就是那一週的（或沒有日期、寫的是本週）→ 合併／整份重寫；不然開一份新的
+  pdTarget(d = this.state.planDraft) {
+    const today = G.todayISO(this.now());
+    const ws = d.week.start, we = PD.addDays(ws, 6);
+    const p = this.plan || {};
+    const editable = !this.legacy && !!this.planText;
+    const overlaps = p.weekStart && p.weekEnd && p.weekStart <= we && p.weekEnd >= ws;
+    if (editable && (overlaps || (!p.weekStart && d.week.which === 'this'))) return { kind: 'current', file: this.planFile(), title: p.title };
+    return { kind: 'new', title: `我的一週 ${d.week.label}`, switchNow: ws <= today };
+  }
+  pdView() {
+    const d = this.state.planDraft;
+    if (!d) return null;
+    let t = null;
+    try { t = this.pdTarget(d); } catch (_) { /* 計畫還沒載入 */ }
+    const v = PD.view(d, { offDay: (iso) => this.dayOff(iso), content: t && t.kind === 'current' ? this.planText : '', mode: d.mode || 'merge' });
+    return { ...v, today: G.todayISO(this.now()), mode: d.mode || 'merge', target: t ? { kind: t.kind, name: t.kind === 'current' ? path.basename(t.file) : `${t.title}.md`, switchNow: t.switchNow } : null, ai: this.aiOn() };
+  }
+  // 打開筆記本：有存著的就接著寫；週四以後沒說哪一週就先問
+  pdStart(which) {
+    const today = G.todayISO(this.now());
+    const old = this.state.planDraft;
+    if (old && (!which || which === old.week.which)) {
+      old.active = true;
+      this.saveState();
+      return { lines: [this.pdLine('pd_resume', { n: PD.view(old).count })], planDraft: this.pdView(), view: this.view() };
+    }
+    if (!which && PD.needAsk(today)) {
+      const opts = ['this', 'next'].map((w) => ({ which: w, ...PD.weekOf(today, w) }));
+      return { ask: opts, lines: [this.pdLine('pd_ask', { today: PD.dayLabel(today).split(' ')[0] })], view: this.view() };
+    }
+    const week = PD.weekOf(today, which || 'this');
+    this.state.planDraft = PD.blank(week, this.now().toISOString());
+    this.saveState();
+    return { lines: [this.pdLine('pd_open', { week: `${week.name}（${week.label}）` })], planDraft: this.pdView(), view: this.view() };
+  }
+  pdNeed() { const d = this.state.planDraft; if (!d) throw new Error('筆記本還沒打開'); return d; }
+  // 說一句：先用規則速記（馬上回），AI 開著就排隊請它再整理一次（main.js 呼叫 pdRefine）
+  pdSay(text) {
+    const d = this.pdNeed();
+    const said = String(text || '').trim().slice(0, 1200);
+    if (!said) throw new Error('沒有內容');
+    if (PD.isEnough(said)) return { lines: [this.pdLine(d.quests.length + d.rows.length + d.reminders.length ? 'pd_enough' : 'pd_enough_none')], planDraft: this.pdView(), view: this.view() }; // 「就這樣」：說完了
+    if (PD.isChatter(said)) return { lines: [], planDraft: this.pdView(), view: this.view() };
+    const ctx = this.pdCtx(d);
+    const logId = `l${d.seq++}`;
+    const ids = PD.addItems(d, PD.ruleExtract(said, ctx), logId);
+    const ai = this.aiOn();
+    d.log.push({ id: logId, said, at: this.now().toISOString(), ids, by: 'rule', pending: ai, text: PD.itemsText(d, ids) });
+    d.log = d.log.slice(-60);
+    d.active = true;
+    d.updatedAt = this.now().toISOString();
+    this.saveState();
+    const items = PD.itemsText(d, ids);
+    const onlyUnsure = ids.length && ids.every((id) => id.startsWith('u'));
+    const line = !ids.length ? (ai ? null : this.pdLine('pd_empty')) : this.pdLine(onlyUnsure ? 'pd_unsure' : 'pd_noted', { items });
+    return { lines: line ? [line] : [], logId, refine: ai, planDraft: this.pdView(), view: this.view() };
+  }
+  // AI 整理那一句：整理得出來就換掉速記的結果（冒險者自己改過的不動）；失敗就留著速記的
+  async pdRefine(logId) {
+    const d = this.state.planDraft;
+    const L = d && d.log.find((l) => l.id === logId);
+    if (!L || !L.pending) return null;
+    const ctx = this.pdCtx(d);
+    let items = null, err = '';
+    try { items = PD.normalizeAI(await this.npc.structured('plan_extract', { system: PD.EXTRACT_SYSTEM, user: PD.extractUser(L.said, ctx), schema: PD.EXTRACT_SCHEMA, maxTokens: 500 }), ctx); } catch (e) { err = e.name === 'AbortError' ? '太久了' : String(e.message).slice(0, 40); }
+    if (this.state.planDraft !== d || !d.log.includes(L)) return null; // 這段時間被撤銷或整份丟掉了
+    L.pending = false;
+    let line = null;
+    if (items && items.length) {
+      const touched = [...d.quests, ...d.rows, ...d.reminders, ...d.unsure].some((x) => x.log === logId && x.touched);
+      if (!touched) {
+        PD.removeLog(d, logId);
+        L.ids = PD.addItems(d, items, logId);
+        L.by = 'ai';
+        L.text = PD.itemsText(d, L.ids);
+      }
+    } else if (items && !L.ids.some((id) => { const h = PD.findItem(d, id); return !h || h.list !== 'quests' || h.item.due || h.item.touched || h.item.steps.length; })) {
+      // AI 說這句沒有要記的，規則只是把整句當成委託：聽 AI 的
+      PD.removeLog(d, logId); L.ids = []; L.text = ''; L.by = 'ai';
+    } else if (err) L.aiError = err;
+    if (!L.ids.length && (!items || !items.length)) line = this.pdLine('pd_empty'); // 規則和 AI 都看不出來
+    this.saveState();
+    return { logId, lines: line ? [line] : [], planDraft: this.pdView() };
+  }
+  pdUndoLog(logId) {
+    const d = this.pdNeed();
+    PD.removeLog(d, logId);
+    d.log = d.log.filter((l) => l.id !== logId);
+    this.saveState();
+    return { planDraft: this.pdView(), view: this.view() };
+  }
+  pdPause() {
+    const d = this.state.planDraft;
+    if (!d) return { lines: [], view: this.view() };
+    d.active = false;
+    this.saveState();
+    return { lines: [this.pdLine('pd_paused')], planDraft: this.pdView(), view: this.view() };
+  }
+  pdDiscard() {
+    this.state.planDraft = null;
+    this.saveState();
+    return { lines: [this.pdLine('pd_discard')], planDraft: null, view: this.view() };
+  }
+  pdReview() { const d = this.pdNeed(); return { lines: [this.pdLine('pd_review')], summary: PD.view(d).summary, planDraft: this.pdView() }; }
+  // 大視窗：自己改（每一步都可以復原）
+  pdChange(fn) {
+    const d = this.pdNeed();
+    PD.snapshot(d);
+    let res;
+    try { res = fn(d); } catch (e) { d.history.pop(); throw e; }
+    d.updatedAt = this.now().toISOString();
+    this.saveState();
+    return { ...(res && typeof res === 'object' ? res : {}), planDraft: this.pdView() };
+  }
+  pdEdit(id, fields) { return this.pdChange((d) => { PD.editItem(d, String(id), fields || {}); return { changed: [id] }; }); }
+  pdRemove(id) { return this.pdChange((d) => { if (!PD.removeItem(d, String(id))) throw new Error('找不到這一項'); return {}; }); }
+  pdAdd(kind, f = {}) {
+    return this.pdChange((d) => {
+      const it = kind === 'row' ? { kind: 'row', date: f.date, start: f.start, end: f.end || '', title: String(f.title || '').trim(), raid: !!f.raid }
+        : kind === 'reminder' ? { kind: 'reminder', date: f.date, time: f.time, title: String(f.title || '').trim() }
+          : { kind: 'quest', title: String(f.title || '').trim(), tier: f.tier || 'major', tierSet: true, due: f.due || '', steps: (f.steps || []).map((x) => String(x).trim()).filter(Boolean) };
+      if (!it.title) throw new Error('要有名稱');
+      const ids = PD.addItems(d, [it], null);
+      if (!ids.length) throw new Error(kind === 'row' ? '要有日期和開始時間' : '加不進去');
+      for (const id of ids) { const h = PD.findItem(d, id); if (h) h.item.touched = true; }
+      return { changed: ids };
+    });
+  }
+  pdResolve(id, as, f) { return this.pdChange((d) => ({ changed: PD.resolveUnsure(d, String(id), as, f || {}) })); }
+  pdUndo() {
+    const d = this.pdNeed();
+    if (!PD.undo(d)) throw new Error('沒有可以復原的了');
+    this.saveState();
+    return { planDraft: this.pdView() };
+  }
+  pdSetMode(mode) { const d = this.pdNeed(); d.mode = mode === 'rewrite' ? 'rewrite' : 'merge'; this.saveState(); return { planDraft: this.pdView() }; }
+  // 大視窗：跟艾琳說要怎麼改。AI 開著 → 回變更；沒開或回不出來 → 用規則把新的事加上去
+  async pdAiEdit(text) {
+    const d = this.pdNeed();
+    const said = String(text || '').trim().slice(0, 300);
+    if (!said) throw new Error('沒有內容');
+    const ctx = this.pdCtx(d);
+    PD.snapshot(d);
+    let changed = [], parts = [], usedAI = false;
+    if (this.aiOn()) {
+      try {
+        const r = PD.applyEdits(d, await this.npc.structured('plan_edit', { system: PD.EDIT_SYSTEM, user: PD.editUser(d, said, ctx), schema: PD.EDIT_SCHEMA, maxTokens: 400 }), ctx);
+        changed = r.changed; parts = r.said; usedAI = true;
+      } catch (_) { /* 退回規則 */ }
+    }
+    if (!changed.length && !parts.length && !/改|移到|換到|挪到|刪|拿掉|取消|延到|延後|提前|調到|不要了/.test(said)) { // 要改舊的、AI 又沒弄懂：不要把這句當成新的一件事
+      changed = PD.addItems(d, PD.ruleExtract(said, ctx), null);
+      if (changed.length) parts = [PD.itemsText(d, changed)];
+    }
+    if (!changed.length && !parts.length) d.history.pop(); // 什麼都沒改：不留復原點
+    this.saveState();
+    const key = parts.length ? (usedAI ? 'pd_edit' : (this.aiOn() ? 'pd_edit' : 'pd_edit_off')) : (this.aiOn() ? 'pd_edit_none' : 'pd_edit_off_none');
+    return { changed, lines: [this.pdLine(key, { changes: parts.join('、') })], planDraft: this.pdView() };
+  }
+  // 寫進計畫檔：合併（重複的覆蓋）或整份重寫；新的一週開新檔（下週的先存著，那週一自動換上）
+  async pdCommit() {
+    const d = this.pdNeed();
+    const v = PD.view(d);
+    if (!v.count || v.count === d.unsure.length) throw new Error('筆記本裡還沒有可以寫的東西');
+    const t = this.pdTarget(d);
+    let replaced = [], file;
+    if (t.kind === 'current') {
+      this.requireEditable();
+      this.backedUp = false; // 一次寫進很多東西：每次都先備份
+      if (d.mode === 'rewrite') this.writePlan(PD.toMarkdown(d, { title: t.title || undefined }));
+      else { const m = PD.merge(this.planText, d, this.now()); replaced = m.replaced; this.writePlan(m.content); }
+      file = t.file;
+    } else {
+      const dir = path.join(this.userDir, 'plans');
+      fs.mkdirSync(dir, { recursive: true });
+      const base = t.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+      file = path.join(dir, `${base}.md`);
+      if (fs.existsSync(file) && d.mode !== 'rewrite') { // 那一週的檔案已經有了（例如先寫過一次）：合併進去
+        const m = PD.merge(fs.readFileSync(file, 'utf8'), d, this.now());
+        replaced = m.replaced;
+        fs.writeFileSync(file, m.content, 'utf8');
+      } else fs.writeFileSync(file, PD.toMarkdown(d, { title: t.title }), 'utf8');
+      if (t.switchNow) { this.usePlanFile(file); this.planSwitched = true; } else this.state.pendingPlan = { file, start: d.week.start, title: t.title };
+    }
+    // 一週一次的小獎勵
+    const c = this.pdCfg();
+    this.state.pdDone = this.state.pdDone || {};
+    let reward = null;
+    if (!this.state.pdDone[d.week.start]) {
+      this.state.pdDone[d.week.start] = this.now().toISOString();
+      reward = G.grant(this.state, { xp: c.xp, gold: c.gold }, `寫好週計畫（${d.week.label}）`, this.config.rewards, this.now());
+      this.workDone = true;
+    }
+    for (const k of Object.keys(this.state.pdDone)) if (k < PD.addDays(G.todayISO(this.now()), -120)) delete this.state.pdDone[k];
+    this.state.planDraft = null;
+    this.saveState();
+    const later = t.kind === 'new' && !t.switchNow;
+    const lines = [this.pdLine(later ? 'pd_done_next' : 'pd_done', { summary: v.summary.replace(/、\d+ 件不確定$/, ''), week: d.week.name, start: PD.dayLabel(d.week.start) })];
+    if (reward && reward.levelUp) lines.push({ ...this.npc.template('levelup', { level: reward.levelUp.level, title: reward.levelUp.title }), event: 'levelup' });
+    return this.settle({ reward, lines, file, replaced, skipped: d.unsure.length, planDraft: null, view: this.view() });
+  }
+  // 先寫好的下週計畫：到了那一週就換上
+  pdSwitchDue(today) {
+    const p = this.state.pendingPlan;
+    if (!p || today < p.start) return null;
+    delete this.state.pendingPlan;
+    if (!fs.existsSync(p.file)) return null;
+    this.usePlanFile(p.file);
+    this.planSwitched = true;
+    this.saveState();
+    return this.pdLine('pd_switched', { title: p.title });
+  }
+
   // ---- 📆 週末、國定假日、請假 ----
   calOpts() {
     const c = { ...CAL.DEFAULTS, ...(this.config.calendar || {}) };
@@ -2088,6 +2309,7 @@ class Engine {
       }
     }
     out.push(...this.raidTick(now, today)); // 📯 團戰
+    const sw = this.pdSwitchDue(today); if (sw) out.push(sw); // 📓 先寫好的下週計畫：那週一換上
     for (const d of this.plan.decisions) {
       if (this.ps.decisionsShown[d.id]) continue;
       const at = new Date(d.at);

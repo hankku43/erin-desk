@@ -1002,6 +1002,7 @@ async function sendChat() {
   const inp = $('#chatInput');
   const text = inp.value.trim();
   if (!text || state.talking) return;
+  if (typeof pdChat === 'function' && await pdChat(text)) return; // 📓 筆記本模式／「幫我排這週」
   if (DV_RE.test(text) && !/(是什麼|什麼是|怎麼算|原理|準不準)/.test(text)) { inp.value = ''; openPanel('divine', { question: questionFromChat(text) }); return; }
   inp.value = ''; inp.placeholder = CHAT_HINT;
   logPush('me', text); logRefresh();
@@ -1027,6 +1028,7 @@ function openPanel(kind, arg) {
 }
 function closePanel() {
   cancelAnimationFrame(state.dvRaf);
+  if (state.panel === 'pdNote' && typeof pdOnClose === 'function') pdOnClose(); // 📓 收起筆記本＝先存著
   const wasForm = FORM_PANELS.has(state.panel);
   state.panel = null; state.panelBack = null; state.confirmDel = null; state.addingObj = null;
   document.body.classList.remove('panel-open');
@@ -1083,7 +1085,7 @@ function renderPanelInner(el, v) {
     return;
   }
   if (state.panel === 'board') {
-    const addBtn = v.editable && state.boardTab === 'quests' ? '<button class="tab add" data-new="quest" title="登記一筆新委託">＋ 新任務</button>' : '';
+    const addBtn = v.editable && state.boardTab === 'quests' ? `<button class="tab add" data-new="quest" title="登記一筆新委託">＋ 新任務</button><button class="tab add" data-pd-open title="跟${esc(v.npc.name)}用聊的寫這週（或下週）的計畫">📓 用聊的排</button>` : '';
     const tabs = `<div class="tabs"><button class="tab ${state.boardTab === 'quests' ? 'on' : ''}" data-tab="quests">任務</button><button class="tab ${state.boardTab === 'hist' ? 'on' : ''}" data-tab="hist">紀錄</button>${addBtn}</div>`;
     let body = '';
     if (state.boardTab === 'quests') {
@@ -1155,7 +1157,7 @@ function renderPanelInner(el, v) {
       }).join('') + '</div>';
     }
     // 標題列只放標題；新增、團戰、請假、匯入匯出放到下面一列工具列（以前全部擠在標題列，Windows 的字比較寬，按鈕會斷成兩行）
-    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><span class="tool-sep" aria-hidden="true"></span><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="btn small tool" data-lv-open data-tip="請假、看接下來的國定假日">🌴 請假</button>` : ''}<span class="spacer"></span>${v.editable ? '<button class="btn small tool ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="btn small tool ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
+    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><span class="tool-sep" aria-hidden="true"></span><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消">📯 團戰</button><button class="btn small tool" data-lv-open data-tip="請假、看接下來的國定假日">🌴 請假</button><button class="btn small tool ico" data-pd-open data-tip="用聊的寫週計畫：跟${esc(v.npc.name)}說這週要做什麼，她記成表格給你確認" aria-label="用聊的寫週計畫">📓</button>` : ''}<span class="spacer"></span>${v.editable ? '<button class="btn small tool ico" data-new="ics-in" data-tip="匯入行事曆：把 Google／Outlook 匯出的 .ics 檔加進本週行程" aria-label="匯入行事曆">📥</button>' : ''}<button class="btn small tool ico" data-new="ics-out" data-tip="匯出行事曆：把本週的時段、提醒、截止日匯出成 .ics，給 Google／Outlook 匯入" aria-label="匯出行事曆">📤</button></div>`;
     el.innerHTML = head('📅 今日行程', '', '', '勾完一格 +10 XP。時段是那一天要做的事、提醒是到時候來叫你；團戰（會議）開始時會自動專注；📥📤 可以跟 Google／Outlook 行事曆互通（.ics 檔）') + tools + `<div class="panel-body">${body}</div>`;
   }
 
@@ -1226,6 +1228,7 @@ function renderPanelInner(el, v) {
   if (state.panel === 'raids') renderRaids(el, v);
   if (state.panel === 'raidForm') renderRaidForm(el, v);
   if (state.panel === 'leave') renderLeave(el, v);
+  if (state.panel === 'pdNote') renderPdNote(el, v); // 📓 用聊的寫週計畫
   if (state.panel === 'ach') renderAch(el, v);
   if (state.panel === 'album') Story.renderAlbum(el, v); // 🎬 回憶相簿
 
@@ -1361,6 +1364,8 @@ async function panelClick(e) {
   if (state.panel === 'shop' && await shopClick(e)) return;
   if (['raids', 'raidForm', 'daily'].includes(state.panel) && await raidsClick(e)) return;
   if (['leave', 'daily'].includes(state.panel) && await leaveClick(e)) return;
+  if (state.panel === 'pdNote' && await pdNoteClick(e)) return;
+  if (t.closest('[data-pd-open]')) { openPdNote(); return; } // 任務板、今日行程上的「📓 用聊的排」
   if (state.panel === 'ach' && await achClick(e)) return;
   if (state.panel === 'album' && await Story.albumClick(e)) return;
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
@@ -1497,6 +1502,7 @@ api.on('ui:open', (kind) => {
   if (kind === 'journal') { openJournal(); return; }
   if (kind === 'shop') { openShop(); return; }
   if (kind === 'collection') { openCollection('ach'); return; }
+  if (kind === 'pdNote') { openPdNote(); return; }
   openPanel(kind); if (kind === 'daily') run(() => api.daily(), { talk: true });
 });
 
