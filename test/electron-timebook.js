@@ -125,6 +125,33 @@ module.exports = ({ win, engine, pdWin, pdOpen }) => {
       assert(await js(`!document.querySelector('#sum') && /個委託/.test(document.querySelector('#weeks .on').dataset.tip)`), '摘要進了分頁的說明小卡');
       assert(await js(`[...document.querySelectorAll('.ph .hint')].length === 0 && document.querySelectorAll('h2 .info[data-tip]').length === 2`), '頁首說明收進 ⓘ');
       await shot('tb07b_warn_jump', bw);
+      // 10/14 N：頂欄底下只有一條通知列；紅筆一個就直接寫，兩個以上收成「⚠ N 個要注意 ▾」
+      assert(await js(`!!document.querySelector('#warns .wl') && !document.querySelector('#warns .wsum') && !document.querySelector('#alerts').classList.contains('hidden')`), '一個紅筆：直接寫在通知列');
+      const r2 = view().rows.find((x) => x.start && x.date === '2026-10-16' && x.st === 'new'); // 紅筆只圈這次新加／改過的格：拿週五那格
+      const plus30 = (hm) => { const [h, m] = hm.split(':').map(Number); const t = h * 60 + m + 30; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
+      engine.addRaid({ title: '客戶來訪', date: r2.date, start: r2.start, end: plus30(r2.start) });
+      bw.webContents.send('pd:update', { planDraft: engine.pdView() }); await wait(400);
+      const ws = await js(`(() => { const s = document.querySelector('#warns .wsum'); return { t: s ? s.textContent : '', closed: document.querySelector('#warns .wmenu').classList.contains('hidden'), n: document.querySelectorAll('#warns .wmenu [data-warn]').length }; })()`);
+      const nW = view().checks.length;
+      assert(nW >= 2 && new RegExp(`${nW} 個要注意`).test(ws.t) && ws.closed && ws.n === nW && /撞時間/.test(await text('#warns')), '兩個以上的紅筆收成一顆：' + JSON.stringify(ws));
+      await js(`document.querySelector('#warns .wsum').click(); 0`); await wait(200);
+      assert(await js(`(() => { const m = document.querySelector('#warns .wmenu'); const r = m.getBoundingClientRect(); return !m.classList.contains('hidden') && r.right <= innerWidth && r.left >= 0 && document.querySelector('#warns .wsum').getAttribute('aria-expanded') === 'true'; })()`), '點開：清單在視窗裡');
+      await shot('tb07c_warn_menu', bw);
+      await js(`document.querySelector('#bar .ttl').click(); 0`); await wait(150);
+      assert(await js(`document.querySelector('#warns .wmenu').classList.contains('hidden')`), '點外面收起來');
+      await js(`document.querySelector('#warns .wsum').click(); 0`); await wait(150);
+      await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); 0`); await wait(150);
+      assert(await js(`document.querySelector('#warns .wmenu').classList.contains('hidden')`), 'Esc 收起來');
+      await js(`document.querySelector('#warns .wsum').click(); 0`); await wait(150);
+      await js(`[...document.querySelectorAll('#warns .wmenu [data-warn]')].find((b) => /評審會/.test(b.textContent)).click(); 0`); await wait(500);
+      assert(/四/.test(await text('#dayTabs .on')) && (await js(`document.querySelector('#warns .wmenu').classList.contains('hidden') && !!document.querySelector('.lanes .blk.hl')`)), '清單裡點一條：翻過去、清單收起來');
+      // 按「寫進計畫檔」：通知列只放確認（確認裡會說還有幾個紅筆），按「再看看」紅筆回來
+      await js(`document.querySelector('#bCommit').click(); 0`); await wait(200);
+      const cf = await js(`(() => { const al = document.querySelector('#alerts'); return { confirming: al.classList.contains('confirming'), warns: getComputedStyle(document.querySelector('#warns')).display, conf: !document.querySelector('#confirm').classList.contains('hidden'), t: document.querySelector('#confirm').textContent }; })()`);
+      assert(cf.confirming && cf.warns === 'none' && cf.conf && new RegExp(`${nW} 個紅筆`).test(cf.t), '確認時只有確認：' + JSON.stringify(cf));
+      await shot('tb07d_confirm', bw);
+      await js(`document.querySelector('[data-nogo]').click(); 0`); await wait(200);
+      assert(await js(`!document.querySelector('#alerts').classList.contains('confirming') && getComputedStyle(document.querySelector('#warns')).display !== 'none'`), '再看看：紅筆回來');
       // 12. 10/13 主視窗藏著的時候，艾琳的提醒也送到筆記本：泡泡＋上面的提醒條；團戰開始 → 倒數
       const noticeOn = () => js(`!document.querySelector('#notice').classList.contains('hidden')`);
       assert(!(await noticeOn()), '一開始沒有提醒條');
@@ -135,6 +162,8 @@ module.exports = ({ win, engine, pdWin, pdOpen }) => {
       engine.onSpeech([{ text: '📯 「週會」開始了，專注到 10:30！', emotion: 'cheer', event: 'raid_start' }]); await wait(300);
       assert(/週會・還剩 30 分（到 10:30）/.test(await text('#noticeFocus')), '團戰倒數：' + await text('#noticeFocus'));
       await shot('tb08_notice', bw);
+      const oneRow = await js(`(() => { const n = document.querySelector('#notice').getBoundingClientRect(), w = document.querySelector('#warns').getBoundingClientRect(), al = document.querySelector('#alerts').getBoundingClientRect(); return { same: Math.abs((n.top + n.bottom) / 2 - (w.top + w.bottom) / 2) < 4 && w.left >= n.right, h: Math.round(al.height) }; })()`);
+      assert(oneRow.same && oneRow.h <= 44, '提醒＋倒數和紅筆在同一行：' + JSON.stringify(oneRow));
       await js(`document.querySelector('#noticeClose').click(); 0`); await wait(200);
       assert((await noticeOn()) && !(await text('#noticeText')) && /還剩 30 分/.test(await text('#noticeFocus')), '✕ 只收掉提醒的字，倒數留著');
       engine.onSpeech([{ text: '（她自己找話聊）', emotion: 'normal', ambient: true }]); await wait(200);

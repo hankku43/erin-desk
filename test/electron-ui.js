@@ -82,9 +82,9 @@ module.exports = ({ win, engine, app }) => {
 
       // 3b. 今日行程：標題列只有標題，按鈕在下面的工具列；字寬多 15%（Windows 的字比較寬）也不會把按鈕拆成兩行
       await click('[data-act=daily]'); await wait(600); await flush();
-      // 10/13：工具列只剩四顆有字的（時段、提醒、團戰、筆記本↗）；請假、匯入匯出在 ⋯；收工回報是清單最下面一條
+      // 10/13：工具列都有字；請假、匯入匯出在 ⋯；收工回報是清單最下面一條。10/14 D：時段＋提醒併成「＋ 加一件事」→ 三顆（加一件事、團戰、筆記本↗）
       const tb = await js(`(() => { const bs = [...document.querySelectorAll('#panel .panel-tools > .btn')]; return { n: bs.length, text: bs.map((b) => b.textContent.trim()), worded: bs.every((b) => /[\\u4e00-\\u9fff]/.test(b.textContent)), head: !!document.querySelector('#panel .panel-head [data-new]'), menu: document.querySelectorAll('#panel .tool-menu [role=menuitem]').length, wrap: (document.querySelector('#panel .panel-foot .wrap-row[data-report-open]') || {}).textContent || '' }; })()`);
-      assert(!tb.head && tb.n === 4 && tb.worded && /筆記本↗/.test(tb.text.join('')) && tb.menu === 3 && /收工回報/.test(tb.wrap), '工具列四顆有字＋⋯三項＋收工回報在最下面：' + JSON.stringify(tb));
+      assert(!tb.head && tb.n === 3 && tb.worded && /加一件事/.test(tb.text[0]) && /筆記本↗/.test(tb.text.join('')) && tb.menu === 3 && /收工回報/.test(tb.wrap), '工具列三顆有字＋⋯三項＋收工回報在最下面：' + JSON.stringify(tb));
       await click('[data-tool-more]'); await wait(150);
       assert(await js(`!document.querySelector('#panel .tool-menu').classList.contains('hidden') && document.querySelector('#panel .tool-menu').getBoundingClientRect().right <= window.innerWidth`), '⋯ 打開、不超出視窗');
       await shot('u03a_daily_more');
@@ -96,7 +96,45 @@ module.exports = ({ win, engine, app }) => {
       assert(hd.h < 46 && !hd.tall.length, '標題列一行、按鈕不拆兩行：' + JSON.stringify(hd));
       await wc.removeInsertedCSS(wide);
       await shot('u03b_daily');
+      // 10/14 D：＋ 加一件事 —— 最上面選種類；三種都是「做什麼 → 哪天幾點 → 選項」；換種類時已填的帶過去
+      await click('[data-new="row"]'); await wait(400);
+      const order = (ids) => js(`(() => { const all = [...document.querySelectorAll('#panel .panel-body input, #panel .panel-body select')].map((x) => x.id); const ix = ${JSON.stringify(ids)}.map((id) => all.indexOf(id)); return ix.every((v, i) => v >= 0 && (i === 0 || v > ix[i - 1])) && !!document.querySelector('#panel .kind-pick + .field input#' + ${JSON.stringify(ids[0])}); })()`);
+      assert((await js(`[...document.querySelectorAll('#panel .kind-pick [data-add-kind]')].map((b) => b.textContent.trim() + (b.classList.contains('on') ? '*' : '')).join()`)) === '⏱ 時段*,⏰ 提醒,📯 團戰', '種類切換三顆、時段亮著');
+      assert(await order(['rfText', 'rfDate', 'rfStart', 'rfEnd', 'rfOut']), '時段：做什麼 → 哪天幾點 → 產出');
+      await js(`document.querySelector('#rfText').value = '跟廠商確認規格'; document.querySelector('#rfDate').value = '2026-10-15'; document.querySelector('#rfStart').value = '14:00'; document.querySelector('#rfEnd').value = '15:30'; 0`);
+      await shot('u03c_add_row');
+      await click('[data-add-kind="remForm"]'); await wait(300);
+      assert(await order(['mfText', 'mfDate', 'mfTime', 'mfAction']), '提醒：做什麼 → 哪天幾點 → 到時怎麼做');
+      assert((await js(`[document.querySelector('#mfText').value, document.querySelector('#mfDate').value, document.querySelector('#mfTime').value, document.activeElement.id].join('|')`)) === '跟廠商確認規格|2026-10-15|14:00|mfText', '換成提醒：做什麼、哪天、幾點帶過去');
+      await shot('u03d_add_rem');
+      await click('[data-add-kind="raidForm"]'); await wait(300);
+      assert(await order(['rdTitle', 'rdDate', 'rdStart', 'rdEnd', 'rdRepeat']), '團戰：做什麼 → 哪天幾點 → 重複');
+      assert((await js(`[document.querySelector('#rdTitle').value, document.querySelector('#rdDate').value, document.querySelector('#rdStart').value, document.querySelector('#rdEnd').value].join('|')`)) === '跟廠商確認規格|2026-10-15|14:00|15:00', '換成團戰：帶過去（結束沒有就 +1 小時）');
+      assert(/加一件事/.test(await js(`document.querySelector('#panel .panel-head h2').textContent`)), '團戰新增也是「＋ 加一件事」');
+      await shot('u03e_add_raid');
+      await click('[data-add-kind="rowForm"]'); await wait(300);
+      assert((await js(`document.querySelector('#rfText').value + '|' + document.querySelector('#rfStart').value`)) === '跟廠商確認規格|14:00', '換回時段');
+      await click('#panel [data-back]'); await wait(300);
+      assert((await js(`state.panel`)) === 'daily', '取消回到今日行程');
+      await click('[data-rd-list]'); await wait(300); await click('[data-rd-new]'); await wait(300);
+      assert((await js(`document.querySelector('#rdTitle').value === '' && document.querySelector('#panel .kind-pick [data-add-kind="raidForm"].on') !== null`)), '團戰清單的「＋ 新團戰」：空白表單、團戰亮著');
+      await click('#panel [data-back]'); await wait(300);
+      assert((await js(`state.panel`)) === 'raids', '取消回到團戰清單');
       await home();
+      // 10/14 G：面板開著時成就小卡從標題列下面開始排，不蓋標題
+      await click('[data-act=board]'); await wait(500);
+      await js(`showAchievements([{ icon: '🏅', name: '測試成就', gold: 5 }, { icon: '🎖', name: '第二個', gold: 3 }]); document.querySelectorAll('.ach-pop').forEach((x) => { x.style.animation = 'none'; }); 0`); await wait(100);
+      const ap = await js(`(() => { const h = document.querySelector('#panel .panel-head').getBoundingClientRect(); return [...document.querySelectorAll('.ach-pop')].map((x) => Math.round(x.getBoundingClientRect().top - h.bottom)); })()`);
+      assert(ap.length === 2 && ap.every((d) => d >= 4), '成就小卡在標題列下面：' + JSON.stringify(ap));
+      await shot('u03f_ach_below_head');
+      await js(`document.querySelectorAll('.ach-pop').forEach((x) => x.remove()); 0`);
+      await home();
+      // 10/14 L：聊天提案卡不再問一次「要照這樣更新嗎？」（問句在泡泡裡）
+      await js(`showProposal({ items: [{ label: '勾選「整理會議紀錄」' }, { label: '把「寫週報」改到週五' }] }); 0`); await wait(200);
+      const ppt = await js(`document.querySelector('#proposal .pp-title').textContent`);
+      assert(/整理的變更/.test(ppt) && !/[？?]/.test(ppt) && /取消勾選/.test(ppt), '提案卡標題：' + ppt);
+      await shot('u03g_proposal');
+      await js(`showProposal(null); 0`);
 
       // 4. 雜貨舖：雙胞胎說話時艾琳不出聲；只剩三個分頁；星座卡拿到的大張、沒拿到的小張
       await click('[data-act=shop]'); await wait(900);
@@ -109,7 +147,8 @@ module.exports = ({ win, engine, app }) => {
       await click('[data-sp-tab=cards]'); await wait(200);
       await js(`api.shopOpen().then((r) => { state.sp.data = r.shop; renderPanel(); }); 0`); await wait(400);
       const stall1 = await js(`document.querySelector('.sp-stall.compact') ? document.querySelector('.sp-stall.compact').getBoundingClientRect().height : 0`);
-      assert(stall0 >= 120 && stall1 > 0 && stall1 <= 50 && (await js(`!!document.querySelector('.sp-stall.compact .st-say span') && document.querySelector('.sp-stall.compact .tw-bust.on').getBoundingClientRect().height < 90`)), `招牌縮成一行：${stall0} → ${stall1}`);
+      assert(stall0 >= 120 && stall1 > 0 && stall1 <= 50 && (await js(`!!document.querySelector('.sp-stall.compact .st-say span') && document.querySelector('.sp-stall.compact .st-busts').getBoundingClientRect().height <= 40 && getComputedStyle(document.querySelector('.sp-stall.compact .tw-bust.back')).display === 'none'`)), `招牌縮成一行：${stall0} → ${stall1}`);
+      await shot('u04b_shop_compact'); // 10/14 M：縮成一行的店員只剩一顆圓頭像
       assert((await js(`getComputedStyle(document.querySelector('.co-cards.miss')).gridTemplateColumns.split(' ').length`)) === 8, '沒拿到的一排八張');
       const ex = await js(`[...document.querySelectorAll('[data-co-ex]')].length`), cheap = await js(`state.sp.data.cards.cards.filter((x) => !x.count && x.cost <= 25).length`);
       assert(ex === cheap && ex > 0, `星屑夠的才有「換」：${ex}／${cheap}`);

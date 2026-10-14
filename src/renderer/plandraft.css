@@ -73,22 +73,32 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .menu button { display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 7px 10px; border-radius: 8px; }
 .menu button:hover { background: rgba(255, 226, 60, .35); }
 
-/* ---- 寫入前確認、紅筆警告 ---- */
-.confirm { margin: 8px 14px 0; padding: 8px 12px; background: #fffbe8; border: 2px solid var(--gold); border-radius: var(--wobble-2); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* ---- 通知列（10/14 N）：寫入前確認／⏰ 提醒＋倒數／紅筆警告 共用頂欄底下的一條 ---- */
+.alerts { margin: 8px 14px 0; display: flex; align-items: center; gap: 10px; min-height: 0; }
+.alerts.confirming > :not(.confirm) { display: none; }
+.alerts > .confirm { flex: 1; }
+.confirm { padding: 8px 12px; background: #fffbe8; border: 2px solid var(--gold); border-radius: var(--wobble-2); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .confirm .grow { flex: 1; }
 .confirm small { color: var(--ink-soft); }
 /* ⏰ 提醒條：艾琳的提醒最新一句＋團戰／專注倒數（主視窗藏著時也看得到） */
-.notice { margin: 8px 14px 0; padding: 5px 8px 5px 12px; background: var(--rem); border: 2px solid var(--orange); border-radius: var(--wobble-2); display: flex; align-items: center; gap: 10px; font-weight: 700; }
+.notice { flex: 1 1 auto; min-width: 0; padding: 5px 8px 5px 12px; background: var(--rem); border: 2px solid var(--orange); border-radius: var(--wobble-2); display: flex; align-items: center; gap: 10px; font-weight: 700; }
 .notice .nf { flex: none; background: var(--raid); border: 1.5px solid var(--pen); border-radius: 999px; padding: 1px 10px; font-size: var(--fs-s); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .notice .nt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notice .nx { border: none; background: transparent; padding: 2px 6px; font-weight: 700; color: var(--ink-soft); border-radius: 8px; }
 .notice .nx:hover { background: rgba(44, 47, 76, .1); color: var(--ink); }
 /* 10/13 H：紅筆警告每條都能點 → 翻到那本、那天，亮一下那格 */
-.warns { margin: 8px 14px 0; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
-.warns button { border: none; background: transparent; padding: 1px 6px 1px 4px; border-radius: 6px; text-align: left; font-size: var(--fs-s); color: var(--red); font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
-.warns button::before { content: '✎ '; }
-.warns button::after { content: ' ↗'; font-size: var(--fs-xs); opacity: .7; }
-.warns button:hover { background: rgba(214, 58, 78, .1); }
+.warns { position: relative; flex: 0 1 auto; min-width: 0; max-width: 60%; display: flex; }
+.notice.hidden + .warns { max-width: 100%; }
+.warns .wl { border: none; background: transparent; padding: 1px 6px 1px 4px; border-radius: 6px; text-align: left; font-size: var(--fs-s); color: var(--red); font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.warns .wl::before { content: '✎ '; }
+.warns .wl::after { content: ' ↗'; font-size: var(--fs-xs); opacity: .7; }
+.warns .wl:hover { background: rgba(214, 58, 78, .1); }
+.warns .wsum { flex: none; border: 2px solid var(--red); background: #fff1f2; color: var(--red); font-weight: 700; font-size: var(--fs-s); padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
+.warns .wsum:hover, .warns .wsum[aria-expanded="true"] { background: #ffe1e5; }
+.warns .wsum .caret { font-size: var(--fs-xs); }
+.warns .wmenu { position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; background: #fffdf6; border: 2px solid var(--pen); border-radius: 10px; box-shadow: 4px 6px 0 rgba(44, 47, 76, .2); padding: 4px; min-width: 280px; max-width: min(520px, 80vw); display: flex; flex-direction: column; gap: 2px; }
+.notice:not(.hidden) + .warns .wmenu { left: auto; right: 0; }
+.warns .wmenu .wl { white-space: normal; padding: 5px 8px; }
 /* ⓘ：頁面的固定說明收在標題旁邊，滑過才看 */
 h2 .info { font-style: normal; font-size: var(--fs-s); font-weight: 400; color: var(--ink-soft); margin-left: 6px; cursor: help; background: none; }
 h2 .info:hover { color: var(--ink); }
@@ -113,8 +123,10 @@ h2 span { background: linear-gradient(transparent 62%, var(--hl) 62%); padding: 
 .dcol:nth-child(even) { border-radius: var(--wobble-2); }
 .dcol.off { background: repeating-linear-gradient(45deg, rgba(255, 253, 246, .92) 0 9px, rgba(120, 120, 170, .14) 9px 11px); }
 .dcol.none { background: rgba(255, 249, 232, .92); border-style: dashed; }
-.dcol .dbody { flex: 1; display: flex; flex-direction: column; gap: 2px; padding-top: 12px; }
-.dcol > .add { align-self: center; margin-top: 6px; }
+.dcol .dbody { flex: 1; display: flex; flex-direction: column; gap: 2px; padding-top: 8px; }
+/* 10/14 J：每欄的 ＋ 在欄頭下面一條細虛線（平常淡、滑過欄或 ＋ 才清楚） */
+.dcol > .col-add { align-self: stretch; margin: 6px 2px 0; padding: 0; height: 22px; line-height: 18px; border-width: 1.5px; border-color: var(--line); color: var(--ink-soft); opacity: .6; transition: opacity .15s, border-color .15s; }
+.dcol:hover > .col-add, .dcol > .col-add:hover, .dcol > .col-add:focus-visible { opacity: 1; border-color: var(--pen); }
 .dcol.today .dh b { background: linear-gradient(transparent 55%, var(--hl) 55%); padding: 0 1px; }
 .dcol.today .dh .date { font-size: var(--fs-xs); } /* 10/13 「週二 今天 10/13」在最窄的欄（112px）也放得下一行 */
 .dcol.today .dh b::after { content: '今天'; display: inline-block; font-size: var(--fs-xs); color: var(--gold-ink); margin-left: 3px; vertical-align: 1px; } /* 10/13 跟「週三」同一行，不會擠成兩行 */

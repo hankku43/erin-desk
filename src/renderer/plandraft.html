@@ -25,10 +25,12 @@
       <button class="tb gold" id="bCommit">✔ 寫進<span class="lg">計畫檔</span><span class="sh">去</span></button>
       <button class="tb x" id="bClose" aria-label="收起來" data-tip="收起筆記本（修改會留著，下次接著寫）">✕</button>
     </header>
-    <div id="confirm" class="confirm hidden"></div>
-    <!-- ⏰ 艾琳的提醒、📯 團戰倒數：主視窗藏著的時候也看得到 -->
-    <div id="notice" class="notice hidden" role="status"><span id="noticeFocus" class="nf hidden"></span><span id="noticeText" class="nt"></span><span class="grow"></span><button class="nx hidden" id="noticeClose" aria-label="知道了" data-tip="知道了">✕</button></div>
-    <div id="warns" class="warns hidden"></div>
+    <!-- 10/14 N：頂欄底下只有一條通知列——按「寫進計畫檔」時是確認；平常左邊 ⏰ 提醒＋📯 倒數、右邊紅筆（兩個以上收成「⚠ N 個要注意 ▾」） -->
+    <div id="alerts" class="alerts hidden">
+      <div id="confirm" class="confirm hidden"></div>
+      <div id="notice" class="notice hidden" role="status"><span id="noticeFocus" class="nf hidden"></span><span id="noticeText" class="nt"></span><span class="grow"></span><button class="nx hidden" id="noticeClose" aria-label="知道了" data-tip="知道了">✕</button></div>
+      <div id="warns" class="warns hidden"></div>
+    </div>
     <div id="unsureBox" class="unsure-strip hidden"><b class="uh">❓ 不確定</b><div id="unsure" class="uns-list"></div></div>
     <main id="main">
       <!-- 📜 委託簿：依截止日分欄 -->
@@ -36,7 +38,6 @@
         <div class="ph">
           <h2><span>📜 委託簿</span><i class="info" data-tip="依截止日排。委託＝櫃台週任務板上的任務、步驟＝任務卡上的目標（同一件事寫在計畫檔裡的樣子）。勾步驟、交付＝立刻寫進計畫檔；新加、改、刪＝鉛筆草稿，按「寫進計畫檔」才算。滑過便利貼按「🕘 排進時刻簿」可以把步驟拆成一格一格的時段">ⓘ</i></h2>
           <span class="grow"></span>
-          <button class="add" data-add="quest">＋ 委託</button>
         </div>
         <div id="dueCols" class="duecols"></div>
       </section>

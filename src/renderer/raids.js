@@ -24,6 +24,8 @@ function rdStatusText(o) {
 }
 function openRaids() { openPanel('raids'); }
 function openRaidForm(key, back) { state.rdScope = 'one'; state.panelBack = back || 'raids'; openPanel('raidForm', key || null); }
+// 清單上的「＋ 新團戰」、改時間：不帶「＋ 加一件事」換過來的草稿
+function openRaidFormFresh(key, back) { state.addDraft = null; state.rdRepeat = null; state.rdDays = null; openRaidForm(key, back); }
 
 function renderRaids(el, v) {
   const R = v.raids || { list: [] };
@@ -69,20 +71,22 @@ function renderRaidForm(el, v) {
   const scope = series ? (state.rdScope || 'one') : 'all';
   const showRepeat = !o || (o.source === 'app' && (scope === 'all' || !series));
   const showDate = !o || !(series && scope === 'all');
-  const start = o ? o.start : rdPlus(nowHHMM().slice(0, 3) + '00', 60);
-  const end = o ? o.end : rdPlus(start, 60);
-  const date = o ? o.date : todayISO();
+  const dr = o ? {} : takeAddDraft(); // 從「＋ 加一件事」的時段／提醒換過來：帶著已經填的
+  const start = o ? o.start : dr.start || rdPlus(nowHHMM().slice(0, 3) + '00', 60);
+  const end = o ? o.end : (dr.end && dr.end > start ? dr.end : rdPlus(start, 60));
+  const date = o ? o.date : dr.date || todayISO();
   const rep = o ? (scope === 'all' ? o.repeat : 'once') : (state.rdRepeat || 'once');
   const days = state.rdDays || (o && o.repeat === 'weekly' && o.days ? o.days : [rdDow(date)]);
   const scopeHtml = series ? `<div class="rd-scope"><button class="btn small ${scope === 'one' ? 'gold' : 'ghost'}" data-rd-scope="one">只改這一次（${esc(isoToLabel(o.date))}）</button><button class="btn small ${scope === 'all' ? 'gold' : 'ghost'}" data-rd-scope="all">整個系列（${esc(o.repeatText)}）</button></div>` : '';
   const repeatHtml = showRepeat ? `<div class="field">🔁 重複<select id="rdRepeat">${RD_REPEAT.map(([k, t]) => `<option value="${k}" ${rep === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
     <div class="rd-days ${rep === 'weekly' ? '' : 'hidden'}" id="rdDays">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<label class="tp ${days.includes(d) ? 'on' : ''}"><input type="checkbox" name="rdDay" value="${d}" ${days.includes(d) ? 'checked' : ''}>週${RD_WEEK[d]}</label>`).join('')}</div>` : '';
   const note = o && o.source === 'plan' ? '會直接改計畫檔裡的那一行' : '存在程式裡（不會寫進計畫檔），可以設重複';
-  el.innerHTML = head(o ? '✎ 改團戰' : '📯 新團戰', o ? rich(o.title) : '登記一場會議', '', note) + `<div class="panel-body form">
-      ${scopeHtml}
-      <div class="field">📯 名稱<input id="rdTitle" value="${esc(o ? o.title : '')}" placeholder="例如：週會、專案進度會議" maxlength="80"></div>
+  // 新增的時候跟時段、提醒同一張「＋ 加一件事」（10/14 D）；改既有的團戰照舊
+  el.innerHTML = head(o ? '✎ 改團戰' : '＋ 加一件事', o ? rich(o.title) : '📯 團戰：開會（開始前提醒、開始時自動專注）', '', note) + `<div class="panel-body form">
+      ${o ? scopeHtml : addKindPick('raidForm')}
+      <div class="field">📯 開什麼會<input id="rdTitle" value="${esc(o ? o.title : dr.text || '')}" placeholder="例如：週會、專案進度會議" maxlength="80"></div>
       <div class="field-row ${showDate ? 'three' : ''}">
-        ${showDate ? `<div class="field">📅 日期<input type="date" id="rdDate" value="${date}"></div>` : ''}
+        ${showDate ? `<div class="field">📅 哪天<input type="date" id="rdDate" value="${esc(date)}"></div>` : ''}
         <div class="field">🕘 開始<input type="time" id="rdStart" value="${esc(start)}" data-prev="${esc(start)}"></div>
         <div class="field">🕔 結束<input type="time" id="rdEnd" value="${esc(end)}"></div>
       </div>
@@ -119,10 +123,10 @@ async function saveRaidForm() {
 
 async function raidsClick(e) {
   const t = e.target;
-  if (t.closest('[data-rd-new]')) { state.rdRepeat = null; state.rdDays = null; openRaidForm(null, state.panel === 'daily' ? 'daily' : 'raids'); return true; }
+  if (t.closest('[data-rd-new]')) { openRaidFormFresh(null, state.panel === 'daily' ? 'daily' : 'raids'); return true; }
   if (t.closest('[data-rd-list]')) { openRaids(); return true; }
   if (t.closest('[data-lv-open]')) { state.panelBack = state.panel === 'daily' ? 'daily' : null; openPanel('leave'); return true; }
-  const ed = t.closest('[data-rd-edit]'); if (ed) { state.rdRepeat = null; state.rdDays = null; openRaidForm(ed.dataset.rdEdit, state.panel === 'daily' ? 'daily' : 'raids'); return true; }
+  const ed = t.closest('[data-rd-edit]'); if (ed) { openRaidFormFresh(ed.dataset.rdEdit, state.panel === 'daily' ? 'daily' : 'raids'); return true; }
   const sc = t.closest('[data-rd-scope]'); if (sc) { state.rdScope = sc.dataset.rdScope; state.rdRepeat = null; state.rdDays = null; renderPanel(); return true; }
   if (t.closest('[data-rd-save]')) { await saveRaidForm(); return true; }
   const cc = t.closest('[data-rd-cancel]'); if (cc) { state.rdConfirm = cc.dataset.rdCancel; renderPanel(); return true; }

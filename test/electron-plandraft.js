@@ -67,6 +67,13 @@ module.exports = ({ win, engine, menuTemplate, pdWin }) => {
       await js(`document.querySelector('.sticky').focus(); 0`, B); await wait(300);
       assert((await js(`getComputedStyle(document.querySelector('.sticky:focus .split')).opacity`, B)) === '1', '停在便利貼上才出現');
       await js(`document.activeElement.blur(); 0`, B); await wait(250);
+      // 10/14 J：每欄的 ＋ 在欄頭下面（跟時刻簿一樣在上面）；頁首沒有另一顆「＋ 委託」
+      const ca = await js(`(() => { const cols = [...document.querySelectorAll('.dcol')]; return { n: cols.filter((c) => c.querySelector(':scope > .col-add')).length, cols: cols.filter((c) => c.dataset.col !== 'other').length, top: cols.every((c) => { const a = c.querySelector(':scope > .col-add'); return !a || (a.getBoundingClientRect().bottom <= c.querySelector('.dbody').getBoundingClientRect().top + 1 && a.getBoundingClientRect().top >= c.querySelector('.dh').getBoundingClientRect().bottom); }), head: !!document.querySelector('#pageQuests .ph [data-add]'), bottom: !!document.querySelector('.dbody ~ .add') }; })()`, B);
+      assert(ca.n === ca.cols && ca.n > 0 && ca.top && !ca.head && !ca.bottom, '＋ 在欄頭下面、頁首沒有：' + JSON.stringify(ca));
+      await js(`document.querySelector('[data-col="2026-10-15"] > .col-add').click(); 0`, B); await wait(300);
+      assert((await js(`!document.querySelector('#pop').classList.contains('hidden') && document.querySelector('#fDue').value`, B)) === '2026-10-15', '週四欄的 ＋：截止日帶週四');
+      await shot('pd01c_col_add', bw);
+      await js(`document.querySelector('[data-pcancel]').click(); 0`, B); await wait(250);
       // 2. 說話：新委託＋步驟；移時段 → 時刻簿的書籤 +1
       await say('整理實驗報告');
       await say('這個任務的步驟有要先做文獻整理後寫初稿再接著請主管看');

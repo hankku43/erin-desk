@@ -155,10 +155,14 @@ function applyDecor(v) {
 // ---------- 🏅 成就解鎖：畫面上方跳一個徽章 ----------
 function showAchievements(list) {
   if (state.panel === 'ach') achRefresh();
+  // 面板開著：從標題列下面開始排，不蓋住標題（10/14 G）
+  const ph = !$('#panel').classList.contains('hidden') && document.querySelector('#panel .panel-head');
+  const top = ph ? Math.round(ph.getBoundingClientRect().bottom + 8) : 14;
   list.slice(0, 4).forEach((a, i) => {
     const el = document.createElement('div');
     el.className = 'ach-pop';
     el.style.setProperty('--i', i);
+    el.style.setProperty('--top', `${top}px`);
     el.innerHTML = `<span class="co-medal">${a.icon}</span><div><small>成就解鎖</small><b>${esc(a.name)}</b></div><span class="g">${COIN}+${a.gold}</span>`;
     $('#fx').appendChild(el);
     setTimeout(() => el.remove(), 3600 + i * 300);

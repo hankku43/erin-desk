@@ -990,7 +990,8 @@ function showProposal(p) {
   const el = $('#proposal');
   state.proposal = p;
   if (!p) { el.classList.add('hidden'); el.innerHTML = ''; return; }
-  el.innerHTML = `<div class="pp-title">📋 要照這樣更新嗎？</div>
+  // 問句留給艾琳的泡泡（「要幫你勾選…嗎？」），卡片只列她整理的項目，不再問第二次（10/14 L）
+  el.innerHTML = `<div class="pp-title">📋 ${esc(npcNameR())}整理的變更<small>${p.items.length > 1 ? '不要的取消勾選' : ''}</small></div>
     ${p.items.map((it, i) => `<label class="pp-item"><input type="checkbox" data-pp="${i}" checked><span>${rich(it.label)}</span></label>`).join('')}
     <div class="q-actions"><button class="btn small ghost" id="ppNo">先不要</button><button class="btn small gold" id="ppYes">✔ 確認更新</button></div>`;
   el.classList.remove('hidden');
@@ -1243,7 +1244,7 @@ function renderPanelInner(el, v) {
     const foot = `<div class="panel-foot wrap-foot"><button class="wrap-row${pt ? ' done' : ''}" data-report-open data-tip="${pt ? '今天回報過了，點開可以再改' : `寫今天做了什麼、卡在哪（今天第一次 +30 XP；下班提醒時直接跟${esc(v.npc.name)}說也可以）`}"><span class="wr-ico">🌙</span><span class="wr-main"><b>${pt ? '今天收工回報過了' : '收工回報'}</b><small>${pt ? esc(pt.done || '').slice(0, 40) || '再看一次' : '今天做了什麼、卡在哪 → 日誌和週報'}</small></span><span class="wr-arrow">${pt ? '✔' : '›'}</span></button></div>`;
     // 工具列只留四顆有字的；請假、匯入匯出收進「⋯」（以前九顆、五顆只有圖示，看不出哪個是哪個）
     const moreMenu = `<span class="tool-more"><button class="btn small tool ico" data-tool-more aria-label="更多" aria-haspopup="menu" data-tip="請假、匯入匯出行事曆">⋯</button><div class="tool-menu hidden" role="menu">${v.editable ? '<button role="menuitem" data-lv-open>🌴 請假、國定假日</button><button role="menuitem" data-new="ics-in">📥 匯入行事曆（.ics）<small>把 Google／Outlook 匯出的檔加進本週</small></button>' : ''}<button role="menuitem" data-new="ics-out">📤 匯出行事曆（.ics）<small>時段、提醒、截止日 → Google／Outlook</small></button></div></span>`;
-    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加一格時段（勾完一格 +10 XP）">＋ 時段</button><button class="btn small tool" data-new="rem" data-tip="設一個提醒：到時候${esc(v.npc.name)}會來叫你">⏰ 提醒</button><button class="btn small tool" data-rd-list data-tip="團戰（會議）：新增、改時間、取消；開始時會自動專注">📯 團戰</button><button class="btn small tool" data-pd-time data-tip="會開另一個大視窗：${esc(v.npc.name)}的筆記本，翻到時刻簿的今天（用拖的排時段，委託簿也在裡面）">📓 筆記本<span class="ext" aria-hidden="true">↗</span></button>` : ''}<span class="spacer"></span>${moreMenu}</div>`;
+    const tools = `<div class="panel-tools">${v.editable ? `<button class="btn small tool" data-new="row" data-tip="加時段、提醒或團戰（表單最上面選種類）">＋ 加一件事</button><button class="btn small tool" data-rd-list data-tip="團戰（會議）清單：改時間、取消、恢復；開始時會自動專注">📯 團戰</button><button class="btn small tool" data-pd-time data-tip="會開另一個大視窗：${esc(v.npc.name)}的筆記本，翻到時刻簿的今天（用拖的排時段，委託簿也在裡面）">📓 筆記本<span class="ext" aria-hidden="true">↗</span></button>` : ''}<span class="spacer"></span>${moreMenu}</div>`;
     el.innerHTML = head('📅 今日行程', '', '', '勾完一格 +10 XP。時段是那一天要做的事、提醒是到時候來叫你；團戰（會議）開始時會自動專注；⋯ 裡可以請假、跟 Google／Outlook 行事曆互通（.ics 檔）') + tools + `<div class="panel-body">${body}</div>` + foot;
   }
 
@@ -1267,14 +1268,17 @@ function renderPanelInner(el, v) {
     setTimeout(() => { const i = $('#qfTitle'); if (i) { i.focus(); i.select(); } }, 30);
   }
 
+  // 10/14 D：時段／提醒／團戰是同一張「＋ 加一件事」：最上面選種類，下面都是「做什麼 → 哪天幾點 → 選項」
   if (state.panel === 'rowForm') {
-    el.innerHTML = head('⏱ 新增時段', '寫進那一天的行程') + `<div class="panel-body form">
+    const dr = takeAddDraft();
+    el.innerHTML = head('＋ 加一件事', '⏱ 時段：寫進那一天的行程') + `<div class="panel-body form">
+      ${addKindPick('rowForm')}
+      <div class="field">📌 做什麼<input id="rfText" value="${esc(dr.text || '')}" placeholder="例如：整理會議紀錄" maxlength="120"></div>
       <div class="field-row three">
-        <div class="field">📅 日期<input type="date" id="rfDate" value="${todayISO()}"></div>
-        <div class="field">🕘 開始<input type="time" id="rfStart" value="${nowHHMM().slice(0, 3)}00"></div>
-        <div class="field">🕔 結束<input type="time" id="rfEnd"><small class="fnote">選填</small></div>
+        <div class="field">📅 哪天<input type="date" id="rfDate" value="${esc(dr.date || todayISO())}"></div>
+        <div class="field">🕘 開始<input type="time" id="rfStart" value="${esc(dr.start || `${nowHHMM().slice(0, 3)}00`)}"></div>
+        <div class="field">🕔 結束<input type="time" id="rfEnd" value="${esc(dr.end || '')}"><small class="fnote">選填</small></div>
       </div>
-      <div class="field">📌 要做什麼<input id="rfText" placeholder="例如：整理會議紀錄" maxlength="120"></div>
       <div class="field">🎯 產出<input id="rfOut" placeholder="做完會有什麼（選填），例如：紀錄送出" maxlength="120"></div>
     </div>
     <div class="panel-foot"><span class="spacer">完成時勾起來 +10 XP</span><button class="btn ghost" data-back>取消</button><button class="btn gold" id="rfSave">⏱ 加入行程</button></div>`;
@@ -1282,12 +1286,15 @@ function renderPanelInner(el, v) {
   }
 
   if (state.panel === 'remForm') {
-    el.innerHTML = head('⏰ 設提醒', `${esc(v.npc.name)}到時候會來叫你`, '', '會寫成「⏰ 時間 條件 → 應對」放進那一天的行程') + `<div class="panel-body form">
-      <div class="field-row">
-        <div class="field">📅 日期<input type="date" id="mfDate" value="${todayISO()}"></div>
-        <div class="field">🕒 時間<input type="time" id="mfTime" value="${nowHHMM().slice(0, 3)}00"></div>
+    const dr = takeAddDraft();
+    el.innerHTML = head('＋ 加一件事', `⏰ 提醒：${esc(v.npc.name)}到時候會來叫你`, '', '會寫成「⏰ 時間 條件 → 應對」放進那一天的行程') + `<div class="panel-body form">
+      ${addKindPick('remForm')}
+      <div class="field">🔔 提醒什麼<input id="mfText" value="${esc(dr.text || '')}" placeholder="例如：報價還沒回覆" maxlength="120"></div>
+      <div class="field-row three">
+        <div class="field">📅 哪天<input type="date" id="mfDate" value="${esc(dr.date || todayISO())}"></div>
+        <div class="field">🕒 幾點<input type="time" id="mfTime" value="${esc(dr.start || `${nowHHMM().slice(0, 3)}00`)}"></div>
+        <div class="field" aria-hidden="true"></div>
       </div>
-      <div class="field">🔔 提醒什麼<input id="mfText" placeholder="例如：報價還沒回覆" maxlength="120"></div>
       <div class="field">🧭 到時要怎麼做<input id="mfAction" placeholder="決策點用：例如「打電話追一次」（選填）" maxlength="120"></div>
     </div>
     <div class="panel-foot"><span class="spacer"></span><button class="btn ghost" data-back>取消</button><button class="btn gold" id="mfSave">⏰ 設定提醒</button></div>`;
@@ -1346,7 +1353,23 @@ function renderPanelInner(el, v) {
 }
 
 // 表單面板：記住從哪個面板來，存檔或取消後回去
-function openForm(kind, arg) { state.panelBack = state.panel && !FORM_PANELS.has(state.panel) ? state.panel : 'board'; openPanel(kind, arg); }
+function openForm(kind, arg) { state.addDraft = null; state.panelBack = state.panel && !FORM_PANELS.has(state.panel) ? state.panel : 'board'; openPanel(kind, arg); }
+// ＋ 加一件事：上面的種類切換（時段｜提醒｜團戰）。換種類時已經填的「做什麼、哪天、幾點」帶過去
+const ADD_KINDS = [['rowForm', '⏱ 時段'], ['remForm', '⏰ 提醒'], ['raidForm', '📯 團戰']];
+function addKindPick(cur) {
+  return `<div class="kind-pick" role="tablist" aria-label="要加哪一種">${ADD_KINDS.map(([k, label]) => `<button type="button" role="tab" class="tp${k === cur ? ' on' : ''}" aria-selected="${k === cur}" data-add-kind="${k}">${label}</button>`).join('')}</div>`;
+}
+function takeAddDraft() { const d = state.addDraft || {}; state.addDraft = null; return d; }
+function switchAddKind(kind) {
+  if (!kind || kind === state.panel) return;
+  const g = (id) => { const e = $(`#${id}`); return e ? e.value : ''; };
+  const [text, date, start, end] = state.panel === 'rowForm' ? ['rfText', 'rfDate', 'rfStart', 'rfEnd'] : state.panel === 'remForm' ? ['mfText', 'mfDate', 'mfTime', ''] : ['rdTitle', 'rdDate', 'rdStart', 'rdEnd'];
+  const back = state.panelBack || 'daily';
+  state.addDraft = { text: g(text).trim(), date: g(date), start: g(start), end: end ? g(end) : '' };
+  if (kind === 'raidForm') { state.rdRepeat = null; state.rdDays = null; openRaidForm(null, back); } else { state.panelBack = back; openPanel(kind); }
+  const i = $(kind === 'rowForm' ? '#rfText' : kind === 'remForm' ? '#mfText' : '#rdTitle');
+  if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+}
 function backFromForm() { const back = state.panelBack || 'board'; state.panelBack = null; openPanel(back); }
 const dataAttr = (t, name) => { const el = t.closest(`[data-${name}]`); return el ? el.dataset[name.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] : undefined; };
 
@@ -1468,6 +1491,7 @@ async function panelClick(e) {
   if (t.closest('[data-tut-hide]')) { const r = await api.hideTutorial(); if (r && r.view) applyView(r.view); return; }
   if (t.closest('[data-close]')) { closePanel(); return; }
   if (t.closest('[data-back]')) { backFromForm(); return; }
+  const ak = t.closest('[data-add-kind]'); if (ak) { switchAddKind(ak.dataset.addKind); return; }
   const tab = t.closest('[data-tab]'); if (tab) { state.boardTab = tab.dataset.tab; renderPanel(); return; }
   const tog = t.closest('[data-toggle]');
   if (tog) { const id = tog.dataset.toggle; state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id); renderPanel(); return; }

@@ -94,7 +94,7 @@ module.exports = ({ win, engine, app }) => {
       await shot('e16_row_checked');
 
       // ---- 提醒 ----
-      await click('[data-new=rem]'); await wait(400); await shot('e17_rem_form');
+      await click('[data-new=row]'); await wait(400); await click('[data-add-kind=remForm]'); await wait(300); await shot('e17_rem_form'); // 10/14 D：「＋ 加一件事」上面選「⏰ 提醒」
       await type('#mfTime', '16:30'); await type('#mfText', '報價還沒回覆'); await type('#mfAction', '打電話追一次');
       await click('#mfSave'); await wait(2500); await scrollEnd(); await shot('e18_rem_added');
       txt = fs.readFileSync(planFile(), 'utf8');

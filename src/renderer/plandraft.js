@@ -12,7 +12,7 @@ const ART = (n) => `../../assets/stageup/${n}`;
 const POSE = { listen: ART('erin_write_hum.webp'), happy: ART('erin_hug_notebook.webp'), shy: ART('erin_hide_notebook.webp'), stamp: ART('erin_stamp.webp') };
 // 委託的顏色（時刻簿的方塊、委託簿的小標籤用同一個顏色，看得出哪幾格屬於哪個委託）
 const QCOLORS = ['#ffd0dc', '#cfe8ff', '#d7f2d0', '#ffe2b8', '#e6d8ff', '#cdeeee', '#fff0a6', '#f6d6c8'];
-const S = { d: null, faces: {}, name: '艾琳', hl: new Set(), pop: null, confirm: false, menu: false, book: 'quests', day: null, unit: 30, bump: { quests: 0, time: 0 }, scrolled: '', focus: null, clockOffset: 0, notice: null };
+const S = { d: null, faces: {}, name: '艾琳', hl: new Set(), pop: null, confirm: false, menu: false, warnOpen: false, book: 'quests', day: null, unit: 30, bump: { quests: 0, time: 0 }, scrolled: '', focus: null, clockOffset: 0, notice: null };
 
 // ---- 日期、時間小工具 ----
 const dt = (iso) => new Date(`${iso}T00:00:00`);
@@ -103,10 +103,21 @@ function renderTabs() {
     b.dataset.tip = k === 'quests' ? '📜 委託簿：這週的任務（計畫檔裡叫委託）和步驟，依截止日排' : '🕘 時刻簿：每天幾點做什麼（一天一頁）';
   });
 }
+// 紅筆警告：一條就直接寫出來；兩條以上收成「⚠ N 個要注意 ▾」，點開才是清單（10/14 N，以前一條一行疊在頂欄下面）
 function renderWarns() {
-  const lines = S.d.checks.map((c, i) => `<button type="button" data-warn="${i}" data-tip="點一下翻到那一格">${esc(c.text)}</button>`);
-  $('#warns').innerHTML = lines.join('');
-  $('#warns').classList.toggle('hidden', !lines.length);
+  const cs = S.d.checks;
+  const btn = (c, i) => `<button type="button" class="wl" data-warn="${i}" data-tip="${esc(c.text)}（點一下翻到那一格）">${esc(c.text)}</button>`;
+  if (cs.length < 2) S.warnOpen = false;
+  $('#warns').innerHTML = cs.length === 1 ? btn(cs[0], 0)
+    : cs.length ? `<button type="button" class="wsum" data-warn-toggle aria-expanded="${S.warnOpen}" data-tip="紅筆圈起來的地方：點開看是哪幾個">⚠ ${cs.length} 個要注意 <span class="caret">${S.warnOpen ? '▴' : '▾'}</span></button><div class="wmenu${S.warnOpen ? '' : ' hidden'}">${cs.map(btn).join('')}</div>` : '';
+  $('#warns').classList.toggle('hidden', !cs.length);
+  syncAlerts();
+}
+// 通知列：確認的時候只放確認（它已經說了還有幾個紅筆），平常提醒＋紅筆並排在同一行；全空就收起來
+function syncAlerts() {
+  const al = $('#alerts');
+  al.classList.toggle('confirming', !!S.confirm);
+  al.classList.toggle('hidden', ['#confirm', '#notice', '#warns'].every((s) => $(s).classList.contains('hidden')));
 }
 // 紅筆警告點一下：翻到那一本（時段→時刻簿那天、委託→委託簿），亮一下、捲到看得到的地方
 function jumpTo(ids) {
@@ -177,9 +188,10 @@ function renderQuests() {
     const head = day ? (() => { const [w, date] = day.label.split(' '); return `<div class="dh"><b>${esc(w)}</b><span class="date">${esc(date || '')}</span></div>${day.off ? `<span class="offtag">🏖 ${esc(day.off)}</span>` : ''}`; })()
       : `<div class="dh"><b>${c.key === 'none' ? '沒有截止日' : '其他日子'}</b><span class="date">${c.key === 'none' ? '這週內' : ''}</span></div>`;
     const body = c.qs.map((q) => stickyHtml(q, n++)).join('') || (c.key === 'none' && !d.quests.length ? `<div class="empty">這一週還沒有委託。<br>在下面跟${esc(S.name)}說「週五前寫完週報」，或說「這個任務的步驟有先 A 再 B」補步驟。</div>` : '');
+    // ＋ 放在欄頭下面（跟時刻簿的「＋ 這天加…」一樣在上面），便利貼多的欄不用捲到底才找得到；頁首的「＋ 委託」拿掉了（10/14 J）
+    const add = c.key !== 'other' ? `<button class="add col-add" data-add="quest" data-due="${c.key === 'none' ? '' : esc(c.key)}" aria-label="加委託" data-tip="${esc(day ? `加一個${day.label.split(' ')[0]}截止的委託` : '加一個沒有截止日的委託（這週內）')}">＋</button>` : '';
     return `<div class="dcol${day && day.off ? ' off' : ''}${day && day.date === d.today ? ' today' : ''}${c.key === 'none' ? ' none' : ''}" data-col="${esc(c.key)}">
-      ${head}<div class="dbody">${body}</div>
-      ${c.key !== 'other' ? `<button class="add" data-add="quest" data-due="${c.key === 'none' ? '' : esc(c.key)}" aria-label="加委託">＋</button>` : ''}
+      ${head}${add}<div class="dbody">${body}</div>
     </div>`;
   }).join('');
 }
@@ -325,7 +337,8 @@ function renderLog() {
 }
 function renderConfirm() {
   const el = $('#confirm');
-  if (!S.confirm) { el.classList.add('hidden'); return; }
+  if (!S.confirm) { el.classList.add('hidden'); syncAlerts(); return; }
+  S.warnOpen = false; renderWarns();
   const d = S.d, t = d.target || {};
   const msg = t.kind === 'new' ? `這一週還沒有計畫檔：要寫成新檔嗎？（下一步選要存在哪裡，建議 ${t.dir}\\${t.name}）` : `把 ${d.changes} 處修改寫進「${t.name}」？（寫之前會先備份）`;
   const more = [];
@@ -334,6 +347,7 @@ function renderConfirm() {
   if (d.pending) more.push(`還有 ${d.pending} 句在整理，寫進去就不等了`);
   el.innerHTML = `<span>📝 ${esc(msg)}${more.length ? `<br><small>${esc(more.join('；'))}</small>` : ''}</span><span class="grow"></span><button class="tb gold" data-go>✔ 寫進去</button><button class="tb" data-nogo>再看看</button>`;
   el.classList.remove('hidden');
+  syncAlerts();
 }
 
 // ---- 翻書 ----
@@ -584,6 +598,7 @@ document.addEventListener('click', async (e) => {
   const t = e.target;
   if (S.dragEnd && Date.now() - S.dragEnd < 400) return; // 剛拖完放開：不要當成點一下
   if (!t.closest('.more')) { S.menu = false; $('#moreMenu').classList.add('hidden'); }
+  if (S.warnOpen && !t.closest('#warns')) { S.warnOpen = false; renderWarns(); }
   if (t.closest('#pop')) {
     if (t === $('#pop') || t.closest('[data-pcancel]')) { closePop(); return; }
     const pe = t.closest('[data-edit]'); if (pe && S.pop && S.pop.kind === 'more') { openPop({ kind: pe.dataset.kind, id: pe.dataset.edit }); return; }
@@ -598,7 +613,8 @@ document.addEventListener('click', async (e) => {
     return;
   }
   const bk = t.closest('#tabs [data-book]'); if (bk) { setBook(bk.dataset.book); return; }
-  const wn = t.closest('[data-warn]'); if (wn) { const c = S.d.checks[Number(wn.dataset.warn)]; if (c) jumpTo(c.ids); return; }
+  if (t.closest('[data-warn-toggle]')) { S.warnOpen = !S.warnOpen; renderWarns(); return; }
+  const wn = t.closest('[data-warn]'); if (wn) { const c = S.d.checks[Number(wn.dataset.warn)]; S.warnOpen = false; renderWarns(); if (c) jumpTo(c.ids); return; }
   const mo = t.closest('[data-more]'); if (mo) { const [date, g] = mo.dataset.more.split('|'); openPop({ kind: 'more', date, g }); return; }
   if (t.closest('#bMore')) { S.menu = !S.menu; $('#moreMenu').classList.toggle('hidden', !S.menu); return; }
   if (t.closest('[data-font]')) { S.menu = false; $('#moreMenu').classList.add('hidden'); const on = S.d.handFont === false; const r = await act(() => window.pd.setFont(on)); if (r) { S.d.handFont = on; render(); say(on ? '換成手寫的字了～' : '換回一般的字。', 'normal'); } return; }
@@ -783,7 +799,7 @@ function stampFx() {
 }
 document.addEventListener('keydown', (e) => {
   if (e.isComposing) return;
-  if (e.key === 'Escape') { if (S.pop) closePop(); else if (S.confirm) { S.confirm = false; renderConfirm(); } else if (S.menu) { S.menu = false; $('#moreMenu').classList.add('hidden'); } return; }
+  if (e.key === 'Escape') { if (S.pop) closePop(); else if (S.confirm) { S.confirm = false; renderConfirm(); } else if (S.menu) { S.menu = false; $('#moreMenu').classList.add('hidden'); } else if (S.warnOpen) { S.warnOpen = false; renderWarns(); } return; }
   if (e.key === 'Enter' && S.pop && e.target.tagName !== 'TEXTAREA' && !e.target.closest('button')) { e.preventDefault(); if (S.pop.kind !== 'pick') savePop(); return; }
   const ed = e.target.closest && e.target.closest('[data-edit]');
   if ((e.key === 'Enter' || e.key === ' ') && ed && !S.pop) { e.preventDefault(); ed.click(); }
@@ -850,6 +866,7 @@ function renderNotice() {
   $('#noticeText').textContent = n ? n.text : '';
   $('#noticeClose').classList.toggle('hidden', !n);
   $('#notice').classList.toggle('hidden', !fl && !n);
+  syncAlerts();
 }
 function notify(p) {
   if (p.focus) setFocus(p.focus, p.now);
