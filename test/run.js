@@ -3621,7 +3621,9 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(!r.ok && !r.proxy && /proxy\.example:3128/.test(r.message) && r.notes[0].includes('HTTPS_PROXY'));
   // 硬碟空間不夠（下載到一半的不重複算）
   r = await PG.preflight({ ...base, fsx: small, ollamaFetch: fakeNet() });
-  assert.ok(!r.ok && r.code === 'disk' && /還要下載約 18\.0 GB/.test(r.message) && /這個磁碟只剩 10\.0 GB/.test(r.message) && r.brief === '硬碟空間不夠', '硬碟：' + r.message);
+  // 暫存資料夾在 Windows 是「C:\…」→ 訊息寫「C 槽」；Linux／Mac 的 /tmp →「這個磁碟」（10/14 Windows 打包時這裡寫死「這個磁碟」而失敗）
+  const drive = PG.driveName(base.env.OLLAMA_MODELS, base.platform);
+  assert.ok(!r.ok && r.code === 'disk' && /還要下載約 18\.0 GB/.test(r.message) && r.message.includes(`${drive}只剩 10.0 GB`) && r.brief === '硬碟空間不夠', '硬碟：' + r.message);
   r = await PG.preflight({ ...base, fsx: small, model: 'qwen3:1.7b', ollamaFetch: fakeNet({ mf: { config: { digest: D('e'), size: 487 }, layers: [{ digest: D('f'), size: 1.4e9 }] } }) });
   assert.ok(r.ok, '小模型放得下');
   r = await PG.preflight({ ...base, fsx: { ...big, statfsSync: () => { throw new Error('ENOSYS'); } }, ollamaFetch: fakeNet() });
