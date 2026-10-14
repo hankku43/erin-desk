@@ -543,6 +543,7 @@ Intel 內顯和比較舊的 AMD 顯示卡目前 Ollama 用不到，會照沒有�
 - `data/週報/`：匯出的冒險日誌＋週報（Markdown）。換電腦時一起帶走就好。
 - `data/backups/`：計畫檔修改前的備份。
 - `data/llm.log`：每次呼叫 AI 的耗時紀錄（除錯用，可以隨時刪）。
+- `data/setup.log`：下載模型的紀錄：下載前檢查的結果、每次失敗的原因（除錯用，可以隨時刪）。
 - 所有資料都在這台電腦上，AI 也在本機執行，**任務內容不會傳到網路上**。
 
 ## 常見問題
@@ -560,6 +561,11 @@ Intel 內顯和比較舊的 AMD 顯示卡目前 Ollama 用不到，會照沒有�
   - 鏡像站是阿里雲的 npmmirror（伺服器在中國大陸）。下載的檔案會用 electron 套件裡附的官方檢查碼核對，打包工具也一樣，內容跟官方不同就會直接失敗，不會裝到被改過的檔案。
   - 公司網路要經過 proxy：先 `set HTTPS_PROXY=http://proxy位址:埠號` 再執行，bat 會讓 Electron 的下載也走 proxy（npm 本身也會讀這個設定）。這時測速不經過 proxy、會顯示測不到，照預設從 GitHub 下載。
   - 還是不行：把視窗截圖給幫你改程式的人。
+- **下載模型失敗**（例如 `max retries exceeded … r2.cloudflarestorage.com … connectex: … did not properly respond`）：Ollama 下載模型時，大檔案是從 Cloudflare 的儲存空間（`*.r2.cloudflarestorage.com`）拿，這個錯誤代表電腦連不上那邊——多半是網路不穩、公司或學校的網路擋住，或需要 proxy。艾琳會這樣處理：
+  - **下載前先檢查**（幾秒鐘）：硬碟空間夠不夠（已經下載的部分不重複算）、連不連得到模型網站和下載伺服器。不通就先說明原因、不開始下載；覺得沒問題可以按「仍然下載」。
+  - **公司要走 proxy**：Ollama 不會用 Windows 的 proxy 設定。檢查時發現「直接連不通、走 Windows 的 proxy 就通」，畫面會寫出 proxy 位址和設定方法：在 Windows 搜尋「編輯您帳戶的環境變數」，新增 `HTTPS_PROXY`＝`http://proxy位址:埠號`，從右下角的 Ollama 圖示按 Quit 再重新打開。
+  - **下載到一半斷線**：自動等 10 秒、30 秒、60 秒後接著下載（Ollama 會留著已經下載的部分），倒數會顯示在進度條下面；連續 3 次都沒有進度才放棄。放棄後按「再試一次」也是接著下載，不用從頭來。
+  - 還是不行：換個網路（家裡、手機熱點）下載，模型下載一次就會留在電腦裡；或請管理網路的人開放 `ollama.com` 和 `*.r2.cloudflarestorage.com`。每次檢查和失敗的原因記在 `data/setup.log`，回報問題時一起傳過來。
 - **「幫我安裝 Ollama」失敗**：畫面上會寫原因。下載失敗多半是網路（公司網路可能擋）；「不是 Ollama 官方簽章」代表下載到的檔案不對，為了安全不會安裝；「安裝沒有成功」可能是防毒軟體擋住或硬碟空間不夠。都可以改按「自己去官網下載」，照著 Ollama 的安裝畫面裝好，再回來按「再檢查一次」。
 - **點不到桌面上角色後面的東西**：只有卡片和角色本身會攔截滑鼠，空白處可以直接穿透點到後面的視窗。
 
@@ -607,7 +613,8 @@ npm start
 | `src/main/achievements.js` | 🏅 成就清單與判斷、🔥 連續上工打卡（純函式） |
 | `src/main/journal.js` | 📖 冒險日誌＋週報：每週快照、數字、稱號、依專案分類的週報草稿、匯出 Markdown（純函式） |
 | `src/main/memory.js` | 📒 小本子：從聊天記下冒險者的事（規則＋檢查 AI 寫的）、去重、追問時機、重要的日子（純函式） |
-| `src/main/setup.js` | 新手教學用：偵測 Ollama、模型階梯（依記憶體＋顯示卡估速度，推薦／上一階／下一階）、下載模型（進度） |
+| `src/main/setup.js` | 新手教學用：偵測 Ollama、模型階梯（依記憶體＋顯示卡估速度，推薦／上一階／下一階）、下載模型（進度）、下載錯誤分類與中文說明 |
+| `src/main/pullGuard.js` | 🛡 下載模型的防呆：下載前檢查（硬碟空間、連不連得到模型網站和 Cloudflare 下載伺服器、Ollama 有沒有走 proxy）、斷線自動接著下載；紀錄在 `data/setup.log` |
 | `src/main/hardware.js` | 偵測顯示卡：nvidia-smi → Windows 登錄檔；Apple Silicon 共用記憶體（一次開機只問一次） |
 | `src/main/updater.js` | 🔄 自動更新：安裝版用 electron-updater（GitHub Releases 的 latest.yml；預設先問再下載、答應了才在關掉時換上，`update.ask: false` 改回背景下載），免安裝版只問最新版本＋提醒，開發版不檢查；紀錄在 `data/update.log` |
 | `src/main/ollamaInstall.js` | 幫忙安裝／更新 Ollama（Windows）：下載官方安裝程式 → 確認 Ollama 官方簽章 → 不跳視窗安裝 → 等它啟動 |

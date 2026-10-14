@@ -5,6 +5,7 @@ const OUT = process.env.SHOT_DIR || '/tmp';
 const BG = process.env.SHOT_BG || 'linear-gradient(135deg,#5b7fa6,#9bb7cf)';
 const SETUP = require('../src/main/setup');
 const OI = require('../src/main/ollamaInstall');
+require('../src/main/pullGuard').preflight = async () => ({ ok: true, notes: ['測試：不檢查'] }); // 下載前檢查用假的（不連網路）
 
 module.exports = ({ win, engine, app }) => {
   engine.state.onboarding = { ...(engine.state.onboarding || {}), done: true };

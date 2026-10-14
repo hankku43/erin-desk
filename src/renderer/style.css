@@ -713,6 +713,12 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .oi-step { display: flex; justify-content: space-between; gap: 8px; width: 100%; margin-top: 4px; font-size: var(--fs-s); font-weight: 700; color: var(--ink); }
 .ob-btns .ob-pull { flex: 1 1 100%; }
 .ob-pct { font-size: var(--fs-xs); font-weight: 700; color: var(--ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 下載模型：檢查中／自動重試的說明、失敗原因（新手教學的卡片和健康檢查共用） */
+.pull-note { flex: 1 1 100%; margin-top: 3px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-soft); line-height: 1.5; }
+.pull-note.wait { color: var(--gold-text); }
+.pull-err { flex: 1 1 100%; margin: 4px 0 2px; padding: 6px 9px; border-radius: var(--r-m); border: 1px solid #f0b8c4; background: var(--rose-soft); color: var(--ink); font-size: var(--fs-s); line-height: 1.55; cursor: default; }
+.pull-err b { display: block; color: var(--red); }
+.pull-tech { margin-top: 3px; font-size: var(--fs-xs); color: var(--ink-soft); word-break: break-all; }
 .ob-modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 4px 0 8px; }
 .ob-mode { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 4px; border: 2px solid var(--line); border-radius: var(--r-m); background: var(--surface); color: var(--ink); }
 .ob-mode span { font-size: 18px; line-height: 1.1; }

@@ -10,6 +10,7 @@ const { Engine } = require('./engine');
 const { EMOTIONS, fillEmotionImages } = require('./npc');
 const SETUP = require('./setup');
 const OI = require('./ollamaInstall');
+const PG = require('./pullGuard');
 const UPD = require('./updater');
 const { buildHealth, parseLog } = require('./health');
 
@@ -388,20 +389,51 @@ async function choosePlan({ greet = true } = {}) {
 
 // ---- 🎓 新手引導：偵測 Ollama、下載模型（進度推給畫面）、打開 Ollama ----
 const pulls = new Map(); // model → AbortController
-function startPull(model) {
+// 下載模型的紀錄（下載前檢查的結果、每次失敗的原因）：朋友那邊下載不了時，請他把 data/setup.log 傳過來
+const setupLog = (m) => { try { fs.appendFileSync(path.join(engine.dataDir, 'setup.log'), `${new Date().toISOString()} ${m}\n`); } catch (_) { /* 寫不了就算了 */ } };
+// 下載前檢查用的連線：學 Ollama（直接連線，或 HTTPS_PROXY 環境變數；不用 Windows 的 proxy 設定），另外一條用 Windows 的設定比對
+let checkSes = null;
+async function pullNet() {
+  if (!checkSes) {
+    const ses = session.fromPartition('erin-pullcheck', { cache: false }); // 不存到硬碟
+    const px = PG.envProxy(process.env);
+    await ses.setProxy(px ? { proxyRules: px } : { mode: 'direct' });
+    checkSes = ses;
+  }
+  return {
+    ollamaFetch: (u, o) => checkSes.fetch(u, o),
+    systemFetch: (u, o) => net.fetch(u, o),
+    resolveProxy: (u) => session.defaultSession.resolveProxy(u),
+  };
+}
+function startPull(model, { force = false } = {}) {
   if (pulls.has(model)) return { started: false, already: true };
   const ctl = new AbortController();
   pulls.set(model, ctl);
   const send = (p) => push('setup:progress', { model, ...p });
-  send({ status: 'starting', percent: 0 });
-  SETUP.pull({ baseUrl: engine.config.llm.baseUrl, model, signal: ctl.signal, onProgress: send })
-    .then(async () => {
-      send({ status: 'success', percent: 100, done: true });
-      if (model === engine.config.llm.model) { const st = await engine.npc.checkStatus(); if (st.online) engine.npc.warmUp(); }
-      if (model === engine.lore.embedModel && engine.lore.smartOn()) engine.lore.prepareEmbeddings();
-      push('view:update', { view: engine.view() });
+  const log = (m) => setupLog(`${model}：${m}`);
+  (async () => {
+    if (force) log('按了「仍然下載」，不檢查');
+    else {
+      send({ status: 'checking', percent: 0 });
+      const pf = await (async () => PG.preflight({ model, signal: ctl.signal, ...(await pullNet()) }))()
+        .catch((e) => (ctl.signal.aborted ? Promise.reject(e) : { ok: true, notes: [`檢查出錯，不擋：${e.message}`] })); // 檢查本身壞掉就不擋
+      log(`下載前檢查：${PG.summary(pf)}`);
+      if (!pf.ok) { send({ status: 'error', done: true, preflight: true, code: pf.code, error: pf.message, brief: pf.brief, canForce: true }); return; }
+    }
+    send({ status: 'starting', percent: 0 });
+    await PG.pullWithRetry({ run: (onProgress) => SETUP.pull({ baseUrl: engine.config.llm.baseUrl, model, signal: ctl.signal, onProgress }), onProgress: send, signal: ctl.signal, log });
+    log('下載完成');
+    send({ status: 'success', percent: 100, done: true });
+    if (model === engine.config.llm.model) { const st = await engine.npc.checkStatus(); if (st.online) engine.npc.warmUp(); }
+    if (model === engine.lore.embedModel && engine.lore.smartOn()) engine.lore.prepareEmbeddings();
+    push('view:update', { view: engine.view() });
+  })()
+    .catch((e) => {
+      if (ctl.signal.aborted) { log('已取消'); send({ status: 'error', error: '已取消', done: true }); return; }
+      log(`放棄：${SETUP.techDetail(e.raw || e.message)}`);
+      send({ status: 'error', done: true, code: e.kind || 'other', error: e.message, brief: SETUP.PULL_BRIEF[e.kind] || '', detail: e.raw ? SETUP.techDetail(e.raw) : '', canForce: false });
     })
-    .catch((e) => send({ status: 'error', error: ctl.signal.aborted ? '已取消' : e.message, done: true }))
     .finally(() => pulls.delete(model));
   return { started: true };
 }
@@ -920,7 +952,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup:probe', wrap(async () => ({ probe: await probeForSetup() })));
   ipcMain.handle('setup:installOllama', wrap(() => startOllamaInstall()));
   ipcMain.handle('setup:cancelInstall', wrap(() => { if (ollamaJob) ollamaJob.ctl.abort(); return {}; }));
-  ipcMain.handle('setup:pull', wrap((model) => startPull(String(model))));
+  ipcMain.handle('setup:pull', wrap((model, opts) => startPull(String(model), { force: !!(opts && opts.force) })));
   ipcMain.handle('setup:cancelPull', wrap((model) => { const c = pulls.get(String(model)); if (c) c.abort(); return {}; }));
   ipcMain.handle('setup:openOllama', wrap(() => openOllama()));
   ipcMain.handle('setup:setModel', wrap(async (model) => { const r = engine.setModel(model || null); const st = await engine.npc.setEnabled(!!model); if (st && st.online) engine.npc.warmUp(); return { ...r, view: engine.view() }; }));

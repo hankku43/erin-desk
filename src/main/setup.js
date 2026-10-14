@@ -38,12 +38,45 @@ function versionLess(a, b) {
   for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i];
   return false;
 }
-// 舊版 Ollama 下載新模型時的錯誤（412：requires a newer version of Ollama）→ 看得懂的中文
+// 下載模型時 Ollama 回的英文錯誤 → 分類＋看得懂的中文
+//   kind：version（Ollama 太舊）／disk（硬碟滿）／notfound（沒有這個模型）／network（連不上下載伺服器，可以自動接著下載）
+//         ／incomplete（沒說成功就結束，可以再接）／ollama（Ollama 本身沒回應）／other
+//   where（network 時）：storage＝模型檔案放的 Cloudflare 儲存空間（*.r2.cloudflarestorage.com）、registry＝Ollama 的模型網站
+const NET_RE = /max retries exceeded|connectex|did not properly respond|i\/o timeout|timed? ?out|deadline exceeded|connection reset|forcibly closed|broken pipe|unexpected EOF|\bEOF\b|TLS handshake|no such host|dial tcp|network is unreachable|host is unreachable|stalled|unexpected status code 5\d\d|\b50[234]\b/i;
+function classifyPullError(msg) {
+  const s = String(msg || '');
+  if (/newer version|\b412\b/i.test(s)) return { kind: 'version' };
+  if (/no space left|not enough space|ENOSPC|disk (is )?full/i.test(s)) return { kind: 'disk' };
+  if (/file does not exist|manifest unknown|model .*not found|pull model manifest: .*not found/i.test(s)) return { kind: 'notfound' };
+  if (NET_RE.test(s)) return { kind: 'network', where: /r2\.cloudflarestorage|cloudflare|blobs\/sha256/i.test(s) ? 'storage' : /registry\.ollama\.ai|ollama\.com|manifest/i.test(s) ? 'registry' : null };
+  if (/下載沒有完成/.test(s)) return { kind: 'incomplete' };
+  if (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|terminated|other side closed/i.test(s)) return { kind: 'ollama' };
+  return { kind: 'other' };
+}
+// 技術訊息（給 data/setup.log 和滑鼠移上去看）：長長的下載網址只留主機名稱
+//   使用者資料夾的名字也拿掉（C:\Users\名字\… → C:\Users\…）
+const techDetail = (msg, n = 220) => {
+  const s = String(msg || '').replace(/https?:\/\/([^/\s"']+)[^\s"']*/g, '$1/…').replace(/([A-Za-z]:[\\/]Users[\\/])[^\\/\s"']+/gi, '$1…').replace(/\s+/g, ' ').trim();
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+};
+const KEEP = '已經下載的部分會留著，再試一次會接著下載。';
 function friendlyPullError(msg) {
   const s = String(msg || '');
-  if (/newer version|\b412\b/i.test(s)) return `Ollama 版本太舊，這個模型要新版 Ollama 才能下載。請先到 ${OLLAMA_DOWNLOAD} 下載新版安裝（已經下載的模型會留著）`;
-  return s;
+  const c = classifyPullError(s);
+  if (c.kind === 'version') return `Ollama 版本太舊，這個模型要新版 Ollama 才能下載。請先到 ${OLLAMA_DOWNLOAD} 下載新版安裝（已經下載的模型會留著）`;
+  if (c.kind === 'disk') return '硬碟空間不夠，模型存不下來。清出一些空間後再按「再試一次」，已經下載的部分會接著下載';
+  if (c.kind === 'notfound') return '找不到這個模型：名稱可能打錯了，或是這個模型要新版 Ollama 才認得（可以先更新 Ollama 再試）';
+  if (c.kind === 'network') {
+    const who = c.where === 'registry' ? ' Ollama 的模型網站（ollama.com）' : '模型的下載伺服器（Cloudflare）';
+    return `網路連不上${who}。常見原因：網路不穩、公司或學校的網路擋住、需要設定 proxy。${KEEP}如果一直不行，換個網路（例如家裡或手機熱點）再下載`;
+  }
+  if (c.kind === 'incomplete') return `下載沒有完成，${KEEP}`;
+  if (c.kind === 'ollama') return 'Ollama 沒有回應（可能被關掉了）。確認右下角有 Ollama 的圖示，再按「再試一次」';
+  return techDetail(s);
 }
+// 跳出來的小提示只放短短一句
+const PULL_BRIEF = { version: 'Ollama 版本太舊', disk: '硬碟空間不夠', notfound: '找不到這個模型', network: '網路連不上下載伺服器', incomplete: '下載沒有完成', ollama: 'Ollama 沒有回應' };
+const pullError = (raw) => Object.assign(new Error(friendlyPullError(raw)), { raw: String(raw || ''), ...classifyPullError(raw) });
 
 const ramGB = (bytes = os.totalmem()) => Math.round((bytes / 1024 ** 3) * 10) / 10;
 
@@ -154,11 +187,18 @@ async function probe({ baseUrl = 'http://127.0.0.1:11434', fetchImpl = fetch, to
 }
 
 // 下載模型：Ollama 的 /api/pull 會一行一行回報進度（每一層各自有 total／completed）
+//   錯誤都換成中文（e.message），原本的英文在 e.raw，分類在 e.kind／e.where（自動續傳看 kind）
 async function pull({ baseUrl = 'http://127.0.0.1:11434', model, onProgress = () => {}, signal, fetchImpl = fetch } = {}) {
-  const res = await fetchImpl(`${baseUrl}/api/pull`, { method: 'POST', body: JSON.stringify({ model, stream: true }), headers: { 'Content-Type': 'application/json' }, signal });
+  let res;
+  try {
+    res = await fetchImpl(`${baseUrl}/api/pull`, { method: 'POST', body: JSON.stringify({ model, stream: true }), headers: { 'Content-Type': 'application/json' }, signal });
+  } catch (e) {
+    if (signal && signal.aborted) throw e;
+    throw pullError(`fetch failed: ${(e.cause && e.cause.code) || e.message}`);
+  }
   if (!res.ok || !res.body) {
     let text = ''; try { text = await res.text(); } catch (_) { /* 沒有內容 */ }
-    throw new Error(friendlyPullError(`${res.status} ${text}`.trim()) || `Ollama 回應 ${res.status}`);
+    throw pullError(`${res.status} ${text}`.trim() || `Ollama 回應 ${res.status}`);
   }
   const layers = new Map();
   const reader = res.body.getReader();
@@ -170,7 +210,12 @@ async function pull({ baseUrl = 'http://127.0.0.1:11434', model, onProgress = ()
     onProgress({ status, total, completed: done, percent: total ? Math.floor((done / total) * 100) : 0 });
   };
   for (;;) {
-    const { value, done } = await reader.read();
+    let chunk;
+    try { chunk = await reader.read(); } catch (e) {
+      if (signal && signal.aborted) throw e;
+      throw pullError(`terminated: ${e.message}`); // Ollama 中途斷掉
+    }
+    const { value, done } = chunk;
     if (done) break;
     buf += dec.decode(value, { stream: true });
     let i;
@@ -178,13 +223,13 @@ async function pull({ baseUrl = 'http://127.0.0.1:11434', model, onProgress = ()
       const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
       if (!line) continue;
       let j; try { j = JSON.parse(line); } catch (_) { continue; }
-      if (j.error) throw new Error(friendlyPullError(j.error));
+      if (j.error) throw pullError(j.error);
       if (j.digest && j.total) layers.set(j.digest, { total: j.total, completed: j.completed || 0 });
       last = j.status || last;
       report(last);
     }
   }
-  if (last !== 'success') throw new Error('下載沒有完成，請再試一次');
+  if (last !== 'success') throw pullError('下載沒有完成');
   onProgress({ status: 'success', percent: 100 });
   return true;
 }
@@ -199,4 +244,4 @@ function findOllamaApp(env = process.env, platform = process.platform) {
   return cands.find((f) => { try { return fs.existsSync(f); } catch (_) { return false; } }) || null;
 }
 
-module.exports = { MODELS, LADDER, LADDER_BY, SPEED_TEXT, WHERE_TEXT, fit, hwText, buildChoices, EMBED, OLLAMA_DOWNLOAD, MIN_OLLAMA, versionLess, friendlyPullError, ramGB, recommend, hasModel, probe, pull, findOllamaApp };
+module.exports = { MODELS, LADDER, LADDER_BY, SPEED_TEXT, WHERE_TEXT, fit, hwText, buildChoices, EMBED, OLLAMA_DOWNLOAD, MIN_OLLAMA, versionLess, friendlyPullError, classifyPullError, techDetail, pullError, PULL_BRIEF, ramGB, recommend, hasModel, probe, pull, findOllamaApp };

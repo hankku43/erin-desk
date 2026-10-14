@@ -67,7 +67,7 @@ contextBridge.exposeInMainWorld('api', {
   setNotebook: (on) => ipcRenderer.invoke('notebook:set', on),
   // 🎓 新手引導
   setupProbe: () => ipcRenderer.invoke('setup:probe'),
-  setupPull: (model) => ipcRenderer.invoke('setup:pull', model),
+  setupPull: (model, opts) => ipcRenderer.invoke('setup:pull', model, opts), // opts.force：不做下載前檢查（「仍然下載」）
   setupCancelPull: (model) => ipcRenderer.invoke('setup:cancelPull', model),
   setupOpenOllama: () => ipcRenderer.invoke('setup:openOllama'),
   setupInstallOllama: () => ipcRenderer.invoke('setup:installOllama'),

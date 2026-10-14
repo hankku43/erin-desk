@@ -1025,7 +1025,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   pr = await S.probe({ fetchImpl: verFetch(null), totalmem: 16 * 1024 ** 3, gpu: null });
   assert.ok(pr.ollama === 'running' && pr.version === null && !pr.outdated, '問不到版本：不提醒');
   assert.ok(/版本太舊/.test(S.friendlyPullError('pull model manifest: 412: The model you are attempting to pull requires a newer version of Ollama.')), '舊版下載新模型：中文說明');
-  assert.strictEqual(S.friendlyPullError('file does not exist'), 'file does not exist');
+  assert.ok(/找不到這個模型/.test(S.friendlyPullError('pull model manifest: file does not exist')), '沒有這個模型：中文說明');
   // 下載：把 Ollama 一行一行的進度合起來算百分比
   const lines = [{ status: 'pulling manifest' }, { status: 'pulling a', digest: 'a', total: 100, completed: 50 }, { status: 'pulling b', digest: 'b', total: 100, completed: 0 }, { status: 'pulling a', digest: 'a', total: 100, completed: 100 }, { status: 'pulling b', digest: 'b', total: 100, completed: 100 }, { status: 'success' }];
   const streamFetch = (ls) => async () => {
@@ -1036,7 +1036,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const seen = [];
   await S.pull({ model: 'qwen3:1.7b', fetchImpl: streamFetch(lines), onProgress: (p) => seen.push(p.percent) });
   assert.ok(seen.includes(25) && seen.includes(50) && seen[seen.length - 1] === 100, '進度：' + seen.join(','));
-  await assert.rejects(S.pull({ model: 'x', fetchImpl: streamFetch([{ error: 'pull model manifest: file does not exist' }]) }), /does not exist/);
+  await assert.rejects(S.pull({ model: 'x', fetchImpl: streamFetch([{ error: 'pull model manifest: file does not exist' }]) }), (e) => /找不到這個模型/.test(e.message) && /does not exist/.test(e.raw) && e.kind === 'notfound');
   await assert.rejects(S.pull({ model: 'x', fetchImpl: streamFetch([{ status: 'pulling manifest' }]) }), /沒有完成/);
   await assert.rejects(S.pull({ model: 'x', fetchImpl: streamFetch([{ error: 'pull model manifest: 412: requires a newer version of Ollama' }]) }), /版本太舊/);
   await assert.rejects(S.pull({ model: 'x', fetchImpl: async () => ({ ok: false, status: 412, text: async () => 'requires a newer version of Ollama' }) }), /版本太舊/);
@@ -3470,4 +3470,203 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(fsize < 7 * 1024 * 1024, `字型不要太大：${(fsize / 1048576).toFixed(1)}MB`);
   assert.ok(/assets\/fonts\/iansui\/iansui\.css/.test(big) && JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).build.files.includes('assets/fonts/**/*'), '筆記本用手寫字、安裝檔包含字型');
   console.log('兩本書與時刻簿測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---- 🛡 下載模型的防呆：錯誤說人話、下載前檢查、網路斷掉自動接著下載 ----
+(async () => {
+  const S = require('../src/main/setup');
+  const PG = require('../src/main/pullGuard');
+  const os = require('os');
+  // 1. 錯誤分類與中文說明（網址是假的）
+  const R2 = 'max retries exceeded: Get "https://abc123example.r2.cloudflarestorage.com/ollama/docker/registry/v2/blobs/sha256/aa/aa00/data?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=FAKE&X-Amz-Signature=FAKE": dial tcp 192.0.2.10:443: connectex: A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond.';
+  assert.deepStrictEqual(S.classifyPullError(R2), { kind: 'network', where: 'storage' });
+  assert.ok(/連不上模型的下載伺服器（Cloudflare）/.test(S.friendlyPullError(R2)) && /已經下載的部分會留著/.test(S.friendlyPullError(R2)) && /手機熱點/.test(S.friendlyPullError(R2)), '連線逾時：中文說明');
+  assert.ok(!/X-Amz|FAKE|https:/.test(S.techDetail(R2)) && /abc123example\.r2\.cloudflarestorage\.com/.test(S.techDetail(R2)) && S.techDetail(R2).length <= 221, '技術訊息拿掉長網址：' + S.techDetail(R2));
+  assert.deepStrictEqual(S.classifyPullError('pull model manifest: Get "https://registry.ollama.ai/v2/library/qwen3/manifests/4b": dial tcp: lookup registry.ollama.ai: no such host'), { kind: 'network', where: 'registry' });
+  assert.ok(/ Ollama 的模型網站/.test(S.friendlyPullError('pull model manifest: Get "https://registry.ollama.ai/v2/x": net/http: TLS handshake timeout')));
+  for (const m of ['max retries exceeded: unexpected EOF', 'read tcp 10.0.0.2:5050->192.0.2.1:443: wsarecv: An existing connection was forcibly closed by the remote host.', 'part 3 stalled; retrying']) assert.strictEqual(S.classifyPullError(m).kind, 'network', m);
+  assert.strictEqual(S.classifyPullError('write C:\\Users\\someone\\.ollama\\models\\blobs\\sha256-aa-partial: There is not enough space on the disk.').kind, 'disk');
+  assert.ok(/硬碟空間不夠/.test(S.friendlyPullError('no space left on device')));
+  assert.ok(!/someone/.test(S.techDetail('open C:\\Users\\someone\\.ollama\\models: Access is denied.')), '技術訊息不放使用者資料夾的名字');
+  assert.strictEqual(S.classifyPullError('fetch failed: ECONNREFUSED').kind, 'ollama');
+  assert.strictEqual(S.classifyPullError('下載沒有完成').kind, 'incomplete');
+  assert.ok(/版本太舊/.test(S.friendlyPullError('pull model manifest: 412: requires a newer version of Ollama')));
+  assert.ok(Object.keys(S.PULL_BRIEF).every((k) => S.PULL_BRIEF[k].length <= 12), '小提示要短');
+  // SETUP.pull 丟出來的錯誤：中文 message＋原本的英文＋分類
+  const lineFetch = (ls) => async () => { const ch = ls.map((l) => new TextEncoder().encode(JSON.stringify(l) + '\n')); let i = 0; return { ok: true, body: { getReader: () => ({ read: async () => (i < ch.length ? { value: ch[i++], done: false } : { done: true }) }) } }; };
+  await assert.rejects(S.pull({ model: 'x', fetchImpl: lineFetch([{ status: 'pulling a', digest: 'a', total: 10, completed: 5 }, { error: R2 }]) }), (e) => e.kind === 'network' && e.where === 'storage' && e.raw === R2 && /Cloudflare/.test(e.message));
+  await assert.rejects(S.pull({ model: 'x', fetchImpl: async () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }); } }), (e) => e.kind === 'ollama' && /Ollama 沒有回應/.test(e.message));
+  await assert.rejects(S.pull({ model: 'x', fetchImpl: async () => ({ ok: true, body: { getReader: () => ({ read: async () => { throw new Error('other side closed'); } }) } }) }), (e) => e.kind === 'ollama');
+  await assert.rejects(S.pull({ model: 'x', fetchImpl: lineFetch([{ status: 'pulling manifest' }]) }), (e) => e.kind === 'incomplete' && /沒有完成/.test(e.message));
+  const ac = new AbortController(); ac.abort();
+  await assert.rejects(S.pull({ model: 'x', signal: ac.signal, fetchImpl: async () => { throw Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }); } }), (e) => e.name === 'AbortError' && !e.kind, '取消不算錯誤');
+
+  // 2. 模型名稱、資料夾、proxy
+  assert.deepStrictEqual(PG.parseName('qwen3:30b-instruct'), { repo: 'library/qwen3', tag: '30b-instruct' });
+  assert.deepStrictEqual(PG.parseName('qwen3-embedding:0.6b'), { repo: 'library/qwen3-embedding', tag: '0.6b' });
+  assert.deepStrictEqual(PG.parseName('someone/cafe-bot'), { repo: 'someone/cafe-bot', tag: 'latest' });
+  assert.deepStrictEqual(PG.parseName('registry.ollama.ai/library/gemma3:4b'), { repo: 'library/gemma3', tag: '4b' });
+  for (const m of ['hf.co/someone/model:Q4', 'localhost:5000/x:y', 'qwen3@sha256:abc', '', null]) assert.strictEqual(PG.parseName(m), null, String(m));
+  assert.strictEqual(PG.modelsDir({ OLLAMA_MODELS: 'D:\\models' }, '/home/u'), 'D:\\models');
+  assert.strictEqual(PG.modelsDir({}, '/home/u'), path.join('/home/u', '.ollama', 'models'));
+  assert.strictEqual(PG.envProxy({ HTTPS_PROXY: 'http://user:pw@proxy.example:3128' }), 'http://proxy.example:3128', '帳號密碼拿掉');
+  assert.strictEqual(PG.envProxy({ https_proxy: 'proxy.example:8080' }), 'http://proxy.example:8080');
+  assert.strictEqual(PG.envProxy({}), null);
+  assert.strictEqual(PG.systemProxy('PROXY proxy.example:8080; DIRECT'), 'proxy.example:8080');
+  assert.strictEqual(PG.systemProxy('DIRECT'), null);
+  assert.strictEqual(PG.driveName('C:\\Users\\u\\.ollama\\models', 'win32'), 'C 槽');
+  assert.strictEqual(PG.driveName('/home/u/.ollama/models', 'linux'), '這個磁碟');
+
+  // 3. 已經在硬碟上的部分（下載好的、下載到一半的）
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-pull-'));
+  const blobs = path.join(tmp, 'models', 'blobs');
+  fs.mkdirSync(blobs, { recursive: true });
+  const D = (c) => `sha256:${c.repeat(64)}`;
+  fs.writeFileSync(path.join(blobs, `sha256-${'a'.repeat(64)}`), 'x');
+  fs.writeFileSync(path.join(blobs, `sha256-${'b'.repeat(64)}-partial`), '');
+  fs.writeFileSync(path.join(blobs, `sha256-${'b'.repeat(64)}-partial-0`), JSON.stringify({ N: 0, Offset: 0, Size: 600, Completed: 600 }));
+  fs.writeFileSync(path.join(blobs, `sha256-${'b'.repeat(64)}-partial-1`), JSON.stringify({ N: 1, Offset: 600, Size: 400, Completed: 150 }));
+  fs.writeFileSync(path.join(blobs, `sha256-${'b'.repeat(64)}-partial-2`), '壞掉的');
+  assert.strictEqual(PG.haveBytes(blobs, D('a'), 5000), 5000, '下載好的');
+  assert.strictEqual(PG.haveBytes(blobs, D('b'), 1000), 750, '下載到一半：各段加起來');
+  assert.strictEqual(PG.haveBytes(blobs, D('c'), 1000), 0);
+  assert.strictEqual(PG.haveBytes(path.join(tmp, 'nope'), D('c'), 1000), 0, '還沒有資料夾');
+  const free = PG.freeBytes(path.join(tmp, 'models', 'not', 'yet'));
+  assert.ok(free === null || free > 0, '資料夾還不存在：往上找');
+
+  // 4. 下載前檢查（連線都是假的）
+  const GiB = PG.GiB;
+  const layers = [{ digest: D('a'), size: 5000 }, { digest: D('b'), size: 1000 }, { digest: D('d'), size: 18 * GiB }];
+  const manifest = { schemaVersion: 2, config: { digest: D('e'), size: 487 }, layers };
+  const resp = (status, body, url) => ({ ok: status < 400, status, url: url || '', json: async () => body, arrayBuffer: async () => new ArrayBuffer(8) });
+  const timeoutErr = () => Object.assign(new TypeError('fetch failed'), { cause: { code: 'ETIMEDOUT' } });
+  // fail：'registry'／'storage'（哪一段連不上）；seen 記錄網址
+  const fakeNet = ({ fail = null, mf = manifest, status = 200, seen = [] } = {}) => async (url, opts) => {
+    seen.push([url, opts && opts.headers]);
+    if (/manifests/.test(url)) { if (fail === 'registry') throw timeoutErr(); return resp(status, mf); }
+    if (fail === 'storage') throw timeoutErr();
+    return resp(206, null, 'https://abc123example.r2.cloudflarestorage.com/ollama/x');
+  };
+  const big = { existsSync: fs.existsSync, readdirSync: fs.readdirSync, readFileSync: fs.readFileSync, statfsSync: () => ({ bavail: 100 * 1024, bsize: 1024 * 1024 }) }; // 100 GiB
+  const small = { ...big, statfsSync: () => ({ bavail: 10 * 1024, bsize: 1024 * 1024 }) }; // 10 GiB
+  const base = { model: 'qwen3:30b-instruct', env: { OLLAMA_MODELS: path.join(tmp, 'models') }, platform: 'win32', fsx: big };
+  const seen = [];
+  let r = await PG.preflight({ ...base, ollamaFetch: fakeNet({ seen }) });
+  assert.ok(r.ok && r.code === null && r.need === 18 * GiB + 250 + 487, '都通：' + JSON.stringify(r));
+  assert.ok(seen[0][0] === 'https://registry.ollama.ai/v2/library/qwen3/manifests/30b-instruct' && /manifest\.v2\+json/.test(seen[0][1].Accept), '先問檔案清單');
+  assert.ok(seen[1][0] === `https://registry.ollama.ai/v2/library/qwen3/blobs/${D('e')}` && seen[1][1].Range === 'bytes=0-1023', '用最小的檔案測下載伺服器（只拿 1KB）');
+  assert.ok(r.notes.some((x) => /abc123example\.r2\.cloudflarestorage\.com 回 206/.test(x)) && r.notes.some((x) => /還要下載 18\.0 GB/.test(x)), '紀錄：' + r.notes.join('；'));
+  // 連不上下載伺服器（使用者遇到的那種）
+  r = await PG.preflight({ ...base, ollamaFetch: fakeNet({ fail: 'storage' }) });
+  assert.ok(!r.ok && r.code === 'network' && r.where === 'storage' && /Cloudflare/.test(r.message) && /仍然下載/.test(r.message) && r.brief === '連不上下載伺服器', '下載伺服器不通：' + r.message);
+  // 連不上模型網站
+  r = await PG.preflight({ ...base, ollamaFetch: fakeNet({ fail: 'registry' }) });
+  assert.ok(!r.ok && r.where === 'registry' && /ollama\.com/.test(r.message));
+  // 直接連不通、走 Windows 的 proxy 就通 → 說明怎麼幫 Ollama 設 HTTPS_PROXY
+  let asked = null;
+  r = await PG.preflight({ ...base, ollamaFetch: fakeNet({ fail: 'storage' }), systemFetch: fakeNet(), resolveProxy: async (u) => { asked = u; return 'PROXY proxy.example:8080; DIRECT'; } });
+  assert.ok(!r.ok && r.proxy === 'proxy.example:8080' && /HTTPS_PROXY/.test(r.message) && /http:\/\/proxy\.example:8080/.test(r.message) && /編輯您帳戶的環境變數/.test(r.message) && r.brief === 'Ollama 沒有走 proxy', 'proxy：' + r.message);
+  assert.ok(/blobs/.test(asked), '用同一個網址問 Windows 的 proxy');
+  r = await PG.preflight({ ...base, platform: 'darwin', ollamaFetch: fakeNet({ fail: 'storage' }), systemFetch: fakeNet(), resolveProxy: async () => 'PROXY proxy.example:8080' });
+  assert.ok(/環境變數 HTTPS_PROXY/.test(r.message) && !/編輯您帳戶/.test(r.message), 'Mac：不講 Windows 的設定');
+  // 沒有 proxy（DIRECT）或 Windows 的 proxy 也不通：一般的說明
+  r = await PG.preflight({ ...base, ollamaFetch: fakeNet({ fail: 'storage' }), systemFetch: fakeNet({ fail: 'storage' }), resolveProxy: async () => 'PROXY proxy.example:8080' });
+  assert.ok(!r.ok && !r.proxy && /Cloudflare/.test(r.message) && r.notes.some((x) => /也不通/.test(x)));
+  r = await PG.preflight({ ...base, ollamaFetch: fakeNet({ fail: 'storage' }), systemFetch: fakeNet(), resolveProxy: async () => 'DIRECT' });
+  assert.ok(!r.ok && !r.proxy);
+  // 已經設了 HTTPS_PROXY：不再比對 Windows 的設定，說明裡提醒確認 proxy
+  r = await PG.preflight({ ...base, env: { ...base.env, HTTPS_PROXY: 'http://proxy.example:3128' }, ollamaFetch: fakeNet({ fail: 'storage' }), systemFetch: fakeNet(), resolveProxy: async () => { throw new Error('不該問'); } });
+  assert.ok(!r.ok && !r.proxy && /proxy\.example:3128/.test(r.message) && r.notes[0].includes('HTTPS_PROXY'));
+  // 硬碟空間不夠（下載到一半的不重複算）
+  r = await PG.preflight({ ...base, fsx: small, ollamaFetch: fakeNet() });
+  assert.ok(!r.ok && r.code === 'disk' && /還要下載約 18\.0 GB/.test(r.message) && /這個磁碟只剩 10\.0 GB/.test(r.message) && r.brief === '硬碟空間不夠', '硬碟：' + r.message);
+  r = await PG.preflight({ ...base, fsx: small, model: 'qwen3:1.7b', ollamaFetch: fakeNet({ mf: { config: { digest: D('e'), size: 487 }, layers: [{ digest: D('f'), size: 1.4e9 }] } }) });
+  assert.ok(r.ok, '小模型放得下');
+  r = await PG.preflight({ ...base, fsx: { ...big, statfsSync: () => { throw new Error('ENOSYS'); } }, ollamaFetch: fakeNet() });
+  assert.ok(r.ok && /剩 ？ GB/.test(r.notes.join()), '看不到剩多少：不擋');
+  // 都下載好了：不用測下載伺服器
+  const seen2 = [];
+  r = await PG.preflight({ ...base, fsx: small, ollamaFetch: fakeNet({ seen: seen2, mf: { config: { digest: D('a'), size: 5000 }, layers: [] } }) });
+  assert.ok(r.ok && seen2.length === 1 && r.notes.some((x) => /都已經在電腦裡/.test(x)));
+  // manifest list：拿第一個（有 layers 直接用；沒有就再問一次）
+  const seen3 = [];
+  const list = { schemaVersion: 2, mediaType: 'application/vnd.ollama.manifest.list.v2+json', manifests: [{ digest: D('9'), size: 300 }] };
+  const listNet = async (url, opts) => { seen3.push(url); if (/manifests\/30b/.test(url)) return resp(200, list); if (/manifests\/sha256/.test(url)) return resp(200, manifest); return resp(206, null, 'https://abc123example.r2.cloudflarestorage.com/x'); };
+  r = await PG.preflight({ ...base, ollamaFetch: listNet });
+  assert.ok(r.ok && r.need > 18 * GiB && seen3[1].endsWith(`/manifests/${D('9')}`), 'manifest list：' + seen3.join(' '));
+  // 沒把握就不擋：模型網站回 404／500、不是官方模型、沒有連線工具
+  for (const st of [404, 500]) { r = await PG.preflight({ ...base, ollamaFetch: fakeNet({ status: st }) }); assert.ok(r.ok && r.notes.some((x) => x.includes(String(st))), `回 ${st}：不擋`); }
+  r = await PG.preflight({ ...base, model: 'hf.co/someone/model:Q4', ollamaFetch: async () => { throw new Error('不該連'); } });
+  assert.ok(r.ok);
+  r = await PG.preflight({ model: 'qwen3:4b' });
+  assert.ok(r.ok);
+  // 逾時（假的 fetch 一直不回，12 秒的限制用 abort 結束）→ 也算連不上；取消 → 丟出去
+  const hang = (url, o) => new Promise((_, rej) => o.signal.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+  const ac2 = new AbortController();
+  setTimeout(() => ac2.abort(), 50);
+  await assert.rejects(PG.preflight({ ...base, signal: ac2.signal, ollamaFetch: hang }), (e) => e.name === 'AbortError', '取消：不當作連不上');
+  assert.ok(/12 秒/.test(PG.summary({ ok: false, brief: 'x', notes: ['模型網站連不上：逾時（12 秒沒有回應）'] })));
+  assert.ok(/^通過；/.test(PG.summary({ ok: true, notes: ['a'] })) && /^擋下（硬碟空間不夠）；/.test(PG.summary({ ok: false, brief: '硬碟空間不夠', notes: [] })));
+  fs.rmSync(tmp, { recursive: true, force: true });
+
+  // 5. 網路斷掉自動接著下載
+  const netErr = (m = R2) => Object.assign(new Error(S.friendlyPullError(m)), { raw: m, ...S.classifyPullError(m) });
+  const runner = (script) => { let i = 0; return async (onProgress) => { const step = script[Math.min(i++, script.length - 1)]; for (const c of step.at || []) onProgress({ status: 'pulling', completed: c, total: 1000 * 1048576, percent: Math.floor(c / (1000 * 1048576) * 100) }); if (step.ok) { onProgress({ status: 'success', percent: 100 }); return true; } throw step.err || netErr(); }; };
+  const MB = 1048576;
+  let ev = [], logs = [];
+  const nap = async () => {};
+  let ok = await PG.pullWithRetry({ run: runner([{ at: [100 * MB, 300 * MB] }, { at: [50 * MB, 320 * MB, 500 * MB] }, { at: [520 * MB], ok: true }]), onProgress: (p) => ev.push(p), sleep: nap, waits: [3, 5], log: (m) => logs.push(m) });
+  assert.strictEqual(ok, true);
+  const retry = ev.filter((p) => p.status === 'retrying');
+  assert.deepStrictEqual(retry.map((p) => [p.attempt, p.retryIn]), [[1, 3], [1, 2], [1, 1], [2, 5], [2, 4], [2, 3], [2, 2], [2, 1]], '倒數：' + JSON.stringify(retry.map((p) => [p.attempt, p.retryIn])));
+  assert.ok(retry.every((p) => p.reason === '網路斷了一下'));
+  const pcts = ev.filter((p) => p.status !== 'success').map((p) => p.percent);
+  assert.ok(pcts.every((x, i) => i === 0 || x >= pcts[i - 1]), '百分比不倒退：' + pcts.join(','));
+  assert.ok(ev.some((p) => p.status === 'resuming') && ev[ev.length - 1].status === 'success');
+  assert.ok(logs.length === 2 && /第 1 次失敗（network，有進度）/.test(logs[0]) && !/X-Amz/.test(logs.join()), '紀錄：' + logs.join(' | '));
+  // 一直沒有進度：第 1 次失敗＋重試 2 次都沒進度 → 放棄
+  ev = []; let n = 0;
+  await assert.rejects(PG.pullWithRetry({ run: async (onP) => { n++; onP({ status: 'pulling', completed: 0, total: 10, percent: 0 }); throw netErr(); }, onProgress: (p) => ev.push(p), sleep: nap, waits: [1] }), (e) => /^試了 3 次都沒辦法下載完。網路連不上/.test(e.message) && e.retried === 2);
+  assert.strictEqual(n, 3);
+  // 有進度就重新算：沒進度、有進度、沒進度、沒進度、沒進度 → 5 次
+  n = 0;
+  await assert.rejects(PG.pullWithRetry({ run: async (onP) => { n++; if (n === 2) onP({ status: 'pulling', completed: 50 * MB, total: 100 * MB, percent: 50 }); throw netErr(); }, sleep: nap, waits: [1] }));
+  assert.strictEqual(n, 5, '有進度後重新算');
+  // 最多重試 maxRetries 次（就算每次都有一點進度）
+  n = 0;
+  await assert.rejects(PG.pullWithRetry({ run: async (onP) => { n++; onP({ status: 'pulling', completed: n * 10 * MB, total: 1e12, percent: 0 }); throw netErr(); }, sleep: nap, waits: [1], maxRetries: 4 }), (e) => e.retried === 4);
+  assert.strictEqual(n, 5);
+  // 不是網路的問題：不重試
+  for (const m of ['no space left on device', 'pull model manifest: file does not exist', 'pull model manifest: 412: requires a newer version of Ollama', 'fetch failed: ECONNREFUSED']) {
+    n = 0;
+    await assert.rejects(PG.pullWithRetry({ run: async () => { n++; throw netErr(m); }, sleep: nap }), (e) => !/試了/.test(e.message));
+    assert.strictEqual(n, 1, '不重試：' + m);
+  }
+  // 「沒有完成」也會再接一次
+  n = 0;
+  ok = await PG.pullWithRetry({ run: async (onP) => { n++; if (n === 1) throw S.pullError('下載沒有完成'); onP({ status: 'success', percent: 100 }); return true; }, sleep: nap, waits: [1] });
+  assert.ok(ok && n === 2);
+  // 連不上模型網站：倒數時說「連不上模型網站」
+  ev = [];
+  await PG.pullWithRetry({ run: runner([{ err: netErr('pull model manifest: Get "https://registry.ollama.ai/v2/x": dial tcp: i/o timeout') }, { ok: true }]), onProgress: (p) => ev.push(p), sleep: nap, waits: [1] });
+  assert.strictEqual(ev.find((p) => p.status === 'retrying').reason, '連不上模型網站');
+  // 等待中按取消 → 停下來
+  const ac3 = new AbortController(); n = 0;
+  await assert.rejects(PG.pullWithRetry({ run: async () => { n++; throw netErr(); }, signal: ac3.signal, waits: [30], sleep: async () => { ac3.abort(); } }), (e) => e.kind === 'canceled');
+  assert.strictEqual(n, 1);
+  // 真的 sleep：取消時馬上結束（不用等 1 秒）
+  const ac4 = new AbortController(); const t0 = Date.now();
+  setTimeout(() => ac4.abort(), 30);
+  await assert.rejects(PG.pullWithRetry({ run: async () => { throw netErr(); }, signal: ac4.signal, waits: [30] }), (e) => e.kind === 'canceled');
+  assert.ok(Date.now() - t0 < 900, '取消不用等');
+  assert.deepStrictEqual(PG.WAIT_STEPS, [10, 30, 60]);
+
+  // 6. 接到 main／preload／畫面
+  const root = path.join(__dirname, '..');
+  const mainSrc = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8');
+  assert.ok(/PG\.preflight\(/.test(mainSrc) && /PG\.pullWithRetry\(/.test(mainSrc) && /setup\.log/.test(mainSrc) && /mode: 'direct'/.test(mainSrc) && /force: !!\(opts && opts\.force\)/.test(mainSrc), 'main：檢查＋自動續傳＋紀錄');
+  assert.ok(/setupPull: \(model, opts\)/.test(fs.readFileSync(path.join(root, 'src/main/preload.js'), 'utf8')));
+  const ob = fs.readFileSync(path.join(root, 'src/renderer/onboard.js'), 'utf8');
+  assert.ok(/data-force="1"/.test(ob) && /retrying/.test(ob) && /checking/.test(ob) && (ob.match(/force: !!pl\.dataset\.force/g) || []).length === 2, '畫面：仍然下載、倒數、檢查中；新手教學和健康檢查都能按');
+  console.log('下載模型防呆測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
