@@ -10,8 +10,8 @@
 
   function board(v) {
     const qs = v.quests || [];
-    if (!qs.length) return v.editable ? { text: '週任務板還是空的～按「＋ 新任務」登記第一筆委託吧！', emotion: 'normal' } : { text: '這份計畫檔裡還沒有任務喔。', emotion: 'thinking' };
-    if (qs.every((q) => q.status === 'done')) return { text: '這週的委託全部完成了！冒險者好厲害～', emotion: 'cheer' };
+    if (!qs.length) return v.editable ? { text: '週任務板還是空的～按「＋ 新任務」登記第一筆任務，或打開筆記本跟艾琳說這週要做什麼吧！', emotion: 'normal' } : { text: '這份計畫檔裡還沒有任務喔。', emotion: 'thinking' };
+    if (qs.every((q) => q.status === 'done')) return { text: '這週的任務全部完成了！冒險者好厲害～', emotion: 'cheer' };
     const a = v.active;
     if (!a) return { text: '要先做哪一個呢？按「📌 設為當前任務」，艾琳就幫你盯著那一個。', emotion: 'thinking' };
     const t = short(a.title);

@@ -124,7 +124,7 @@ function renderAch(el) {
     <div class="co-a ${a.got ? 'got' : ''} ${a.hidden && !a.got ? 'secret' : ''}"><span class="co-medal">${a.icon}</span>
       <div><b>${esc(a.name)}</b><small>${esc(a.desc)}</small>${a.progress && !a.got ? `<div class="co-progrow"><div class="co-prog"><i style="width:${Math.round((a.progress.n / a.progress.of) * 100)}%"></i></div><span>${a.progress.n}/${a.progress.of}</span></div>` : ''}</div>
       <span class="co-gold">${a.got ? '✓' : `${COIN}${a.gold}`}</span></div>`).join('')}</div>`;
-  el.innerHTML = head('🏅 成就', `${got}/${col.achievements.length} 個`, '', '完成目標、交付委託、專注、抽運勢…都會點亮成就，每個都有金幣') + `<div class="panel-body co-body">${body}</div>`;
+  el.innerHTML = head('🏅 成就', `${got}/${col.achievements.length} 個`, '', '完成目標、交付任務、專注、抽運勢…都會點亮成就，每個都有金幣') + `<div class="panel-body co-body">${body}</div>`;
 }
 async function achClick(e) {
   if (e.target.closest('[data-close]')) { closePanel(); return true; }

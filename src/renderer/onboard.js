@@ -78,7 +78,7 @@ function renderOnboard(el, v) {
   let body = '', foot = '';
   const back = '<button class="btn ghost" data-ob-back>← 上一步</button>';
   if (ob.step === 'welcome') {
-    body = say(`初次見面！${esc(name)}是星盾公會晨風鎮分會、三號櫃台的接待員。<br>從今天起，你的每一件工作都是一份「委託」：完成目標就能拿到星屑（經驗值）和金幣，${esc(name)}會幫你記著進度、準時提醒你。`)
+    body = say(`初次見面！${esc(name)}是星盾公會晨風鎮分會、三號櫃台的接待員。<br>從今天起，你的每一件工作都是一個「任務」：完成目標就能拿到星屑（經驗值）和金幣，${esc(name)}會幫你記著進度、準時提醒你。`)
       + say(`接下來大概花 3 分鐘，一起把櫃台準備好吧！每一步都可以跳過，之後右鍵選單的「🎓 新手教學」可以再看一次。`);
     foot = `<button class="btn ghost" data-ob-skipall>我很熟了，全部跳過</button><span class="spacer"></span><button class="btn gold" data-ob-next>開始 →</button>`;
   }

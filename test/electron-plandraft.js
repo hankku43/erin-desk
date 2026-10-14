@@ -52,7 +52,13 @@ module.exports = ({ win, engine, menuTemplate, pdWin }) => {
       assert(/assets\/stageup\/erin_(hug_notebook|write_hum)/.test(await js(`document.querySelector('#face').src`, B)), '艾琳抱著筆記本／邊哼歌邊寫');
       await shot('pd01_quests', bw);
       // 10/13 視窗縮到最小：欄頭「週二 今天 10/13」還是一行、不溢出（以前「今天」會掉到第二行）
-      const [w0, h0] = bw.getSize(); bw.setSize(960, 640); await wait(500);
+      const [w0, h0] = bw.getSize();
+      // 10/14 A：縮到最小（900）頂欄的 ✕、寫進去都還在視窗裡
+      bw.setSize(900, 640); await wait(500);
+      const bar = await js(`(() => { const b = document.querySelector('#book').getBoundingClientRect(), x = document.querySelector('#bClose').getBoundingClientRect(), bar = document.querySelector('#bar'); return { close: Math.round(x.right), book: Math.round(b.right), sw: bar.scrollWidth, cw: bar.clientWidth, commit: document.querySelector('#bCommit').innerText.trim() }; })()`, B);
+      assert(bar.close <= bar.book && bar.sw <= bar.cw + 1 && /寫進去/.test(bar.commit), '900 寬：頂欄放得下：' + JSON.stringify(bar));
+      await shot('pd01b_min900', bw);
+      bw.setSize(960, 640); await wait(500);
       const dh = await js(`[...document.querySelectorAll('.dcol .dh')].map((h) => ({ t: h.textContent.trim(), h: Math.round(h.getBoundingClientRect().height), over: h.scrollWidth > h.clientWidth + 1 }))`, B);
       assert(dh.some((x) => /週二/.test(x.t)) && dh.every((x) => x.h <= 30 && !x.over), '欄頭一行、不溢出：' + JSON.stringify(dh));
       bw.setSize(w0, h0); await wait(400);

@@ -84,13 +84,12 @@ function renderJournal(el) {
     else if (w.comment) comment = `<div class="jn-comment"><p>${esc(w.comment)}</p><span class="jn-sign">— ${name}</span>${w.stale ? `<button class="btn small ghost jn-rewrite" data-jn-write title="評語寫好之後數字又變了">✍ 數字有更新，請${name}重寫</button>` : ''}</div>`;
     else comment = `<div class="jn-comment empty"><button class="btn small" data-jn-write>✍ 請${name}寫評語</button></div>`;
     body = nav + top + comment + tiles + quests + days; // 稱號 → 艾琳的評語 → 數字 → 委託 → 每天
-    foot = ''; // 匯出移到標題列（💾），日誌這頁不需要頁尾
+    foot = '<span class="spacer">存成 Markdown 檔（在你的資料夾 data\\週報）</span><button class="btn" data-jn-export>💾 匯出</button>'; // 10/14 K：跟週報分頁一樣，匯出是頁尾一顆有字的（以前是標題列一顆只有圖示的 💾）
   }
   // 重畫時保住打到一半的週報（游標位置也留著）
   const ta = el.querySelector('#jnReport');
   const keep = ta && document.activeElement === ta ? { a: ta.selectionStart, b: ta.selectionEnd, top: ta.scrollTop } : null;
-  const exportBtn = jn.tab === 'log' ? '<button class="icon-btn jn-export" data-jn-export data-tip="匯出成 Markdown 檔（存在「你的資料夾\\data\\週報」）" aria-label="匯出">💾</button>' : '';
-  el.innerHTML = head('📖 冒險日誌', '', tabs + exportBtn, info) + `<div class="panel-body jn-body jn-${jn.tab}">${body}</div>${foot ? `<div class="panel-foot">${foot}</div>` : ''}`;
+  el.innerHTML = head('📖 冒險日誌', '', tabs, info) + `<div class="panel-body jn-body jn-${jn.tab}">${body}</div>${foot ? `<div class="panel-foot">${foot}</div>` : ''}`;
   jnGrow(el.querySelector('#jnReport'));
   if (keep) { const t2 = el.querySelector('#jnReport'); if (t2) { t2.focus({ preventScroll: true }); t2.setSelectionRange(keep.a, keep.b); } }
 }

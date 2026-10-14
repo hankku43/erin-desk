@@ -371,6 +371,20 @@ h2 span { background: linear-gradient(transparent 62%, var(--hl) 62%); padding: 
 @media (max-width: 1080px) {
   .ph .hint { display: none; }
 }
+/* 10/14 A：視窗窄的時候（最小 900）頂欄和時刻簿頁首要放得下——✕、寫進去、對齊都不能被擠出視窗。
+   .lg＝寬的時候才顯示的字、.sh＝窄的時候換上的短字 */
+.sh { display: none; }
+@media (max-width: 1080px) {
+  #bar .lg, .ph .unit .lg { display: none; }
+  #bar .sh { display: inline; }
+  .weeks button small { display: none; }
+  #bar { gap: 8px; }
+}
+@media (max-width: 1000px) {
+  .daytabs button small { display: none; }
+  .daytabs button { padding: 3px 9px; }
+  .ttl .sub { display: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .sticky, .sticky:hover { transform: none; transition: none; }
   .hl { animation: none; box-shadow: 0 0 0 4px var(--hl); }

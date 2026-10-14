@@ -10,9 +10,9 @@ const ACH = [
   { id: 'obj1', icon: '☑', name: '第一步', desc: '完成第一個目標', gold: 10, test: (c) => c.objectives >= 1 },
   { id: 'obj100', icon: '🎯', name: '目標獵人', desc: '完成 100 個目標', gold: 120, test: (c) => c.objectives >= 100, goal: (c) => [c.objectives, 100] },
   { id: 'ontime1', icon: '⏱', name: '準時交件', desc: '第一次準時交付任務', gold: 20, test: (c) => c.onTime >= 1 },
-  { id: 'quest10', icon: '📜', name: '熟練的冒險者', desc: '交付 10 個委託', gold: 50, test: (c) => c.quests >= 10, goal: (c) => [c.quests, 10] },
-  { id: 'quest50', icon: '🛡', name: '公會的常客', desc: '交付 50 個委託', gold: 150, test: (c) => c.quests >= 50, goal: (c) => [c.quests, 50] },
-  { id: 'quest100', icon: '👑', name: '委託大師', desc: '交付 100 個委託', gold: 300, test: (c) => c.quests >= 100, goal: (c) => [c.quests, 100] },
+  { id: 'quest10', icon: '📜', name: '熟練的冒險者', desc: '交付 10 個任務', gold: 50, test: (c) => c.quests >= 10, goal: (c) => [c.quests, 10] },
+  { id: 'quest50', icon: '🛡', name: '公會的常客', desc: '交付 50 個任務', gold: 150, test: (c) => c.quests >= 50, goal: (c) => [c.quests, 50] },
+  { id: 'quest100', icon: '👑', name: '委託大師', desc: '交付 100 個任務', gold: 300, test: (c) => c.quests >= 100, goal: (c) => [c.quests, 100] },
   { id: 'ontime5', icon: '⚡', name: '分秒必爭', desc: '連續 5 次準時交付', gold: 80, test: (c) => c.onTimeStreak >= 5, goal: (c) => [c.onTimeStreak, 5] },
   // 專注與回報
   { id: 'focus10', icon: '🍅', name: '專注新手', desc: '完成 10 顆番茄', gold: 30, test: (c) => c.focus >= 10, goal: (c) => [c.focus, 10] },

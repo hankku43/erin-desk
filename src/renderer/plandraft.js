@@ -76,7 +76,7 @@ function render() {
   // 摘要（幾個委託、幾格行程）放在這週那顆分頁的說明小卡裡，頂欄就不擠（10/13 H）
   const sum = `${d.summary}${d.pending ? `・${S.name}還在整理 ${d.pending} 句` : ''}`;
   $('#weeks').innerHTML = (d.weeks || []).map((w) => `<button role="tab" class="${w.start === d.week.start ? 'on' : ''}" data-week="${w.which}" data-tip="${esc(`${w.name}（${w.label}）${w.start === d.week.start ? `：${sum}` : ''}${w.changes ? `・${w.changes} 處還沒寫進計畫檔` : ''}`)}">${esc(w.name)}<small>${esc(w.label)}</small>${w.changes && w.start !== d.week.start ? `<span class="dot">${w.changes}</span>` : ''}</button>`).join('');
-  $('#changes').textContent = d.changes ? `✏️ ${d.changes} 處還沒寫進計畫檔` : '';
+  $('#changes').innerHTML = d.changes ? `✏️ ${d.changes}<span class="lg"> 處還沒寫進計畫檔</span>` : ''; // 視窗窄時只留「✏️N」（10/14 A）
   $('#changes').dataset.tip = '鉛筆的（新加、改過、劃掉的）都還只是草稿，櫃台的週任務板、今日行程看不到；按「✔ 寫進計畫檔」才算數。勾步驟、勾時段、交付不用等，已經寫進去了';
   $('#changes').classList.toggle('hidden', !d.changes);
   $('#bUndo').disabled = !d.canUndo;

@@ -147,7 +147,7 @@ module.exports = ({ win, engine, app }) => {
       // 7. 冒險日誌：四個大數字＋一行小字；週報只有一層捲動；複製鈕打勾
       await click('[data-act=journal]'); await wait(1500); await flush();
       assert((await js(`document.querySelectorAll('.jn-tile').length`)) === 4 && (await js(`document.querySelectorAll('.jn-more span').length`)) === 4, '日誌數字');
-      assert(await js(`!!document.querySelector('.panel-head [data-jn-export]') && !document.querySelector('#panel .panel-foot')`), '匯出在標題列、日誌頁沒有頁尾');
+      assert(await js(`!document.querySelector('.panel-head [data-jn-export]') && /匯出/.test((document.querySelector('#panel .panel-foot [data-jn-export]') || {}).textContent || '')`), '匯出在頁尾、有字（10/14 K）');
       await shot('u08_journal');
       await click('[data-jn-tab=report]'); await wait(300);
       const ta = await js(`(() => { const t = document.querySelector('#jnReport'); return { sh: t.scrollHeight, ch: t.clientHeight }; })()`);
@@ -165,6 +165,18 @@ module.exports = ({ win, engine, app }) => {
       await home();
       assert(await js(`!document.querySelector('#btnSubmit').classList.contains('hidden') && /交付「.+」/.test(document.querySelector('#btnSubmit').textContent) && /XP/.test(document.querySelector('#btnSubmit').textContent)`), '交付長條：' + await js(`document.querySelector('#btnSubmit').textContent`));
       await shot('u10_submit_row');
+      // 10/14 I：狀態欄追蹤列第二行寫「可以交付了」，不會被截成「點艾…」
+      const fl = await js(`(() => { const s = document.querySelector('#tracker .fl-sub'); return { t: s.textContent, sw: s.scrollWidth, cw: s.clientWidth }; })()`);
+      assert(/可以交付了/.test(fl.t) && fl.sw <= fl.cw + 1, '追蹤列不截字：' + JSON.stringify(fl));
+      // 10/14 E：欄位少的表單貼在上方、只佔需要的高度，按鈕就在欄位下面
+      for (const [kind, code] of [['rowForm', `openPanel('daily'); openForm('rowForm')`], ['submit', `openPanel('submit', ${JSON.stringify(qs[1].id)})`]]) {
+        await js(code + '; 0'); await wait(400);
+        const g = await js(`(() => { const p = document.querySelector('#panel').getBoundingClientRect(), u = document.querySelector('#upper').getBoundingClientRect(), f = document.querySelector('#panel .panel-foot').getBoundingClientRect(), last = [...document.querySelectorAll('#panel .panel-body input, #panel .panel-body textarea')].at(-1).getBoundingClientRect(); return { pTop: Math.round(p.top - u.top), pH: Math.round(p.height), uH: Math.round(u.height), gap: Math.round(f.top - last.bottom) }; })()`);
+        assert(g.pTop <= 2 && g.pH < g.uH - 40 && g.gap < 40, `${kind}：貼在上方、按鈕緊跟欄位：` + JSON.stringify(g));
+        if (kind === 'rowForm') await shot('u10b_form_fit');
+        await js('closePanel(); 0'); await wait(200);
+      }
+      await home();
 
       // 9. 運勢：卡片蓋在狀態欄上，不擋選單；沒有另外飄字；成就等卡片翻開才出現
       await click('[data-act=magic]'); await wait(300); await click('#subRow [data-act=fortune]'); await wait(700);
@@ -183,6 +195,41 @@ module.exports = ({ win, engine, app }) => {
       assert(Math.abs((await rect('#hudTop')).h - hudTopH) < 2 && (await js(`getComputedStyle(document.querySelector('#fortuneTag')).display`)) === 'none', '專注中狀態欄不換行');
       await js('closeDialog(); 0'); await wait(200);
       await shot('u12_focus');
+      // 10/14 F：「要結束專注嗎？」的「繼續」在深色狀態欄上看得清楚（白字）
+      await click('#hudFocus'); await wait(300);
+      const keep = await js(`getComputedStyle(document.querySelector('[data-focus-keep]')).color`);
+      const [kr, kg, kb] = keep.match(/\d+/g).map(Number);
+      assert(kr > 200 && kg > 200 && kb > 200, '「繼續」是白字：' + keep);
+      await shot('u12b_focus_confirm');
+      await js('state.focusConfirm = false; renderTracker(); 0');
+      await engine.cancelFocus(); wc.send('view:update', { view: engine.view() }); await wait(300); await flush();
+
+      // 11. 10/14 B：狀態欄最壞情況（連續 150 天、金幣 12345、筆記本 12 處沒寫進去、抽過運勢）：🍅 還在框裡、金幣寫「1.2萬」、🔥 寫 99+
+      engine.state.player.gold = 12345;
+      engine.state.streak = { ...(engine.state.streak || {}), cur: 150, best: 150, last: require(path.resolve('src/main/game')).todayISO(engine.now()), days: 160 };
+      engine.pdOpen('this', {}); for (let i = 0; i < 12; i++) engine.pdSay(`週五前寫完月報${i}`); engine.pdPause();
+      wc.send('view:update', { view: engine.view() }); await wait(400); await flush();
+      const hb = await js(`(() => { const t = document.querySelector('#hudTop'), f = document.querySelector('#hudFocus').getBoundingClientRect(), h = document.querySelector('#hud').getBoundingClientRect(); return { sw: t.scrollWidth, cw: t.clientWidth, focusIn: f.right <= h.right - 4, gold: document.querySelector('#gold').textContent, streak: document.querySelector('#hudStreak').textContent, hidden: [...t.querySelectorAll('.fit-hide')].map((x) => x.id) }; })()`);
+      assert(hb.sw <= hb.cw + 1 && hb.focusIn && hb.gold === '1.2萬' && /99\+/.test(hb.streak), '狀態欄最壞情況放得下：' + JSON.stringify(hb));
+      const wideHud = await wc.insertCSS('#hud * { letter-spacing: .12em !important; }'); await wait(150);
+      const hw = await js(`(() => { fitHud(); const t = document.querySelector('#hudTop'); return { sw: t.scrollWidth, cw: t.clientWidth, hidden: [...t.querySelectorAll('.fit-hide')].map((x) => x.id) }; })()`);
+      assert(hw.sw <= hw.cw + 1 && hw.hidden.includes('fortuneTag'), 'Windows 字寬：先收運勢、還放得下：' + JSON.stringify(hw));
+      await wait(120); await shot('u13_hud_worst');
+      await wc.removeInsertedCSS(wideHud); await js('fitHud(); 0');
+
+      // 12. 10/14 C＋H：計畫檔沒有任務——警告只跳一次；週任務板是一張卡、三條路；艾琳不說「委託」
+      fs.writeFileSync(path.join(process.env.QUEST_NPC_HOME, 'plans', 'empty.md'), `# 週計畫 9/28–10/2\n`);
+      await js(`window.__toasts = []; const _t = toast; toast = function (m, ...a) { window.__toasts.push(String(m)); return _t.call(this, m, ...a); }; 0`);
+      engine.saveConfigPatch({ plan: { path: 'plans/empty.md' } }); engine.loadPlan();
+      for (let i = 0; i < 4; i++) { wc.send('view:update', { view: engine.view() }); await wait(250); }
+      await flush(); await home();
+      await click('[data-act=board]'); await wait(500); await flush();
+      wc.send('view:update', { view: engine.view() }); await wait(300);
+      const warned = await js(`window.__toasts.filter((x) => /^⚠/.test(x))`);
+      assert(warned.length === 1 && !/##/.test(warned[0]), '警告只跳一次、不叫人改 markdown：' + JSON.stringify(warned));
+      assert(await js(`!!document.querySelector('#panel .empty-card') && document.querySelectorAll('#panel .empty-card .ec-acts .btn').length === 3`), '空的週任務板：一張卡、三顆按鈕');
+      assert(!/委託/.test(await js(`document.querySelector('#dlgText').textContent`)), '艾琳說「任務」：' + await js(`document.querySelector('#dlgText').textContent`));
+      await shot('u14_empty_board');
       console.log('DONE');
     } catch (e) { console.error('FAIL', e); }
     app.quit();

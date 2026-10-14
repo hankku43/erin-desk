@@ -4,6 +4,8 @@ const $ = (s) => document.querySelector(s);
 const GREET_COOLDOWN = 30 * 60000; // 半小時內再點她，就不重複報告任務，改成閒聊
 const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null, starSeen: {}, flMode: 'auto', flSlotId: null, flFlashUntil: 0, lastActive: null };
 const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename', 'raidForm', 'leave']);
+// 欄位少的表單：面板貼在上方、只佔需要的高度（標題列位置跟其他面板一樣），取消／儲存就在欄位下面（10/14 E）
+const FIT_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'raidForm', 'report', 'submit', 'rename', 'divine']);
 // ✏️ 接待員改名：內建的句子（待機小字、面板台詞、說明小卡）是用「艾琳」寫的，顯示前換成現在的名字（rename.js）
 const npcNameR = () => (state.view && state.view.npc && state.view.npc.name) || '艾琳';
 const nmR = (t) => (typeof Rename !== 'undefined' ? Rename.rename(t, npcNameR()) : t);
@@ -209,6 +211,7 @@ function applyMini(on, { greet: sayHi = true } = {}) { // 參數改名，避免�
     closePanel(); closeDialog();
     if (useFx) fx.catPop();
   } else {
+    requestAnimationFrame(fitHud); // 縮小時狀態欄量不到寬度：展開後再排一次
     $('#marker').classList.add('hidden');
     if (useFx) fx.morph();
     if (was && sayHi) {
@@ -481,10 +484,10 @@ function applyView(v) {
   $('#lv').textContent = `Lv.${p.level}`;
   $('#lv').dataset.tip = `${p.title}・下一級還差 ${Math.max(0, p.xpForNext - p.xpInLevel)} XP・點一下看成就`; // 10/13 N：Lv 和稱號列都能點 → 成就
   $('#ptitle').textContent = p.title; // 稱號放在經驗條上（以前擠在圖示列，常被截成「新…」）
-  const sk = $('#hudStreak'); sk.textContent = `🔥${v.streak || 0}`; sk.classList.toggle('hidden', !(v.streak >= 2)); // 🔥 連續上工 2 天以上才顯示
+  const sk = $('#hudStreak'); sk.textContent = `🔥${capN(v.streak || 0)}`; sk.classList.toggle('hidden', !(v.streak >= 2)); // 🔥 連續上工 2 天以上才顯示；超過 99 寫 99+
   // ✏️ 筆記本裡改好、還沒寫進計畫檔的（10/13 C）：狀態欄一顆小標、首頁的 📓 筆記本也標數字——不然只有打開筆記本才知道週任務板看到的不是最新的
   const pdN = (v.planDraft && v.planDraft.changes) || 0;
-  const dt = $('#hudDraft'); dt.textContent = `✏️${pdN}`; dt.classList.toggle('hidden', !pdN);
+  const dt = $('#hudDraft'); dt.textContent = `✏️${capN(pdN)}`; dt.classList.toggle('hidden', !pdN);
   dt.dataset.tip = `筆記本裡有 ${pdN} 處改好、還沒寫進計畫檔（週任務板、今日行程看到的還是舊的）・點一下打開筆記本`;
   const pdBtn = document.querySelector('#choices [data-act="pd"]');
   if (pdBtn) {
@@ -495,7 +498,7 @@ function applyView(v) {
   }
   sk.dataset.tip = `連續上工 ${v.streak || 0} 天・點一下看成就`;
   if (typeof applyDecor === 'function') applyDecor(v); // 🛒 主題配色、櫃台吊飾／擺設（shop.js 比較晚載入：還沒載入時由它自己補畫）
-  $('#gold').innerHTML = `${COIN}${+p.gold || 0}`;
+  $('#gold').innerHTML = `${COIN}${shortGold(+p.gold || 0)}`; // 五位數以上寫「1.2萬」，狀態欄才放得下（10/14 B）
   $('#gold').dataset.tip = `${+p.gold || 0} 金幣・點一下開雲朵雜貨舖`;
   $('#xpfill').style.width = `${Math.min(100, (p.xpInLevel / p.xpForNext) * 100)}%`;
   $('#xptext').textContent = `${p.xpInLevel} / ${p.xpForNext} XP`;
@@ -515,6 +518,7 @@ function applyView(v) {
   renderTracker();
   renderFocus();
   renderFortuneTag();
+  fitHud();
   const a = v.active;
   const canSubmit = !!(a && a.status === 'ready');
   const sb = $('#btnSubmit');
@@ -525,7 +529,9 @@ function applyView(v) {
   else if (state.mini && state.miniAlert) { /* 保留 ! */ }
   else if (a && a.status === 'ready') setMarker('ready');
   else if (m.dataset.kind === 'ready' || state.mini) setMarker(null);
-  if (v.planError && !(v.onboarding && v.onboarding.needed) && state.panel !== 'onboard') toast(`⚠ ${v.planError}`, 6000);
+  // 計畫檔的問題：同一句只提醒一次（以前每次畫面更新都再跳一次，10/14 C）；問題解決了再出現才會再說
+  if (!v.planError) state.lastPlanError = null;
+  else if (v.planError !== state.lastPlanError && !(v.onboarding && v.onboarding.needed) && state.panel !== 'onboard') { toast(`⚠ ${v.planError}`, 6000); state.lastPlanError = v.planError; }
   if (state.panel && !FORM_PANELS.has(state.panel)) renderPanel();
 }
 // 日期小工具：<input type="date"> 的值 ↔ 計畫檔裡的 M/D
@@ -593,7 +599,7 @@ function starsHtml(q, animate) {
   }).join('')}</span>`;
 }
 function dueSub(q) {
-  if (q.status === 'ready') return `<em class="ready">・✨ 目標都完成了，點${esc(state.view.npc.name)}交付</em>`;
+  if (q.status === 'ready') return '<em class="ready">・✨ 可以交付了</em>'; // 以前「目標都完成了，點艾琳交付」太長被截成「點艾…」（10/14 I）；點這一行就開週任務板，交付鈕在那裡
   if (q.status === 'done' || q.daysLeft === null) return '';
   if (q.daysLeft < 0) return `<em class="late">・⚠ 逾期 ${-q.daysLeft} 天</em>`;
   if (q.daysLeft === 0) return '<em class="today">・🔥 今天截止</em>';
@@ -698,6 +704,24 @@ $('#tracker').addEventListener('mouseenter', () => {
   state.peekTimer = setTimeout(() => { if (state.mini || state.focusConfirm || document.body.classList.contains('no-hud')) return; state.peekOpen = true; renderPeek(); $('#hudPeek').classList.remove('hidden'); }, 280);
 });
 $('#tracker').addEventListener('mouseleave', hidePeek);
+
+// ---------- 狀態欄圖示列：永遠一行、🍅 永遠在最右邊（10/14 B）----------
+// 數字太大縮寫；放不下就從不重要的標籤開始收：抽過的運勢 → 🔥 → 還沒抽的 🔮 → ✏️（Lv、金幣、🍅 一定留著）
+const capN = (n) => (n > 99 ? '99+' : String(n));
+const shortGold = (g) => (g >= 10000 ? `${(Math.floor(g / 1000) / 10).toFixed(1).replace(/\.0$/, '')}萬` : String(g));
+function fitHud() {
+  const top = $('#hudTop');
+  if (!top || document.body.classList.contains('no-hud')) return;
+  const tags = [...top.querySelectorAll('.fit-hide')];
+  tags.forEach((t) => t.classList.remove('fit-hide'));
+  if (!top.offsetWidth) return; // 縮小、還沒排版：下次再算
+  const order = [top.querySelector('.fortune-tag.drawn'), $('#hudStreak'), top.querySelector('.fortune-tag.new'), $('#hudDraft')].filter((el) => el && !el.classList.contains('hidden') && getComputedStyle(el).display !== 'none');
+  for (const el of order) {
+    if (top.scrollWidth <= top.clientWidth + 1) break;
+    el.classList.add('fit-hide');
+  }
+}
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitHud()); // 字型晚一點載好、字變寬：再排一次
 
 // ---------- 🔮 今日運勢 ----------
 function renderFortuneTag() {
@@ -936,6 +960,7 @@ function renderFocus() {
   b.textContent = on ? `${ico}${mmss(f.endAt - nowMs())}` : '🍅';
   b.dataset.tip = on ? (f.raid ? `團戰「${f.raid.title}」到 ${f.raid.end}・提早結束點這裡` : '專注中・點一下可以結束') : `專注 ${(f && f.minutes) || 25} 分鐘：${state.view ? state.view.npc.name : ''}變回貓咪陪你，時間到叫你休息`;
   $('#hud').classList.toggle('focusing', on); // 專注中：🔮 先收起來，圖示列才不會擠到換行
+  fitHud();
   $('#focusBadge').classList.toggle('hidden', !on);
   $('#zzz').classList.toggle('hidden', !on);
   if (on) $('#focusBadge').textContent = `${ico} ${mmss(f.endAt - nowMs())}`;
@@ -1075,6 +1100,7 @@ function openPanel(kind, arg) {
   if (!state.panel) state.reopenDialog = !$('#dialog').classList.contains('hidden');
   state.panel = kind; state.panelArg = arg; state.confirmDel = null; state.addingObj = null;
   document.body.classList.add('panel-open');
+  document.body.classList.toggle('fit-panel', FIT_PANELS.has(kind));
   if (FORM_PANELS.has(kind)) $('#dialog').classList.add('hidden'); else openDialog();
   $('#dlgLog').classList.toggle('on', kind === 'log');
   $('#dialog').classList.add('compact'); renderPanel();
@@ -1084,7 +1110,7 @@ function closePanel() {
   cancelAnimationFrame(state.dvRaf);
   const wasForm = FORM_PANELS.has(state.panel);
   state.panel = null; state.panelBack = null; state.confirmDel = null; state.addingObj = null;
-  document.body.classList.remove('panel-open');
+  document.body.classList.remove('panel-open', 'fit-panel');
   $('#panel').classList.add('hidden'); $('#dialog').classList.remove('compact'); $('#dlgLog').classList.remove('on');
   if (wasForm || state.reopenDialog) openDialog();
   // 泡泡裡是面板的那句（不是她真的說過的話）：回到首頁時換回她上一句真的說的話
@@ -1166,7 +1192,9 @@ function renderPanelInner(el, v) {
         </div>`;
       }
       body = tutorialHtml(v) + body; // 🎓 新手任務
-      if (!qs.length) body = tutorialHtml(v) + (v.editable ? '<p class="hint">計畫檔裡還沒有任務。按上面的「＋ 新任務」登記第一筆任務吧！</p>' : '<p class="hint">計畫檔裡沒有任務。右鍵角色 →「選擇週計畫檔…」</p>');
+      // 空的週任務板：一張卡、三條路（10/14 C；以前只有一行小字）
+      if (!qs.length) body = tutorialHtml(v) + (v.editable ? `<div class="empty-card"><div class="ec-ico">📜</div><b>這週還沒有任務</b><p>用哪一種開始都可以，之後都能再改。</p>
+        <div class="ec-acts"><button class="btn gold" data-new="quest"><span class="ec-l">＋ 新任務</span><small>填表單，一件一件登記</small></button><button class="btn" data-pd-open><span class="ec-l">📓 筆記本<span class="ext" aria-hidden="true">↗</span></span><small>跟${esc(v.npc.name)}說這週要做什麼</small></button><button class="btn" data-new="ics-in"><span class="ec-l">📥 匯入行事曆</span><small>Google／Outlook 的 .ics</small></button></div></div>` : '<p class="hint">計畫檔裡沒有任務。右鍵角色 →「⚙ 設定與資料」→「📂 選擇週計畫檔…」</p>');
       else if (!v.editable) body += '<p class="hint">🔒 這份計畫檔是舊版表格格式，程式裡不能直接新增／編輯。用 <code>node tools/convert_plan.js</code> 轉成新格式就可以了。</p>';
     } else {
       body = '<div class="hist">' + (v.history.length

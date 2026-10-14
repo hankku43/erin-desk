@@ -87,9 +87,9 @@ function snapshot({ plan, ps, state, rewards = G.DEFAULT_REWARDS, now = new Date
 
 // ---------- 本週稱號與徽章（照順序，第一個是稱號） ----------
 const BADGES = [
-  ['perfect', '👑', '完美的一週', (s) => s.questsTotal >= 2 && s.questsDone === s.questsTotal && s.late === 0, (s) => `${s.questsTotal} 個委託全部準時完成`],
-  ['allclear', '🏆', '委託全制霸', (s) => s.questsTotal >= 2 && s.questsDone === s.questsTotal, (s) => `${s.questsTotal} 個委託全部完成`],
-  ['ontime', '⏱', '準時之星', (s) => s.quests >= 2 && s.late === 0, (s) => `交付的 ${s.quests} 個委託都準時`],
+  ['perfect', '👑', '完美的一週', (s) => s.questsTotal >= 2 && s.questsDone === s.questsTotal && s.late === 0, (s) => `${s.questsTotal} 個任務全部準時完成`],
+  ['allclear', '🏆', '委託全制霸', (s) => s.questsTotal >= 2 && s.questsDone === s.questsTotal, (s) => `${s.questsTotal} 個任務全部完成`],
+  ['ontime', '⏱', '準時之星', (s) => s.quests >= 2 && s.late === 0, (s) => `交付的 ${s.quests} 個任務都準時`],
   ['levelup', '⬆', '突破極限', (s) => s.levelEnd > s.levelStart, (s) => `升到 Lv.${s.levelEnd}`],
   ['focus', '🍅', '專注大師', (s) => s.focus >= 8, (s) => `專注了 ${s.focus} 顆番茄（${s.focusMin} 分鐘）`],
   ['reporter', '📝', '勤勞的記錄員', (s) => s.reports >= Math.max(3, s.days), (s) => `${s.reports} 天都有收工回報`],

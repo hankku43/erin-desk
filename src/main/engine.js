@@ -205,7 +205,7 @@ class Engine {
       this.planText = fs.readFileSync(this.planFile(), 'utf8');
       const r = parseAny(this.planText, this.planFile());
       this.plan = r.plan; this.legacy = r.legacy; this.P = r.legacy ? PlanLegacy : PlanNew;
-      if (!this.plan.quests.length) this.planError = '計畫檔裡沒有任務：加一個「## 任務名 ⭐」和幾行「- [ ] 目標」就可以了';
+      if (!this.plan.quests.length) this.planError = '這週的計畫還沒有任務：打開週任務板按「＋ 新任務」，或用筆記本跟艾琳說要做什麼';
       else if (this.legacy) this.planError = '這是舊格式的計畫檔，還能用；要改成新格式請執行 node tools/convert_plan.js';
     } catch (e) {
       this.plan = { title: '（沒有計畫檔）', quests: [], days: [], decisions: [], progressLog: [], overview: [] }; this.P = PlanNew; this.legacy = false;
