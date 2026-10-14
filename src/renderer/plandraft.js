@@ -333,7 +333,7 @@ function renderTime() {
 }
 function renderLog() {
   const L = (S.d.log || []).slice(-4);
-  $('#log').innerHTML = L.map((l) => `<span class="chip" data-tip="${esc(`「${l.said}」${l.text ? ` → ${l.text}` : ''}`)}"><span class="said">「${esc(l.said.replace(/\n/g, ' '))}」</span>${l.pending ? `<span class="busy">✏️ ${esc(S.name)}${l.edit ? '想怎麼改' : '整理中'}…</span>` : `<span class="got">${esc(l.text || '（沒有記到東西）')}</span>`}<button class="x" data-undo-log="${esc(l.id)}" aria-label="撤銷這句" data-tip="撤銷這句">✕</button></span>`).join('');
+  $('#log').innerHTML = L.map((l) => `<span class="chip" data-tip="${esc(`「${l.said}」${l.text ? ` → ${l.text}` : ''}`)}"><span class="said">「${esc(l.said.replace(/\n/g, ' '))}」</span>${l.pending ? `<span class="busy">✏️ ${esc(S.name)}${l.edit ? '想怎麼改' : '整理中'}…</span>` : `<span class="got">${esc(l.text || '（沒有記到東西）')}</span>`}${l.ask && S.d.ai ? `<button class="again" data-ask-log="${esc(l.id)}" data-tip="${esc(`這句比較複雜，記的不一定對：請${S.name}再看一次（本機 AI 大約要等幾秒；你改過的不會被換掉）`)}">✨ 再看一次</button>` : ''}<button class="x" data-undo-log="${esc(l.id)}" aria-label="撤銷這句" data-tip="撤銷這句">✕</button></span>`).join('');
 }
 function renderConfirm() {
   const el = $('#confirm');
@@ -508,6 +508,13 @@ function renderSplit() {
   el.classList.remove('hidden');
   renderSplitPreview();
 }
+// 請艾琳建議步驟：串流中想好一個就先放進步驟框（10/14 I）
+window.pd.onStream((p) => {
+  const pop = S.pop;
+  if (!pop || pop.kind !== 'split' || !pop.busy || pop.id !== p.id || !p.steps || !p.steps.length) return;
+  const ta = $('#sSteps'); if (ta) ta.value = p.steps.map((s) => `${s.text} ${s.min}`).join('\n');
+  const b = document.querySelector('[data-suggest]'); if (b) b.textContent = `✏️ ${S.name}想步驟中…（想好 ${p.steps.length} 個了）`;
+});
 async function suggestSteps() {
   const p = S.pop;
   readSplit();
@@ -636,6 +643,7 @@ document.addEventListener('click', async (e) => {
   const dy = t.closest('[data-day]'); if (dy && !t.closest('[data-edit]')) { setBook('time', dy.dataset.day); return; }
   if (t.closest('#bWeekView')) { setBook('time', S.day === 'week' ? (S.d.days.some((x) => x.date === S.d.today) ? S.d.today : S.d.days[0].date) : 'week'); return; }
   const gd = t.closest('[data-goto-day]'); if (gd) { e.stopPropagation(); setBook('time', gd.dataset.gotoDay); return; }
+  const ak = t.closest('[data-ask-log]'); if (ak) { const r = await act(() => window.pd.askAgain(ak.dataset.askLog)); if (r) { S.d = r.planDraft; render(); thinking(`${S.name}再看一次這句…`); } return; }
   const ul = t.closest('[data-undo-log]'); if (ul) { const r = await act(() => window.pd.undoLog(ul.dataset.undoLog)); if (r) { apply(r); say('那句撤銷了～', 'normal'); } return; }
   const rs = t.closest('[data-restore]'); if (rs) { e.stopPropagation(); const r = await act(() => window.pd.restore(rs.dataset.restore)); if (r) apply(r); return; }
   const ck = t.closest('[data-check]'); if (ck) { e.stopPropagation(); await play(() => window.pd.check(ck.dataset.check, ck.dataset.step, ck.dataset.done !== '1')); return; }

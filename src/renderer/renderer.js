@@ -338,7 +338,7 @@ $('#hudHide').addEventListener('click', (e) => {
 });
 
 function showThinking() {
-  openDialog(); state.contextShown = false;
+  openDialog(); state.contextShown = false; state.streamed = '';
   clearInterval(typeTimer); state.typing = false; $('#npcWrap').classList.remove('talking'); // 還在打字的那句先停（不然會蓋掉「思考中」）
   $('#dlgText').innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
   setShown(null);
@@ -376,7 +376,9 @@ function advance() {
   let i = 0;
   const text = line.text || '';
   const plain = text.replace(/`/g, ''); // 打字中先不顯示反引號，打完再用 rich() 上色
-  box.innerHTML = '<span class="typing"></span>';
+  // 串流時已經寫出來的字：接著打，不從頭再打一次（最後的句子會再校正口吻，前面一樣的部分才算）
+  if (state.streamed) { const sp = state.streamed.replace(/`/g, ''); while (i < sp.length && i < plain.length && sp[i] === plain[i]) i += 1; state.streamed = ''; }
+  box.innerHTML = `<span class="typing">${esc(plain.slice(0, i))}</span>`;
   $('#dlgMore').classList.add('hidden');
   typeTimer = setInterval(() => {
     i += 1;
@@ -524,6 +526,7 @@ function applyView(v) {
   const sb = $('#btnSubmit');
   sb.disabled = !canSubmit; sb.classList.toggle('hidden', !canSubmit); // 能交付時才出現，上面直接寫報酬
   if (canSubmit) { const rw = questReward(a); sb.innerHTML = `🏆 交付「${esc(shortTitle(a.title, 12))}」<span class="sr-gain">✨${rw.xp} XP　${COIN}${rw.gold}</span>`; }
+  renderChatQuick();
   const m = $('#marker');
   if (typeof Story !== 'undefined' && Story.syncMarker()) { /* 💗 升階的「!」優先（交付按鈕本來就看得到） */ }
   else if (state.mini && state.miniAlert) { /* 保留 ! */ }
@@ -1078,6 +1081,22 @@ let lastTouchSent = 0;
 function touch() { const n = Date.now(); if (n - lastTouchSent > 20000) { lastTouchSent = n; api.touch(); } }
 window.addEventListener('pointerdown', touch, true);
 window.addEventListener('keydown', touch, true);
+// 💬 聊天框上面的捷徑：勾目標、交付、收工回報直接開畫面——用畫面做的回報不用等 AI（10/14 E）
+function renderChatQuick() {
+  const v = state.view, el = $('#chatQuick');
+  if (!v || !el) return;
+  const a = v.active, ready = a && a.status === 'ready', pt = v.progressToday, name = esc((v.npc && v.npc.name) || '艾琳');
+  el.innerHTML = `<button type="button" class="cq" data-cq="board" data-tip="打開週任務板勾目標（馬上就算，不用等${name}想）">☑ 勾目標</button>`
+    + (ready ? `<button type="button" class="cq gold" data-cq="submit" data-tip="交付「${esc(a.title)}」">🏆 交付</button>` : '')
+    + `<button type="button" class="cq${pt ? ' done' : ''}" data-cq="report" data-tip="${pt ? '今天回報過了，點開可以再改' : '寫今天做了什麼、卡在哪'}">🌙 收工回報${pt ? ' ✔' : ''}</button>`;
+}
+$('#chatQuick').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cq]'); if (!b) return;
+  const k = b.dataset.cq, a = state.view && state.view.active;
+  if (k === 'board') { if (a) state.expanded.add(a.id); state.boardTab = 'quests'; openPanel('board'); }
+  if (k === 'submit' && a) openPanel('submit', a.id);
+  if (k === 'report') openPanel('report');
+});
 async function sendChat() {
   const inp = $('#chatInput');
   const text = inp.value.trim();
@@ -1593,6 +1612,15 @@ $('#panel').addEventListener('change', async (e) => {
 
 // ---------- 主程序推送 ----------
 api.on('view:update', ({ view, reason }) => { applyView(view); if (reason) toast(reason); });
+// 💬 聊天串流（10/14 I）：讀完提示 → 點點旁邊寫「在寫了」；字一邊產生一邊出現（最後那句接著打完，不重打）
+api.on('npc:partial', (p) => {
+  if (!p || !state.talking || state.typing || state.queue.length || state.mini) return;
+  const box = $('#dlgText');
+  if (!p.text) { if (!state.streamed) box.innerHTML = `<span class="thinking-dots"><span></span><span></span><span></span></span><span class="writing">${esc(npcNameR())}想好了，在寫…</span>`; return; }
+  state.streamed = p.text;
+  box.innerHTML = `<span class="typing">${esc(p.text.replace(/`/g, ''))}</span>`; // .typing 後面本來就有一根閃的筆
+  $('#npcWrap').classList.add('talking');
+});
 api.on('npc:lines', (lines) => {
   if (!lines || !lines.length) return;
   if (typeof Story !== 'undefined' && Story.hold(lines)) return; // 💗 正在演升階漫畫：演完再說

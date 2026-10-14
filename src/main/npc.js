@@ -651,6 +651,23 @@ function badReply(line, userText, call = '冒險者') {
   if (userText && keyText(userText).length >= 4 && keyText(t) === keyText(userText)) return '照抄了冒險者的話'; // 「午安」回「午安～」不算
   return null;
 }
+// 串流中（10/14 AI 提示審視 I）：JSON 還沒產生完，先把 "line": "… 這一段已經寫出來的字取出來顯示
+function partialField(content, key) {
+  const m = String(content || '').match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`));
+  if (!m) return null;
+  let raw = m[1];
+  for (let i = 0; i < 6; i++) { try { return JSON.parse(`"${raw}"`); } catch (_) { raw = raw.slice(0, -1); } } // 最後一個字是半個跳脫字元
+  return null;
+}
+// 拆步驟的串流：已經寫完整的 {"text": "...", "minutes": N}
+function partialSteps(content) {
+  const out = [];
+  const re = /\{\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"minutes"\s*:\s*(\d+)/g;
+  let m;
+  while ((m = re.exec(String(content || '')))) { try { out.push({ text: JSON.parse(`"${m[1]}"`), min: Number(m[2]) }); } catch (_) { /* 壞掉的跳過 */ } }
+  return out;
+}
+const versionAtLeast = (v, want) => { const a = String(v || '').split('.').map((x) => parseInt(x, 10) || 0), b = want.split('.').map(Number); for (let i = 0; i < b.length; i++) { if ((a[i] || 0) !== b[i]) return (a[i] || 0) > b[i]; } return true; };
 function isFallbackText(t) { RE_FALLBACK.lastIndex = 0; const r = RE_FALLBACK.test(String(t || '')); RE_FALLBACK.lastIndex = 0; return r; }
 
 const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -713,6 +730,13 @@ class NPC {
     } catch (_) { /* 寫不進去就算了 */ }
   }
 
+  // qwen3 要關掉「想很久」：Ollama 0.9 以後請求裡的 think:false 就夠了；問不到版本或比較舊才在提示前面加 /no_think（10/14 N）
+  noThink() {
+    if (!/^qwen3:(?!.*instruct)/.test(this.llm.model || '')) return '';
+    if (this.ollamaVersion && versionAtLeast(this.ollamaVersion, '0.9.0')) return '';
+    return this.llm.noThinkPrefix || '';
+  }
+
   // 角色的自稱與對玩家的稱呼（config 的 npc.selfName／npc.callName）
   names() {
     const p = this.persona || {};
@@ -747,10 +771,11 @@ class NPC {
     return L;
   }
 
-  factsText(f) {
+  // noTime：現在時間另外放在後面（say() 用）；noPlayer：聊話題、送禮、寫日誌時不用 Lv 和金幣那行（10/14 N）
+  factsText(f, { noTime = false } = {}) {
     const L = [];
-    L.push(`現在時間：${f.now}`);
-    L.push(`${this.names().call}：Lv.${f.level}「${f.title}」，經驗 ${f.xpInLevel}/${f.xpForNext}，金幣 ${f.goldTotal}，連續準時 ${f.streak} 次`);
+    if (!noTime) L.push(`現在時間：${f.now}`);
+    if (!f.noPlayer) L.push(`${this.names().call}：Lv.${f.level}「${f.title}」，經驗 ${f.xpInLevel}/${f.xpForNext}，金幣 ${f.goldTotal}，連續準時 ${f.streak} 次`);
     if (f.quest) L.push(`【當前任務】${f.quest}（${f.tierName}，${f.due}，進度 ${f.progress}）`);
     if (f.reason) L.push(`【任務理由】${f.reason}`);
     if (f.remaining && f.remaining.length && !f.catalogShown) L.push(`【未完成目標】${f.remaining.join('；')}`); // 附了【可操作項目】就不重複（10/14 B）
@@ -803,6 +828,7 @@ class NPC {
     }
     try {
       const r = await this.fetchJSON('/api/tags', null, 4000);
+      if (!this.ollamaVersion) { try { const v = await this.fetchJSON('/api/version', null, 3000); this.ollamaVersion = typeof v.version === 'string' ? v.version : null; } catch (_) { /* 問不到就照舊加 /no_think */ } }
       const names = (r.models || []).map((m) => m.name);
       const has = names.some((n) => n === this.llm.model || n.startsWith(this.llm.model + ':') || n.split(':')[0] === this.llm.model);
       this.status = has
@@ -833,23 +859,56 @@ class NPC {
   }
 
   // 結構化的工作（不是聊天）：照 schema 回 JSON，不帶角色設定和對話紀錄（📓 寫週計畫用）。失敗就丟錯，讓呼叫的人退回規則
-  async structured(event, { system, user, schema, maxTokens = 400, timeoutMs } = {}) {
+  // onStream(content)：串流中每收到一段就叫一次（拆步驟一條一條長出來，10/14 I）
+  async structured(event, { system, user, schema, maxTokens = 400, timeoutMs, onStream } = {}) {
     if (!this.llm.enabled || !this.status.online) throw new Error('AI 沒有開');
-    const prefix = /^qwen3:(?!.*instruct)/.test(this.llm.model || '') ? this.llm.noThinkPrefix || '' : '';
     const t0 = Date.now();
     try {
-      const r = await this.fetchJSON('/api/chat', {
+      const body = {
         model: this.llm.model, stream: false, think: false, keep_alive: this.llm.keepAlive || '30m', format: schema,
-        messages: [{ role: 'system', content: system }, { role: 'user', content: `${prefix}${user}` }],
+        messages: [{ role: 'system', content: system }, { role: 'user', content: `${this.noThink()}${user}` }],
         options: { temperature: 0.2, num_predict: maxTokens, num_ctx: this.numCtx() },
-      }, timeoutMs || this.timeoutFor('chat'));
+      };
+      const r = onStream ? await this.fetchStream('/api/chat', body, timeoutMs || this.timeoutFor('chat'), (c) => onStream(c)) : await this.fetchJSON('/api/chat', body, timeoutMs || this.timeoutFor('chat'));
       const content = String((r.message && r.message.content) || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-      this.logCall(event, t0, r, null, `回 ${content.replace(/\s+/g, ' ').slice(0, 80)}`); // 看得出 AI 有沒有在做事（例如老是回空清單）
+      const empty = /^\{\s*"(items|ops|steps)"\s*:\s*\[\s*\]\s*\}$/.test(content);
+      this.logCall(event, t0, r, null, `${empty ? '⚠ 回了空的 ' : '回 '}${content.replace(/\s+/g, ' ').slice(0, 80)}${onStream ? '｜串流' : ''}`); // 看得出 AI 有沒有在做事（例如老是回空清單）
       return JSON.parse((content.match(/\{[\s\S]*\}/) || [content])[0]);
     } catch (e) {
       this.logCall(event, t0, null, e.name === 'AbortError' ? 'timeout' : String(e.message).slice(0, 80));
       throw e;
     }
+  }
+
+  // 串流（stream:true，一行一個 JSON）：第一段來之前等 timeoutMs（讀提示可能很久）；開始寫之後，多久沒有新的一段才算逾時（idle）
+  //   回傳跟 fetchJSON 一樣的形狀：{ message: { content }, prompt_eval_count, eval_count, … }
+  async fetchStream(pathname, body, timeoutMs, onChunk, idleMs = this.llm.streamIdleMs || 20000) {
+    const ctrl = new AbortController();
+    let t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(this.llm.baseUrl.replace(/\/$/, '') + pathname, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, stream: true }), signal: ctrl.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '', content = '', last = {}, first = true;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const ln = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+          if (!ln) continue;
+          let j; try { j = JSON.parse(ln); } catch (_) { continue; }
+          if (j.error) throw new Error(String(j.error));
+          clearTimeout(t); t = setTimeout(() => ctrl.abort(), idleMs);
+          if (j.message && j.message.content) content += j.message.content;
+          if (first || (j.message && j.message.content)) { first = false; try { onChunk(content); } catch (_) { /* 畫面那邊出錯不影響 */ } }
+          if (j.done) last = j;
+        }
+      }
+      return { ...last, message: { role: 'assistant', content } };
+    } finally { clearTimeout(t); }
   }
 
   async fetchJSON(pathname, body, timeoutMs) {
@@ -888,7 +947,9 @@ class NPC {
   // opts.extraSystem：額外規則；opts.extraProps：JSON 輸出額外欄位（例如 actions）；opts.extraUser：附加在狀態後的資料
   // opts.mood：engine 決定好的情緒（shy／disdain／cold），會加一段說話指示並固定表情
   // 鄙視只能由 mood 指定；聊天時開放給模型選（配合 attitude 判斷，engine 會再檢查）
-  async say(event, facts, { userText, history, extraSystem, extraProps, extraUser, maxTokens, maxChars, mood, logNote } = {}) {
+  // opts.extraTail：這一句才有的指示（道歉、話題、閒聊說明…）放在使用者訊息最後；系統提示每次一樣，Ollama 才能重用（10/14 L）
+  // opts.onStream({ writing, text })：串流中；writing＝讀完提示、開始寫了，text＝line 已經寫出來的字（10/14 I）
+  async say(event, facts, { userText, history, extraSystem, extraTail, extraProps, extraUser, maxTokens, maxChars, mood, logNote, onStream } = {}) {
     if (mood && !MOODS[mood]) mood = null;
     if (mood) facts = { ...facts, mood }; // 用內建台詞時也挑同一種表情的句子
     if (!this.llm.enabled) return this.template(event, { ...facts, why: WHY.off });
@@ -897,7 +958,8 @@ class NPC {
     // 剛逾時過：閒話、提醒這類順便說的話先用內建台詞；聊天是冒險者主動問的，照樣問 AI
     if (event !== 'chat' && this.slowUntil && Date.now() < this.slowUntil) return this.template(event, facts);
     const moodRule = mood && !(mood === 'cold' && this.relation && this.relation.cold) ? MOODS[mood](this.names().call, this.names().self) : ''; // 冷戰的說明已經在【關係】裡
-    const messages = [{ role: 'system', content: this.systemPrompt() + (extraSystem ? `\n${extraSystem}` : '') + (moodRule ? `\n${moodRule}` : '') }];
+    const messages = [{ role: 'system', content: this.systemPrompt() + (extraSystem ? `\n${extraSystem}` : '') }];
+    const tail = [extraTail, moodRule].filter(Boolean).join('\n');
     // 舊的聊天紀錄也先校正口吻，免得模型學到以前說過的「我」「玩家」
     const hist = [];
     for (const h of history || []) {
@@ -918,9 +980,10 @@ class NPC {
       }
       return { role: h.role, content };
     });
-    const factsBlock = this.factsText(facts);
+    const factsBlock = this.factsText(facts, { noTime: true });
+    // 順序（10/14 L）：每次差不多的放前面（狀態、清單），會變的放後面（現在時間、情境、這一句的指示、冒險者的話）
     const userMsg = (extra) => {
-      const task = `${/^qwen3:(?!.*instruct)/.test(this.llm.model || '') ? this.llm.noThinkPrefix || '' : ''}【狀態】（最新，以這裡為準）\n${factsBlock}${extra ? `\n\n${extra}` : ''}\n\n【情境】${EVENT_DESC[event] || EVENT_DESC.chat}`;
+      const task = `${this.noThink()}【狀態】（最新，以這裡為準）\n${factsBlock}${extra ? `\n\n${extra}` : ''}\n\n現在時間：${facts.now}\n【情境】${EVENT_DESC[event] || EVENT_DESC.chat}${tail ? `\n${tail}` : ''}`;
       return { role: 'user', content: userText ? `${task}\n\n${this.names().call}說：「${userText}」` : task };
     };
     // 📏 提示不能超過 num_ctx：超過的話 Ollama 會默默把前面一半切掉（角色設定、規則、格式都不見，模型就會照抄、回英文）。
@@ -949,8 +1012,15 @@ class NPC {
     const trimNote = before > budget ? `提示太長（約 ${before} tok，上限 ${budget}）：${trimmed.join('、')}，剩約 ${size(all)} tok` : '';
     messages.splice(0, messages.length, ...all);
     const t0 = Date.now();
+    let wrote = false;
+    const chunk = onStream ? (content) => {
+      const raw = partialField(content, 'line');
+      if (raw === null && wrote) return;
+      wrote = true;
+      onStream({ writing: true, text: raw ? voice(toTW(raw).replace(/\s*\n+\s*/g, ' '), { ...this.names(), protect: protectedTexts(facts, userText) }) : '' });
+    } : null;
     try {
-      const r = await this.fetchJSON('/api/chat', {
+      const req = {
         model: this.llm.model,
         messages,
         stream: false,
@@ -963,10 +1033,14 @@ class NPC {
           required: ['line', 'emotion'],
         },
         options: { temperature: this.llm.temperature ?? 0.8, num_predict: maxTokens || this.llm.maxTokens || 160, num_ctx: this.numCtx() },
-      }, this.timeoutFor(event));
+      };
+      const r = chunk ? await this.fetchStream('/api/chat', req, this.timeoutFor(event), chunk) : await this.fetchJSON('/api/chat', req, this.timeoutFor(event));
       // Ollama 把提示切成一半時，讀到的剛好是 (num_ctx − 4) / 2 + 4 個 token
       const cut = r.prompt_eval_count && r.prompt_eval_count === Math.floor((this.numCtx() - 4) / 2) + 4 && size(messages) > this.numCtx() / 2 + 64 ? '⚠ 提示可能被 Ollama 截斷' : '';
-      this.logCall(event, t0, r, null, [logNote, trimNote, cut].filter(Boolean).join('；'));
+      // 提示估計多長 vs Ollama 實際讀了多少：讀得比估計少很多＝前面重用了上一次的（10/14 L，看快取有沒有用）
+      const est = size(messages);
+      const reuse = r.prompt_eval_count && r.prompt_eval_count < est * 0.7 ? `提示約 ${est} tok，重用了約 ${est - r.prompt_eval_count}` : '';
+      this.logCall(event, t0, r, null, [logNote, trimNote, cut, reuse, chunk ? '串流' : ''].filter(Boolean).join('；'));
       const out = this.parseReply(r.message && r.message.content, maxChars);
       out.text = out.text.replace(RE_FALLBACK, '').trim(); // 模型照抄了舊的備援句子
       if (!out.text) throw new Error('空白回覆');
@@ -1003,4 +1077,4 @@ class NPC {
   }
 }
 
-module.exports = { estTokens, badReply, NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, MOOD_EMOTION, EVENT_EMOTION, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };
+module.exports = { partialField, partialSteps, versionAtLeast, estTokens, badReply, NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, MOOD_EMOTION, EVENT_EMOTION, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };

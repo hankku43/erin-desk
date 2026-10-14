@@ -225,6 +225,36 @@ function ruleParse(msg, cat) {
   return actions;
 }
 
+// 規則解析很有把握嗎（10/14 AI 提示審視 E）：有把握就不問 AI，確認卡馬上出來（冒險者還是要按確認才算）
+//   句子要短、不是問句、沒有在講心情或卡點；每個目標都要明顯比其他目標像（分數夠高、跟第二名拉得開）
+const RE_NOT_ONLY_PROGRESS = /[？?]|嗎|呢|卡住|卡關|但是|可是|不過|因為|所以|累|煩|難過|擔心|開心|哈哈|謝謝/;
+function ruleSure(msg, cat, actions) {
+  const t = String(msg || '').trim();
+  if (!actions || !actions.length || t.length > 40 || RE_NOT_ONLY_PROGRESS.test(t)) return false;
+  const parts = [t, ...t.split(/[，,。；;、\n]|還有|然後|另外/).filter((p) => clean(p).length >= 2)];
+  // 只看中文的兩字：「P-12 那個缺價擋下的部分」靠「P-12」對到別的目標時不算有把握（交給 AI 看整份清單）
+  const cjk = (s) => new Set([...bigrams(s)].filter((x) => /^[㐀-鿿]{2}$/.test(x)));
+  const cjkScore = (m, text) => { const mb = cjk(m), tb = cjk(text); if (!tb.size || !mb.size) return 0; let hit = 0; for (const x of tb) if (mb.has(x)) hit++; return hit / Math.min(tb.size, mb.size, 8); };
+  const best = (text) => Math.max(...parts.map((p) => cjkScore(p, text)));
+  const checks = actions.filter((a) => a.type === 'check' || a.type === 'uncheck');
+  const quests = new Set(checks.map((a) => String(a.target).replace(/-\d+$/, '')));
+  // 「P-12 全部做完了」：整個任務一起勾 → 看任務名
+  if (checks.length > 1 && quests.size === 1 && RE_ALL.test(t)) { const q = cat.quests.find((x) => x.key === [...quests][0]); return !!q && score(t, q.title) >= 0.5 && checks.length === actions.length; }
+  for (const a of actions) {
+    if (a.type === 'check' || a.type === 'uncheck') {
+      const o = cat.objectives.find((x) => x.key === a.target);
+      if (!o) return false;
+      const mine = best(o.text);
+      const other = Math.max(0, ...cat.objectives.filter((x) => x !== o && !x.questDone && !checks.some((c) => c.target === x.key)).map((x) => best(x.text)));
+      if (mine < 0.6 || mine - other < 0.15) return false;
+    } else if (a.type === 'activate' || a.type === 'submit') {
+      const q = cat.quests.find((x) => x.key === a.target);
+      if (!q || (score(t, q.title) < 0.5 && !(a.type === 'submit' && q.active))) return false;
+    } else return false;
+  }
+  return true;
+}
+
 // 找不到可做的動作時，看看是不是「本來就已經是那個狀態」
 function explainNoop(msg, cat) {
   const undo = RE_UNDO.test(msg);
@@ -236,4 +266,4 @@ function explainNoop(msg, cat) {
   return null;
 }
 
-module.exports = { ACTION_SCHEMA, ACTION_RULES, RE_UNDO, RE_DONE, RE_SUBMIT, RE_SWITCH, buildCatalog, catalogText, focusQuests, validate, ruleParse, explainNoop, decodeKeys };
+module.exports = { ACTION_SCHEMA, ACTION_RULES, RE_UNDO, RE_DONE, RE_SUBMIT, RE_SWITCH, buildCatalog, catalogText, focusQuests, validate, ruleParse, ruleSure, explainNoop, decodeKeys };

@@ -27,7 +27,9 @@
     "chatTimeoutMs": 90000,
     "numCtx": 6144,
     "keepAlive": "30m",
-    "quickLines": true
+    "quickLines": true,
+    "rewriteTopics": false,
+    "batterySaver": true
   },
   "rewards": {
     "objective": {

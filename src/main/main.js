@@ -813,6 +813,8 @@ app.whenReady().then(async () => {
   // 勾目標、交付這些動作先完成、畫面馬上更新；艾琳的話在背後想好再推過去（等 AI 的時候介面不會卡住）
   engine.deferSpeech = true;
   engine.onSpeech = (lines) => push('npc:lines', lines);
+  engine.onPartial = (p) => push('npc:partial', p); // 聊天串流：讀完提示、寫出來的字（10/14 I）
+  engine.onBattery = () => powerMonitor.isOnBatteryPower(); // 筆電用電池：艾琳自己開口的話用內建台詞（10/14 J）
 
   ipcMain.handle('view:get', wrap(async () => ({ view: engine.view(), character: characterImages(), mini: isMini(), openingPending: !!openingWin })));
   // 🎬 開場
@@ -878,6 +880,7 @@ app.whenReady().then(async () => {
     return r;
   }));
   ipcMain.handle('pd:undoLog', wrap((logId) => engine.pdUndoLog(logId)));
+  ipcMain.handle('pd:askAgain', wrap((logId) => { const r = engine.pdAskAgain(String(logId)); pdQueue('refine', r.logId); return r; })); // ✨ 再看一次
   ipcMain.handle('pd:edit', wrap((id, f) => engine.pdEdit(id, f)));
   ipcMain.handle('pd:remove', wrap((id) => engine.pdRemove(id)));
   ipcMain.handle('pd:restore', wrap((id) => engine.pdRestore(id)));
@@ -891,7 +894,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('pd:font', wrap((on) => engine.pdSetFont(!!on)));
   ipcMain.handle('pd:splitPreview', wrap((id, o) => engine.pdSplitPreview(id, o || {})));
   ipcMain.handle('pd:split', wrap((id, o) => engine.pdSplit(id, o || {})));
-  ipcMain.handle('pd:suggest', wrap((id, o) => engine.pdSuggestSteps(id, o || {})));
+  ipcMain.handle('pd:suggest', wrap((id, o) => engine.pdSuggestSteps(id, o || {}, (steps) => { if (pdWin && !pdWin.isDestroyed()) pdWin.webContents.send('pd:stream', { id, steps }); })));
   // 完成委託（立刻寫進計畫檔、給獎勵）：主視窗也要更新
   const pdPlay = (fn) => wrap(async (...a) => { const r = await fn(...a); push('view:update', { view: engine.view() }); return r; });
   ipcMain.handle('pd:check', pdPlay((id, step, done) => engine.pdCheck(id, step, done)));

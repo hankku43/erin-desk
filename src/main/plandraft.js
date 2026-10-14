@@ -358,6 +358,7 @@ const EXTRACT_SYSTEM = [
   'kind：task＝要完成的工作（委託），day 寫截止日；steps＝幫已經有的委託補步驟，title 寫那個委託的名稱（說「這個任務」就寫【上一個委託】）；schedule＝有固定時間的行程（會議、拜訪、上課），要有 day 和 start；reminder＝到時間要提醒的事（day＋start）；theme＝某一天整天的狀態（出差、外訓、請假）；unclear＝看不懂或缺日期，question 寫要問什麼。',
   '步驟：說「先 A 後 B 再 C」「步驟有 A、B、C」「1. A 2. B」時，A、B、C 一個一個放進 steps；不要把整句當成一個步驟，也不要把步驟當成新的委託。',
   'title 用使用者的原話，簡短，不含日期和時間。day 照原話寫（週五、下週三、明天、10/16），沒說就不寫。時間 24 小時制，上班時間說「3 點」是 15:00。importance：main＝很重要／一定要，side＝有空再做，其他 major。meeting：要跟別人碰面的寫 true。',
+  'items 一定至少一項：規則初步整理是對的就照抄它；真的看不懂就回一項 unclear。', // 10/14 M：10/13 上午 6 次都回空的
 ].join('\n');
 // 規則的結果換成 AI 的格式（給 AI 參考）
 function toAIItems(items, d) {
@@ -1177,7 +1178,7 @@ function view(d, { offDay = null, today = null, raids = [] } = {}) {
     quests, rows, raids: ext,
     reminders: d.reminders.map((m) => ({ ...strip(m), st: remState(m) })),
     themes: d.themes, unsure: d.unsure,
-    log: d.log.slice(-30).map((l) => ({ id: l.id, said: l.said, at: l.at, by: l.by, pending: l.pending, text: l.text, edit: !!l.edit, ids: l.ids || [] })),
+    log: d.log.slice(-30).map((l) => ({ id: l.id, said: l.said, at: l.at, by: l.by, pending: l.pending, text: l.text, edit: !!l.edit, ids: l.ids || [], ask: !!l.canAsk && !l.pending })),
     days, summary: summary(d), checks: checks(d, { offDay, raids }), changes: changes(d),
     canUndo: !!(d.history && d.history.length),
     count: live(d.quests).length + live(d.rows).length + live(d.reminders).length + Object.values(d.themes).filter(Boolean).length + d.unsure.length,

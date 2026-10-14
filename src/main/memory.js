@@ -127,6 +127,15 @@ function splitClauses(text) {
 }
 const isQuestion = (c) => /[？?]/.test(c.end) || /(嗎|呢|什麼|甚麼|哪|幾)$/.test(c.body) || /^(你|妳)/.test(c.body);
 
+// 這句像在講自己的事嗎（10/14 AI 提示審視 K）：像的話才請 AI 記小本子（規則有記到的也算）；「P-12 做完了」「你早餐吃什麼」就不用
+const SELF_CUE = new RegExp(`我|最近|這陣子|這幾天|昨天|週末|周末|假日|放假|下班後|喜歡|討厭|愛吃|愛喝|不敢|生日|紀念日|養了|在養|興趣|身體|感冒|生病|頭痛|失眠|搬家|考試|面試|旅行|出國|順利|終於|好累|好開心|超開心|好難過|${PEOPLE}`);
+function aboutSelf(text) {
+  const t = String(text || '').replace(/我們/g, '');
+  if (!SELF_CUE.test(t)) return false;
+  if (/我/.test(t)) return true;
+  return !(ABOUT_ERIN.test(t) && /[？?]|嗎|呢|什麼|甚麼|哪|幾/.test(t)); // 「你喜歡什麼顏色」是在問艾琳
+}
+
 function extractRules(text, now = new Date()) {
   const out = [];
   const add = (n) => { if (n.text && n.text.length >= 2 && n.text.length <= 30) out.push({ source: 'rule', ...n }); };
@@ -337,4 +346,4 @@ function view(nb, now = new Date()) {
   return { groups, count: (nb.items || []).length };
 }
 
-module.exports = { label, relDate, KINDS, KIND_KEYS, DEFAULTS, RULES, SCHEMA, blank, extractRules, guardAI, add, forget, relevant, contextText, dueFollowUp, dueDates, agoText, view, depersonalize, supported, sim, parseMD, normDate, iso };
+module.exports = { aboutSelf, label, relDate, KINDS, KIND_KEYS, DEFAULTS, RULES, SCHEMA, blank, extractRules, guardAI, add, forget, relevant, contextText, dueFollowUp, dueDates, agoText, view, depersonalize, supported, sim, parseMD, normDate, iso };

@@ -278,7 +278,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   // 內建台詞、角色設定的台詞與核心
   for (const [k, arr] of Object.entries(TEMPLATES)) for (const [t] of arr) assert.ok(!singleMe.test(t) && !/玩家|您/.test(t), `內建台詞「${k}」還有「我／玩家／您」：${t}`);
   for (const e of L.entries) assert.ok(!singleMe.test(e.reply) && !/玩家/.test(e.reply), `設定「${e.title}」的台詞還有「我」：${e.reply}`);
-  assert.ok(!/玩家/.test(L.core) && /自稱「艾琳」/.test(L.core));
+  assert.ok(!/玩家/.test(L.core), '角色核心不叫玩家'); // 自稱、稱呼寫在系統提示的【說話方式】，角色核心不再重複（10/14 N）
   // 校正：自稱、稱呼、您、自我介紹、不動引號和冒險者自己寫的字
   const v = (t, protect = []) => voice(t, { ...names, protect });
   assert.strictEqual(v('我幫你記著「整理我的筆記」，玩家加油！'), '艾琳幫你記著「整理我的筆記」，冒險者加油！');
@@ -742,7 +742,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   let sent = null, reply = null;
   E.npc.status.online = true;
   E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify(reply) } }; };
-  const sys = () => sent.messages[0].content;
+  const sys = () => `${sent.messages[0].content}\n${sent.messages.at(-1).content}`; // 規則在系統提示、這一句的指示在使用者訊息最後（10/14 L）
   assert.strictEqual(E.emotionChance(), 0.2, '好感第 1 階：害羞機率 0.2');
   // 骰到了：請模型害羞、表情固定 shy、這句不要提任務
   E.rand = () => 0.1;
@@ -838,7 +838,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const online = () => { E.npc.status.online = true; E.npc.fetchJSON = async (_p, body) => { calls++; sent = body; return { message: { content: JSON.stringify(reply) } }; }; };
   online();
   E.rand = () => 0.99; // 預設不擲出害羞／鄙視
-  const sys = () => sent.messages[0].content;
+  const sys = () => `${sent.messages[0].content}\n${sent.messages.at(-1).content}`; // 規則在系統提示、這一句的指示在使用者訊息最後（10/14 L）
   const a = () => E.state.affection || E.aff();
   const next = (ms = 60000) => { t += ms; };
   // 一開始：第 1 階，系統提示有關係、沒有數字
@@ -1288,6 +1288,14 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   let sent = [];
   E.npc.fetchJSON = async (_p, body) => { sent.push(body); return { message: { content: JSON.stringify({ line: '原來冒險者那邊也會下雪呀～', emotion: 'happy', actions: [], attitude: 'ok' }) } }; };
   t = new Date(`${Y}-10-03T15:00:00`).getTime(); E.touch(); min(25);
+  // 10/14 J：預設直接說角色設定檔裡寫好的開場，不問 AI；用電池時她自己開口的話也不問
+  const tp0 = await E.proactive({});
+  assert.ok(tp0 && tp0.kind === 'topic' && !sent.length && L.topicPool(5).some((y) => y.text === tp0.lines[0].text), '話題：直接用寫好的開場');
+  E.onBattery = () => true; sent.length = 0;
+  const bat = await E.say('afternoon', { eventDetail: '下午了' });
+  assert.ok(bat.source === 'template' && !sent.length, '用電池：整點提醒用內建台詞');
+  E.onBattery = () => false;
+  E.config.llm.rewriteTopics = true; E.touch(); min(25);
   const tp = await E.proactive({});
   const topicReq = sent[sent.length - 1].messages.map((m) => m.content).join('\n');
   assert.ok(/【話題】/.test(topicReq) && /【話題相關設定】/.test(topicReq) && !/【當前任務】/.test(topicReq), 'AI 開話題：給話題和設定，不給任務');
@@ -1295,17 +1303,17 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const p0 = E.aff().points;
   min(1); await E.chat('我們這邊冬天會下一點點雪');
   const replyReq = sent[sent.length - 1];
-  assert.ok(new RegExp(`【話題】剛才是你主動找冒險者聊「${tp.lines[0].topic}」`).test(replyReq.messages[0].content), '回話時告訴 AI 剛剛在聊的話題');
+  assert.ok(new RegExp(`【話題】剛才是你主動找冒險者聊「${tp.lines[0].topic}」`).test(replyReq.messages.at(-1).content), '回話時告訴 AI 剛剛在聊的話題（在這一句的指示裡）');
   assert.ok(replyReq.messages.some((m) => m.role === 'assistant' && /下雪呀/.test(m.content)), '聊天紀錄裡有她開的話題');
   assert.strictEqual(E.aff().points, p0 + 1, '陪她聊天 +1');
   min(1); await E.chat('對啊');
-  assert.ok(!/【話題】/.test(sent[sent.length - 1].messages[0].content), '已經回過了，不再帶話題');
+  assert.ok(!/【話題】剛才/.test(sent[sent.length - 1].messages.map((m) => m.content).join('\n')), '已經回過了，不再帶話題');
   assert.strictEqual(E.aff().points, p0 + 1, '同一個話題只加一次');
   for (let i = 0; i < 4; i++) { E.touch(); min(25); await E.proactive({}); min(1); await E.chat(`回第 ${i} 個話題`); }
   assert.strictEqual(E.aff().topicToday, 3, '一天最多 3 次');
   // 過太久才回、或中間聊了別的：不算回話題
   E.touch(); min(25); await E.proactive({}); min(25); await E.chat('剛剛在忙');
-  assert.ok(!/【話題】/.test(sent[sent.length - 1].messages[0].content), '超過 20 分鐘不算');
+  assert.ok(!/【話題】剛才/.test(sent[sent.length - 1].messages.map((m) => m.content).join('\n')), '超過 20 分鐘不算');
   // 離線回話題：用內建的反應
   E.config.llm.enabled = false; E.npc.llm.enabled = false;
   E.touch(); min(25); await E.proactive({}); min(1);
@@ -1518,7 +1526,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   t += 60000;
   const c4 = await E.chat('簡報順利講完了，超開心');
   const req = sent[sent.length - 1];
-  assert.ok(/【話題】剛才是你主動關心冒險者之前說的「這週簡報好趕/.test(req.messages[0].content), '告訴 AI 剛剛在關心哪件事');
+  assert.ok(/【話題】剛才是你主動關心冒險者之前說的「這週簡報好趕/.test(req.messages.at(-1).content), '告訴 AI 剛剛在關心哪件事');
   assert.ok(/【小本子】冒險者在「這句話」裡/.test(req.messages[0].content) && req.format.properties.notes, 'AI 可以記筆記');
   assert.deepStrictEqual(c4.noted, ['簡報順利講完了'], 'AI 記的：冒險者說過的才留（拉麵沒說過）');
   // AI 看得到有關的筆記
@@ -2966,13 +2974,19 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const usr = () => sent.messages.at(-1).content;
   const lastLog = () => fs.readFileSync(path.join(dir, 'data', 'llm.log'), 'utf8').trim().split('\n').pop();
   await E.chat('今天天氣好熱');
-  assert.ok(!/【可操作項目】/.test(usr()) && !('actions' in sent.format.properties) && /這次是閒聊，沒有附任務清單/.test(sent.messages[0].content), '閒聊：沒有清單、不能勾選');
+  assert.ok(!/【可操作項目】/.test(usr()) && !('actions' in sent.format.properties) && /這次是閒聊，沒有附任務清單/.test(usr()), '閒聊：沒有清單、不能勾選（說明在這一句的指示裡）');
   assert.ok(/【狀態】/.test(usr()) && /沒附清單（閒聊）/.test(lastLog()), lastLog());
   const short = JSON.stringify(sent.messages).length;
   t += 15 * 60000;
   const q = E.plan.quests.find((x) => x.objectives.some((o) => !o.done));
   const obj = q.objectives.find((o) => !o.done);
-  await E.chat(`${obj.text}做完了`);
+  // 10/14 E：規則很有把握的進度回報 → 不問 AI，確認卡和一句確認馬上出來
+  sent = null;
+  const quick = await E.chat(`${obj.text}做完了`);
+  assert.ok(!sent && quick.proposal && quick.proposal.items.some((x) => x.label.includes(obj.text)) && quick.lines[0].source === 'rule' && /要幫你勾選/.test(quick.lines[0].text), '有把握的進度回報：不問 AI、確認卡馬上出來');
+  assert.strictEqual(E.state.chat.at(-1).source, 'template', '那句不給模型當範例');
+  t += 15 * 60000;
+  await E.chat(`${obj.text}做完了，不過還要再檢查一次`); // 還說了別的：照舊問 AI
   assert.ok(/【可操作項目】/.test(usr()) && 'actions' in sent.format.properties && /【改進度規則】/.test(sent.messages[0].content), '講工作：附清單、可以勾選');
   assert.ok(/附清單：/.test(lastLog()), lastLog());
   assert.ok(JSON.stringify(sent.messages).length > short, '附清單的提示比較長');
@@ -3227,8 +3241,16 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   r = E.pdSay('週五前寫完週報');
   assert.ok(!r.refine, '規則有把握：不排 AI');
   r = E.pdSay('準備面試要看履歷然後想問題還有約時間跟主管確認名單');
-  assert.ok(r.refine, '規則沒把握：排隊給 AI');
+  // 10/14 M：規則有記到東西、只是沒把握 → 不自動問 AI，記錄旁邊出現「再看一次」；按了才排給 AI
+  const lg = () => E.pdView().log.find((x) => x.id === r.logId);
+  assert.ok(!r.refine && lg().ask && !lg().pending && !asked.length, '規則沒把握但有記到：不自動問，給「再看一次」');
+  const again = E.pdAskAgain(r.logId);
+  assert.ok(again.refine && lg().pending && !lg().ask, '按「再看一次」：排隊給 AI');
+  assert.throws(() => E.pdAskAgain(r.logId), /整理過了/, '不能一直按');
   await E.pdRefine(r.logId);
+  const r2 = E.pdSay('下午三點打電話給供應商');
+  assert.ok(r2.refine, '規則只記成「不確定」：照舊自動請 AI 整理');
+  E.pdUndoLog(r2.logId);
   assert.ok(/【規則初步整理】/.test(asked[0].user) && E.pdView().quests.find((q) => q.title === '準備面試').steps.length === 2, 'AI 整理（有給規則的結果）');
   r = E.pdSay('週報的截止日請你調整一下');
   assert.ok(r.aiEdit, '規則看不懂的修改：排隊給 AI');
@@ -3689,4 +3711,90 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const ob = fs.readFileSync(path.join(root, 'src/renderer/onboard.js'), 'utf8');
   assert.ok(/data-force="1"/.test(ob) && /retrying/.test(ob) && /checking/.test(ob) && (ob.match(/force: !!pl\.dataset\.force/g) || []).length === 2, '畫面：仍然下載、倒數、檢查中；新手教學和健康檢查都能按');
   console.log('下載模型防呆測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 10/14 AI 提示審視 I L N K：串流、提示順序、/no_think、小本子規則 ----------
+(async () => {
+  const http = require('http');
+  const os = require('os');
+  const { NPC, partialSteps } = require('../src/main/npc');
+  const { Engine } = require('../src/main/engine');
+  let version = '0.12.3';
+  const bodies = [];
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const srv = http.createServer((req, res) => {
+    let b = ''; req.on('data', (c) => { b += c; }); req.on('end', async () => {
+      if (req.url === '/api/tags') { res.end(JSON.stringify({ models: [{ name: 'qwen3:4b' }] })); return; }
+      if (req.url === '/api/version') { res.end(JSON.stringify({ version })); return; }
+      const j = JSON.parse(b || '{}'); bodies.push(j);
+      const text = j.messages.map((m) => m.content).join('\n');
+      const steps = j.format && j.format.properties && j.format.properties.steps;
+      const out = steps ? '{"steps": [{"text": "收資料", "minutes": 30}, {"text": "寫初稿", "minutes": 60}, {"text": "請主管看", "minutes": 15}]}' : '{"line": "嗯哼～艾琳幫你記著了！", "emotion": "happy"}';
+      if (!j.stream) { res.end(JSON.stringify({ message: { content: out }, done: true, prompt_eval_count: 100, eval_count: 20 })); return; }
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.write(`${JSON.stringify({ message: { content: '' }, done: false })}\n`);
+      const parts = out.match(/.{1,9}/gu);
+      for (const [i, p] of parts.entries()) {
+        if (/STALL/.test(text) && i === 2) { await wait(1500); break; }
+        await wait(15); res.write(`${JSON.stringify({ message: { content: p }, done: false })}\n`);
+      }
+      if (/STALL/.test(text)) { res.end(); return; }
+      res.end(`${JSON.stringify({ message: { content: '' }, done: true, prompt_eval_count: 100, eval_count: 20 })}\n`);
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-stream-'));
+  const npc = new NPC({ npc: { name: '艾琳', callName: '冒險者' }, llm: { enabled: true, baseUrl: base, model: 'qwen3:4b', noThinkPrefix: '/no_think\n', maxChars: 90 } });
+  npc.setLogFile(path.join(dir, 'llm.log'));
+  await npc.checkStatus();
+  assert.ok(npc.status.online && npc.ollamaVersion === '0.12.3', '連上、問到版本');
+  const facts = { level: 1, title: '見習', xpInLevel: 0, xpForNext: 120, goldTotal: 0, streak: 0, now: '9/30（二）10:00', quest: '寫週報', tierName: '支線', due: '明天截止', progress: '0/2' };
+  // I：串流——先說「開始寫了」，再一段一段把 line 的字交出來，最後的結果跟不串流一樣
+  const seen = [];
+  const r = await npc.say('chat', facts, { userText: '你好', extraTail: '【道歉】這是這一句才有的指示', onStream: (p) => seen.push(p) });
+  assert.ok(r.source === 'llm' && r.text === '嗯哼～艾琳幫你記著了！', r.text);
+  assert.ok(seen[0].writing && seen[0].text === '' && seen.some((p) => p.text && p.text.length < r.text.length) && seen.at(-1).text === r.text, '串流：先「在寫了」，字一段一段出來：' + seen.map((p) => p.text).join('|'));
+  const req = bodies.at(-1);
+  assert.ok(req.stream === true && req.think === false, '請求是串流、關掉想很久');
+  // N：Ollama 0.9 以後不用在提示前面加 /no_think
+  assert.ok(!/no_think/.test(req.messages.at(-1).content), '新版 Ollama：沒有 /no_think 前綴');
+  // L：這一句才有的指示在使用者訊息最後（系統提示每次一樣）；現在時間放在狀態後面
+  const sys = req.messages[0].content, usr = req.messages.at(-1).content;
+  assert.ok(!/【道歉】/.test(sys) && usr.indexOf('【道歉】') > usr.indexOf('【情境】') && /冒險者說：「你好」$/.test(usr), '這一句的指示放在最後');
+  assert.ok(usr.indexOf('現在時間') > usr.indexOf('冒險者：Lv.1') && usr.indexOf('現在時間') < usr.indexOf('【情境】'), '現在時間在狀態後面、情境前面');
+  const lastLog = () => fs.readFileSync(path.join(dir, 'llm.log'), 'utf8').trim().split('\n').pop();
+  assert.ok(/串流/.test(lastLog()) && /重用了約 \d+/.test(lastLog()), '日誌：串流、讀得比估計少＝重用了上一次的：' + lastLog());
+  // 寫到一半停住：多久沒有新的一段就算逾時（不用等整個 90 秒）
+  npc.llm.streamIdleMs = 300;
+  const t0 = Date.now();
+  const st = await npc.say('chat', facts, { userText: 'STALL', onStream: () => {} });
+  assert.ok(st.source === 'template' && Date.now() - t0 < 1400 && /失敗：timeout/.test(lastLog()), '寫到一半停住：0.3 秒沒新的就改用內建台詞');
+  npc.slowUntil = 0;
+  // 拆步驟：串流中想好一個就先交出來
+  const grow = [];
+  const js = await npc.structured('plan_steps', { system: 's', user: 'u', schema: { type: 'object', properties: { steps: { type: 'array' } } }, onStream: (c) => grow.push(partialSteps(c).length) });
+  assert.ok(js.steps.length === 3 && grow.includes(1) && grow.includes(2) && grow.at(-1) === 3, '步驟一條一條出來：' + grow.join(','));
+  // 舊版 Ollama：照舊加 /no_think
+  version = '0.8.0'; const old = new NPC({ npc: { name: '艾琳' }, llm: { enabled: true, baseUrl: base, model: 'qwen3:4b', noThinkPrefix: '/no_think\n' } });
+  await old.checkStatus(); await old.say('greet', facts);
+  assert.ok(/^\/no_think/.test(bodies.at(-1).messages.at(-1).content) && bodies.at(-1).stream === false, '舊版 Ollama：加 /no_think；沒給 onStream 就不串流');
+  srv.close();
+  // K：小本子規則只在這句像在講自己時才附
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, affection: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  let t = new Date(`${new Date().getFullYear()}-09-30T10:00:00`).getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.npc.status.online = true;
+  let sent = null;
+  E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '好喔～', emotion: 'happy' }) } }; };
+  await E.chat('今天天氣好熱');
+  assert.ok(!('notes' in sent.format.properties) && !/【小本子】冒險者在/.test(sent.messages[0].content), '閒聊沒講到自己：不附小本子規則');
+  t += 15 * 60000; await E.chat('我家養了一隻柴犬叫豆豆');
+  assert.ok('notes' in sent.format.properties && /【小本子】冒險者在/.test(sent.messages[0].content), '講到自己的事：附小本子規則');
+  // L：同一種聊天，系統提示一個字都不變
+  t += 15 * 60000; await E.chat('你喜歡什麼顏色'); const s1 = sent.messages[0].content;
+  t += 15 * 60000; await E.chat('你會不會下棋'); assert.strictEqual(sent.messages[0].content, s1, '兩句閒聊的系統提示完全一樣（Ollama 才能重用）');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('串流與提示順序測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
