@@ -5,6 +5,20 @@ const path = require('path');
 const assert = require('assert');
 const { parsePlan, setObjective, setProgress } = require('../src/main/planParser');
 const G = require('../src/main/game');
+// 測試不碰這台電腦上真的 Ollama（11434）：有裝 Ollama 的電腦（10/14 Windows 打包時）會被好幾個測試的角色設定拿去真的算向量、吃滿 CPU，
+// 別的測試的計時就亂掉。一律當成「連不到 Ollama」，跟雲端／沒裝 Ollama 的電腦一樣
+{
+  const realFetch = global.fetch;
+  global.fetch = (url, opts) => (/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\]):11434(\/|$)/i.test(String((url && url.url) || url))
+    ? Promise.reject(new TypeError('fetch failed（測試不連這台電腦上真的 Ollama）'))
+    : realFetch(url, opts));
+}
+// 測試群組（async）是同時開跑的，開頭幾秒事件迴圈很忙：計時器會晚好幾秒才跑（Windows 讀寫檔慢，更明顯）。
+// 有時間門檻、或要連本機假伺服器的群組，先等事件迴圈閒下來再開始（最多等 60 秒）
+const quiet = async (maxMs = 60000) => {
+  const end = Date.now() + maxMs; let calm = 0;
+  while (calm < 5 && Date.now() < end) { const t0 = Date.now(); await new Promise((r) => setTimeout(r, 50)); calm = Date.now() - t0 < 80 ? calm + 1 : 0; }
+};
 
 // 用固定的範例檔測試，不用 plans/ 裡那份（那份會被使用者改）
 const md = fs.readFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), 'utf8');
@@ -2046,6 +2060,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
 
 // ---------- 📦 安裝的下載來源：先看快取，沒有就測速挑快的；bat 用結束碼 10 切到鏡像站，失敗換另一邊 ----------
 (async () => {
+  await quiet(); // 有時間門檻／本機假伺服器：等其他群組忙完再開始
   const P = require('../tools/pick-mirror');
   const http = require('http');
   const os = require('os');
@@ -2136,6 +2151,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
 
 // ---------- 🤖 幫朋友安裝 Ollama：下載官方安裝程式 → 驗簽章 → 安靜安裝 → 等它啟動（全部用假的，不真的下載） ----------
 (async () => {
+  await quiet(); // 有時間門檻／本機假伺服器：等其他群組忙完再開始
   const OI = require('../src/main/ollamaInstall');
   const os = require('os');
   const { EventEmitter } = require('events');
@@ -3516,6 +3532,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
 
 // ---- 🛡 下載模型的防呆：錯誤說人話、下載前檢查、網路斷掉自動接著下載 ----
 (async () => {
+  await quiet(); // 有時間門檻／本機假伺服器：等其他群組忙完再開始
   const S = require('../src/main/setup');
   const PG = require('../src/main/pullGuard');
   const os = require('os');
@@ -3717,6 +3734,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
 
 // ---------- 10/14 AI 提示審視 I L N K：串流、提示順序、/no_think、小本子規則 ----------
 (async () => {
+  await quiet(); // 有時間門檻／本機假伺服器：等其他群組忙完再開始
   const http = require('http');
   const os = require('os');
   const { NPC, partialSteps } = require('../src/main/npc');
@@ -3737,7 +3755,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
       res.write(`${JSON.stringify({ message: { content: '' }, done: false })}\n`);
       const parts = out.match(/.{1,9}/gu);
       for (const [i, p] of parts.entries()) {
-        if (/STALL/.test(text) && i === 2) { await wait(1500); break; }
+        if (/STALL/.test(text) && i === 2) { await wait(3000); break; }
         await wait(15); res.write(`${JSON.stringify({ message: { content: p }, done: false })}\n`);
       }
       if (/STALL/.test(text)) { res.end(); return; }
@@ -3749,8 +3767,8 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-stream-'));
   const npc = new NPC({ npc: { name: '艾琳', callName: '冒險者' }, llm: { enabled: true, baseUrl: base, model: 'qwen3:4b', noThinkPrefix: '/no_think\n', maxChars: 90 } });
   npc.setLogFile(path.join(dir, 'llm.log'));
-  await npc.checkStatus();
-  assert.ok(npc.status.online && npc.ollamaVersion === '0.12.3', '連上、問到版本');
+  for (let i = 0; i < 3 && !(npc.status.online && npc.ollamaVersion); i++) await npc.checkStatus(); // 很忙的時候本機也可能超過 4 秒，多問幾次
+  assert.ok(npc.status.online && npc.ollamaVersion === '0.12.3', '連上、問到版本：' + JSON.stringify(npc.status));
   const facts = { level: 1, title: '見習', xpInLevel: 0, xpForNext: 120, goldTotal: 0, streak: 0, now: '9/30（二）10:00', quest: '寫週報', tierName: '支線', due: '明天截止', progress: '0/2' };
   // I：串流——先說「開始寫了」，再一段一段把 line 的字交出來，最後的結果跟不串流一樣
   const seen = [];
@@ -3771,15 +3789,16 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   npc.llm.streamIdleMs = 300;
   const t0 = Date.now();
   const st = await npc.say('chat', facts, { userText: 'STALL', onStream: () => {} });
-  assert.ok(st.source === 'template' && Date.now() - t0 < 1400 && /失敗：timeout/.test(lastLog()), '寫到一半停住：0.3 秒沒新的就改用內建台詞');
-  npc.slowUntil = 0;
+  assert.ok(st.source === 'template' && Date.now() - t0 < 2500 && /失敗：timeout/.test(lastLog()), '寫到一半停住：0.3 秒沒新的就改用內建台詞（假伺服器停 3 秒）：' + (Date.now() - t0) + ' ms');
+  npc.slowUntil = 0; delete npc.llm.streamIdleMs; // 後面的串流照預設（20 秒），不要被 0.3 秒卡到
   // 拆步驟：串流中想好一個就先交出來
   const grow = [];
   const js = await npc.structured('plan_steps', { system: 's', user: 'u', schema: { type: 'object', properties: { steps: { type: 'array' } } }, onStream: (c) => grow.push(partialSteps(c).length) });
   assert.ok(js.steps.length === 3 && grow.includes(1) && grow.includes(2) && grow.at(-1) === 3, '步驟一條一條出來：' + grow.join(','));
   // 舊版 Ollama：照舊加 /no_think
   version = '0.8.0'; const old = new NPC({ npc: { name: '艾琳' }, llm: { enabled: true, baseUrl: base, model: 'qwen3:4b', noThinkPrefix: '/no_think\n' } });
-  await old.checkStatus(); await old.say('greet', facts);
+  for (let i = 0; i < 3 && !(old.status.online && old.ollamaVersion); i++) await old.checkStatus();
+  await old.say('greet', facts);
   assert.ok(/^\/no_think/.test(bodies.at(-1).messages.at(-1).content) && bodies.at(-1).stream === false, '舊版 Ollama：加 /no_think；沒給 onStream 就不串流');
   srv.close();
   // K：小本子規則只在這句像在講自己時才附
