@@ -285,10 +285,12 @@ class Lore {
     return out;
   }
 
-  contextText(hits) {
+  // clip：每條最多幾個字（10/14 AI 提示審視 F：聊天時 120，模型要的是重點，不是整段）
+  contextText(hits, { clip = 0 } = {}) {
     if (!hits.length) return '';
+    const cut = (t) => { const s = t.replace(/\n+/g, ' '); return clip && s.length > clip ? `${s.slice(0, clip)}…` : s; };
     return '【角色設定參考】（依此回答，沒提到的細節可以用符合設定的方式發揮，但不要矛盾）\n' +
-      hits.map((h) => `▶ ${h.entry.title}${h.strong && h.entry.emotion && h.entry.emotion !== 'normal' ? `（表情可用 ${h.entry.emotion}）` : ''}：${h.entry.text.replace(/\n+/g, ' ')}`).join('\n');
+      hits.map((h) => `▶ ${h.entry.title}${h.strong && h.entry.emotion && h.entry.emotion !== 'normal' ? `（表情可用 ${h.entry.emotion}）` : ''}：${cut(h.entry.text)}`).join('\n');
   }
 }
 

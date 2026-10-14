@@ -32,6 +32,10 @@ const AC = require('./achievements');
 const TW = require('./twins'); // 🐰 棉棉和朵朵跑來櫃台：下午茶外送、道賀、許願單
 
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
+// 冒險者自己按的（點艾琳、打開今日行程、勾目標、換任務、登記、設提醒、匯入、戳）：立刻用內建台詞，不等 AI
+//   這些話畫面上多半已經看得到，等 10 秒才說反而慢半拍；AI 留給她自己開口、聊天、交付、升級、日誌、占卜、送禮（10/14 AI 提示審視 A）
+//   config.json 的 llm.quickLines 設成 false 就照舊全部問 AI
+const QUICK_EVENTS = new Set(['greet', 'daily', 'objective', 'assign', 'poke', 'poke_annoyed', 'poke_meow', 'registered', 'reminder_set', 'imported']);
 
 const F = require('./fortune'); // 🔮 今日運勢的文案
 const R = require('./raids'); // 📯 團戰（會議）：提醒、自動專注
@@ -528,8 +532,21 @@ class Engine {
     return { ...f, ...extra, questView: undefined };
   }
 
+  isQuick(event, opts = {}) { return !opts.ai && QUICK_EVENTS.has(event) && (this.config.llm || {}).quickLines !== false; }
+  // 內建台詞馬上說：同一種最近說過的幾句先不挑；mood（害羞、鄙視）照樣挑對應表情的句子
+  quickLine(event, extra = {}, opts = {}) {
+    this.npc.relation = this.relationInfo();
+    const f = this.facts(extra);
+    this.recentTpl = this.recentTpl || {};
+    const recent = f.recent || this.recentTpl[event] || [];
+    const line = this.npc.template(event, { ...f, recent, ...(opts.mood ? { mood: opts.mood } : {}) });
+    if (line.tpl) this.recentTpl[event] = [line.tpl, ...recent].slice(0, 4);
+    return { ...line, event };
+  }
+
   async say(event, extra = {}, opts = {}) {
     if (CS.WORK_EVENTS.test(event)) this.lastWorkAt = this.now().getTime(); // 💬 艾琳剛講過工作：冒險者接著回的話要附任務清單
+    if (this.isQuick(event, opts)) return this.quickLine(event, extra, opts);
     this.npc.relation = this.relationInfo();
     const line = await this.npc.say(event, this.facts(extra), opts);
     return { ...line, event };
@@ -539,6 +556,7 @@ class Engine {
   // deferSpeech 時先排隊、動作立刻完成（畫面不用等 AI），說完再用 onSpeech 推給畫面；
   // opts.coalesce：同一類的話還沒開始說就被新的取代（連勾三個目標只說最新的那句）
   async act(event, extra = {}, opts = {}) {
+    if (this.isQuick(event, opts)) return this.say(event, extra, opts); // 內建台詞：馬上就有，不用排隊
     if (!this.deferSpeech) return this.say(event, extra, opts);
     if (CS.WORK_EVENTS.test(event)) this.lastWorkAt = this.now().getTime();
     const { coalesce, ...rest } = opts;
@@ -599,7 +617,7 @@ class Engine {
     } else {
       lines.push(await this.say('greet'));
     }
-    if (overdue.length) lines.push(await this.say('overdue', { questView: overdue[0], eventDetail: `逾期任務：${overdue.map((q) => q.title).join('、')}` }));
+    if (overdue.length) lines.push(await this.act('overdue', { questView: overdue[0], eventDetail: `逾期任務：${overdue.map((q) => q.title).join('、')}` })); // 打招呼先說（內建台詞），逾期的提醒問 AI、晚一點說
     lines.push(...await this.noteDateLines()); // 📒 今天是小本子上的重要日子
     return this.settle({ lines, view: this.view() });
   }
@@ -1269,7 +1287,7 @@ class Engine {
     const f = this.divineFacts(rec);
     const line = await this.say('divine', { ...f, eventDetail: `冒險者花了 ${f.cost} 金幣請你用星環占占卜：「${rec.question}」` }, {
       extraUser: MH.describe(rec.result, rec.question),
-      extraSystem: '這次是占卜解讀，規則 2 例外：可以說 2～4 句、不超過 160 字。',
+      extraSystem: '這次是占卜解讀，規則 1 的長度例外：可以說 2～4 句、不超過 160 字。',
       maxTokens: 320, maxChars: 170,
     });
     rec.reading = { text: line.text, emotion: line.emotion, source: line.source };
@@ -1338,8 +1356,9 @@ class Engine {
     return this.settle({ lines: [await this.act('daily', { eventDetail: `冒險者選擇了「${name}」路線` }, { coalesce: 'branch' })], view: this.view() });
   }
 
-  async daily() {
-    return { lines: [await this.say('daily')], view: this.view() };
+  // 打開今日行程：內建台詞（畫面上那格已經亮著）；ai：艾琳自己發現換到下一格時才問 AI
+  async daily({ ai = false } = {}) {
+    return { lines: [await this.say('daily', {}, { ai })], view: this.view() };
   }
 
   // ---------- 主動聊天 ----------
@@ -1374,7 +1393,7 @@ class Engine {
     if (kind === 'daily') {
       const t = this.todayInfo();
       p.slot = `${t.date}|${t.current.id || t.current.slot}`;
-      res = await this.daily();
+      res = await this.daily({ ai: true });
     } else if (kind === 'note') res = { lines: await this.noteDateLines(), view: this.view() };
     else res = await this.topic();
     if (!res || !res.lines || !res.lines.length) return null;
@@ -1528,7 +1547,9 @@ class Engine {
     if (!scope.need) { const sim = await this.workSimilar(text, cat); if (sim >= 0.6) Object.assign(scope, { need: true, why: `語意像某個目標（${sim.toFixed(2)}）` }); }
     const extra = scope.need ? [RN.rename(I.ACTION_RULES, self)] // 例句「要艾琳幫你…」也用現在的名字
       : [`【任務】這次是閒聊，沒有附任務清單：不要自己猜要勾哪個目標；${call}如果提到工作做完了，請他說是哪一項。`];
-    if (aOn) extra.push(A.attitudeRules(call, self));
+    // 態度：句子裡有罵人或騷擾的字才請 AI 判斷（沒有的話 AI 判了也不採用）；稱讚、道歉靠關鍵字（10/14 D）
+    const judge = aOn && A.needsJudge(bText);
+    if (judge) extra.push(A.attitudeRules(call, self));
     if (apologizing) extra.push(`【道歉】${call}在為剛才的失禮道歉：接受道歉，可以小小抱怨一句，最後原諒他。`);
     if (relationQ) extra.push(`【關係問題】${call}在問你們現在是什麼關係：照【關係】的親近程度，用角色口吻回答一兩句。`);
     if (kw === 'care') extra.push(`${call}現在很痛苦：先溫柔地關心他，建議他找信任的人或專業的人聊聊，這句不要提任務。`);
@@ -1547,18 +1568,24 @@ class Engine {
       const strong0 = hits.find((h) => h.strong);
       if (((strong0 && strong0.entry.emotion === 'shy') || (relationQ && stage >= 4)) && this.rnd() < this.emotionChance()) mood = 'shy';
     }
-    const line = await this.say('chat', {}, {
+    // 角色設定給 AI 看的（10/14 F）：只附關鍵字命中、語意夠近、或正在回她話題的那條（只是用字有點像的不附：
+    //   「P-12 做完了」以前會附到「錢、薪水」「梟長的三句話」）；最多 2 條、每條 120 字
+    const loreHits = hits.filter((h) => h.kw > 0 || h.sem >= 0.5 || (replyTopic && h.entry.title === tp.title)).slice(0, 2);
+    // 任務清單（10/14 B）：當前任務、說到的任務才列目標，其他一行標題；【狀態】就不再重複未完成目標
+    const showDone = I.RE_UNDO.test(text);
+    const catText = scope.need ? I.catalogText(cat, { showDone, expand: showDone ? null : I.focusQuests(text, cat, workItems) }) : '';
+    const line = await this.say('chat', scope.need ? { catalogShown: true } : {}, {
       mood,
       userText: text,
       history: recent, // npc 會再濾掉備援台詞那幾輪，取最後 4 句
       extraSystem: extra.join('\n'),
-      extraProps: { ...(scope.need ? I.ACTION_SCHEMA : {}), ...(aOn ? { attitude: { type: 'string', enum: A.ATTITUDES } } : {}), ...(nbOn ? M.SCHEMA : {}) },
-      extraUser: [scope.need ? I.catalogText(cat, { showDone: I.RE_UNDO.test(text) }) : '', this.lore.contextText(hits), nbCtx].filter(Boolean).join('\n\n'),
+      extraProps: { ...(scope.need ? I.ACTION_SCHEMA : {}), ...(judge ? { attitude: { type: 'string', enum: A.ATTITUDES } } : {}), ...(nbOn ? M.SCHEMA : {}) },
+      extraUser: [catText, this.lore.contextText(loreHits, { clip: 120 }), nbCtx].filter(Boolean).join('\n\n'),
       maxTokens: 320,
-      logNote: scope.need ? `附清單：${scope.why}` : '沒附清單（閒聊）',
+      logNote: `${scope.need ? `附清單：${scope.why}` : '沒附清單（閒聊）'}${judge ? '；判斷態度' : ''}`,
     });
     if (line.source === 'llm') line.text = I.decodeKeys(line.text, cat); // 台詞裡的 q4-0 換回名字
-    const llmAtt = line.source === 'llm' && line.data ? line.data.attitude : null;
+    const llmAtt = judge && line.source === 'llm' && line.data ? line.data.attitude : null;
     const aiNotes = line.source === 'llm' && line.data ? line.data.notes : null;
     // 📒 記下冒險者說的自己的事（罵人、說自己很痛苦的那句不記）
     const noted = offenseKw || kw === 'care' ? [] : this.noteFrom(text, aiNotes);
@@ -2420,7 +2447,7 @@ class Engine {
     const line = await this.say('journal', {
       quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [],
       week: `${J.weekFacts(w)}；本週稱號：${w.badges.map((b) => `${b.name}（${b.why}）`).join('、')}`,
-    }, { maxTokens: 360, maxChars: 220 });
+    }, { maxTokens: 360, maxChars: 220, extraSystem: '這次是寫週評語，規則 1 的長度例外：3～4 句、不超過 200 字。' }); // 10/14 G：不然會被「1～3 句、90 字內」壓住
     const ai = line.source === 'llm' && line.text && line.text.length >= 20;
     Object.assign(w, { comment: ai ? line.text : fallback, commentSource: ai ? 'llm' : 'template', commentSig: w.sig, commentAt: this.now().getTime() });
     this.saveState();

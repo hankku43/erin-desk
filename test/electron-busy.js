@@ -20,7 +20,8 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       assert(top.length <= 12, '第一層最多 12 項：' + top.length);
       assert(tpl.some((m) => /^🗓 行程/.test(m.label) && m.submenu) && tpl.some((m) => /設定與資料/.test(m.label) && m.submenu.some((x) => /選擇週計畫檔/.test(x.label || ''))) && tpl.some((m) => /^🤖 AI/.test(m.label) && m.submenu), '有分組');
       assert(top.filter((m) => /筆記本/.test(m.label)).length === 1 && !JSON.stringify(tpl).includes('更多玩法'), '筆記本只出現一次、沒有「更多玩法」'); // 10/13
-      // 2. 等 AI（每句 4 秒）的時候連勾兩個目標
+      // 2. 等 AI（每句 4 秒）的時候連勾兩個目標（預設勾目標是內建台詞；這裡測「也問 AI」時介面不用等，10/14 AI 提示審視 A）
+      engine.config.llm.quickLines = false;
       await js(`closeDialog(); openPanel('board')`); await wait(400);
       const q = engine.plan.quests.find((x) => x.active) || engine.plan.quests[0];
       const t0 = Date.now();

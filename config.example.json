@@ -26,7 +26,8 @@
     "timeoutMs": 45000,
     "chatTimeoutMs": 90000,
     "numCtx": 6144,
-    "keepAlive": "30m"
+    "keepAlive": "30m",
+    "quickLines": true
   },
   "rewards": {
     "objective": {

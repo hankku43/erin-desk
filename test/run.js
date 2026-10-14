@@ -297,12 +297,12 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const said = await npc.say('registered', { quest: '整理我的筆記', level: 1, title: '見習', xpInLevel: 0, xpForNext: 120, goldTotal: 0, streak: 0, now: '9/30' }, { userText: '幫我登記', history: [{ role: 'assistant', content: JSON.stringify({ line: '我在喔，玩家', emotion: 'normal' }) }] });
   assert.strictEqual(said.text, '冒險者，艾琳已經把「整理我的筆記」記下來了，你放心！');
   const sys = sent.messages[0].content, usr = sent.messages.at(-1).content;
-  assert.ok(/叫對方一律用「冒險者」/.test(sys) && /講到自己一律用「艾琳」/.test(sys), '系統提示寫明稱呼與自稱');
+  assert.ok(/叫對方「冒險者」/.test(sys) && /自稱「艾琳」不說「我」/.test(sys), '系統提示寫明稱呼與自稱');
   assert.ok(!/玩家/.test(usr.replace(/不要叫「玩家」/, '')) && /冒險者說：「幫我登記」/.test(usr), '狀態與情境都用冒險者');
   assert.ok(/艾琳在喔，冒險者/.test(sent.messages[1].content), '舊聊天紀錄也先校正');
   const off = new NPC({ npc: { name: '艾琳', callName: '冒險者' }, llm: { enabled: false } });
   const t = off.template('reminder_set', { label: '9/30 16:30 提醒我打電話' });
-  assert.ok(/艾琳會叫你/.test(t.text) && /提醒我打電話/.test(t.text), '內建台詞：自稱艾琳，提醒內容照原樣');
+  assert.ok(/艾琳/.test(t.text) && /提醒我打電話/.test(t.text) && !/我(?!打電話)/.test(t.text.replace('提醒我打電話', '')), '內建台詞：自稱艾琳，提醒內容照原樣');
   console.log('口吻測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
 
@@ -671,7 +671,9 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const said = await npc.say('chat', { level: 1, title: '見習', xpInLevel: 0, xpForNext: 120, goldTotal: 0, streak: 0, now: '9/30' }, { userText: '艾琳今天好可愛' });
   assert.strictEqual(said.emotion, 'shy');
   assert.ok(/shy＝.*disdain＝/.test(sent.messages[0].content), '系統提示說明新表情');
-  assert.ok(sent.format.properties.emotion.enum.includes('disdain'), 'schema 有 disdain');
+  assert.ok(!sent.format.properties.emotion.enum.includes('disdain'), '沒有要判斷態度：schema 不給 disdain（10/14）');
+  await npc.say('chat', { level: 1, title: '見習', xpInLevel: 0, xpForNext: 120, goldTotal: 0, streak: 0, now: '9/30' }, { userText: '你好吵', extraProps: { attitude: { type: 'string' } } });
+  assert.ok(sent.format.properties.emotion.enum.includes('disdain') && sent.format.required.join() === 'line,emotion', '要判斷態度時才有 disdain；只強制 line、emotion');
   console.log('表情測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
 
@@ -754,7 +756,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.rand = () => 0.9; t += 60000;
   reply = { line: '嗯哼～謝謝誇獎，今天也一起加油吧！', emotion: 'happy', actions: [] };
   r = await E.chat('你喜歡的人是誰');
-  assert.ok(!/這次的情緒/.test(sys()) && sent.format.properties.emotion.enum.length === 8, '沒骰到就不加指示');
+  assert.ok(!/這次的情緒/.test(sys()) && sent.format.properties.emotion.enum.length === 7, '沒骰到就不加指示（沒有要判斷態度：鄙視不能選）');
   assert.strictEqual(r.lines[0].emotion, 'happy');
   // 沒骰到但台詞在害羞 → 表情跟著台詞
   t += 60000; reply = { line: '（突然害羞地低頭）唔……這種事要保密啦。', emotion: 'happy', actions: [] };
@@ -782,16 +784,18 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.strictEqual(r.lines[0].text, loveReply, '重複時改用預寫台詞：' + r.lines[0].text);
   assert.strictEqual(r.lines[0].emotion, 'shy');
   assert.ok(sent.messages.filter((m) => m.role !== 'system').length <= 5, '最多帶 4 句舊對話');
-  // 戳一下：骰到就害羞，戳太多下骰到就鄙視
+  // 戳一下：骰到就害羞，戳太多下骰到就鄙視（預設戳一下用內建台詞；這裡先測問 AI 的時候）
   E.saveConfigPatch({ lore: { emotionChance: 0.5 } }); E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify(reply) } }; }; E.npc.status.online = true;
-  E.rand = () => 0.05; E.pokeTimes = [];
+  E.rand = () => 0.05; E.pokeTimes = []; sent = null;
+  r = await E.poke(); assert.ok(r.lines[0].emotion === 'shy' && r.lines[0].source === 'template' && !sent, '預設：戳一下馬上用內建台詞，骰到害羞就挑害羞的句子');
+  E.config.llm.quickLines = false; E.pokeTimes = [];
   reply = { line: '尾、尾巴不可以抓啦……', emotion: 'shy' };
   r = await E.poke(); assert.strictEqual(r.lines[0].emotion, 'shy'); assert.ok(/這次的情緒：害羞/.test(sys()));
   await E.poke();
   reply = { line: '……冒險者，你是不是很閒？', emotion: 'disdain' };
   r = await E.poke(); assert.strictEqual(r.lines[0].emotion, 'disdain'); assert.ok(/這次的情緒：鄙視/.test(sys()));
   // AI 關著時，骰到害羞就挑害羞的內建台詞
-  E.npc.status.online = false; E.pokeTimes = [];
+  E.config.llm.quickLines = true; E.npc.status.online = false; E.pokeTimes = [];
   for (let i = 0; i < 5; i++) { E.pokeTimes = []; r = await E.poke(); assert.strictEqual(r.lines[0].emotion, 'shy', '離線也挑害羞的句子：' + r.lines[0].text); }
   assert.ok(MOODS.shy('冒險者', '艾琳').includes('艾、艾琳'));
   fs.rmSync(dir, { recursive: true, force: true });
@@ -1146,7 +1150,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const { Engine } = require('../src/main/engine');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-defer-'));
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x', quickLines: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false } })); // 這裡測排隊：勾目標也問 AI
   const E = new Engine({ appDir: dir, now: () => new Date(`${new Date().getFullYear()}-09-30T10:00:00`) });
   E.deferSpeech = true;
   const heard = [], asked = [];
@@ -1190,6 +1194,22 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.deferSpeech = false;
   const r = await E.setObjective(E.plan.quests[1].id, 0, true);
   assert.ok(r.lines.some((l) => l.event === 'objective'));
+  // 10/14 AI 提示審視 A：預設冒險者自己按的（勾目標、打開今日行程、點艾琳、戳、換任務）馬上用內建台詞，不問 AI
+  E.config.llm.quickLines = true; E.deferSpeech = true; asked.length = 0; heard.length = 0;
+  const qo = await noWait(E.setObjective(E.plan.quests[1].id, 1, true));
+  const ol = qo.lines.find((l) => l.event === 'objective');
+  assert.ok(ol && ol.source === 'template' && !asked.length, '勾目標：回傳裡就有內建台詞，沒問 AI');
+  const seen = new Set([ol.tpl]);
+  for (let i = 0; i < 3; i++) { await E.setObjective(E.plan.quests[3].id, 0, i % 2 === 0); const l = (await E.setObjective(E.plan.quests[3].id, 0, true)).lines.find((x) => x.event === 'objective'); if (l) seen.add(l.tpl); }
+  assert.ok(seen.size >= 2, '同一種不會一直說同一句');
+  const dl = (await E.daily()).lines[0];
+  assert.ok(dl.source === 'template' && !asked.length && !/「」/.test(dl.text), '打開今日行程：內建台詞、沒有空格子：' + dl.text);
+  E.pokeTimes = []; assert.strictEqual((await E.poke()).lines[0].source, 'template', '戳一下：內建台詞');
+  assert.strictEqual((await E.greet()).lines[0].event, 'morning', '今天第一次見面還是問 AI');
+  await E.speechIdle(); const n0 = asked.length;
+  const g2 = await E.greet(); assert.ok(g2.lines[0].source === 'template' && asked.length === n0, '再點艾琳：內建台詞');
+  await E.daily({ ai: true }); assert.ok(asked.length === n0 + 1, '艾琳自己發現換到下一格（主動開口）：問 AI');
+  const c2 = await E.chat('今天好嗎'); assert.ok(c2.lines[0].source === 'llm', '聊天照樣問 AI');
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('動作不等 AI 測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });

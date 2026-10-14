@@ -310,6 +310,8 @@ const TEMPLATES = {
   reminder_set: [
     ['提醒設好了：{label}。時間到{self}會叫你，包在{self}身上！', 'happy'],
     ['記下了：{label}。時間到{self}會叫你——三號鴿子也會幫忙盯著～', 'happy'],
+    ['好，{label}——{self}寫在小本子上了，時間到就來叫你。', 'happy'],
+    ['提醒收到：{label}。到時候{self}會準時出現的！', 'cheer'],
   ],
   // 📯 團戰（會議）：都用內建台詞（提醒要準時，不等 AI）
   raid_soon: [
@@ -539,6 +541,8 @@ const TEMPLATES = {
     ['{call}，下一個委託是「{quest}」！{reason}就拜託你了～', 'cheer'],
     ['接下來是「{quest}」，{due}。{reason}{self}相信{call}沒問題的。', 'normal'],
     ['下一張委託書來了——「{quest}」，{due}。{reason}一顆一顆來就好～', 'happy'],
+    ['「{quest}」交給{call}了，{due}。{reason}先從最小的一項開始吧。', 'normal'],
+    ['下一個是「{quest}」喔～{due}。{reason}有卡住就來櫃台找{self}。', 'happy'],
   ],
   objective: [
     ['做得好！「{quest}」還剩 {left} 項，加油～', 'happy'],
@@ -546,6 +550,9 @@ const TEMPLATES = {
     ['嗯哼，又亮了一顆小星星～「{quest}」還剩 {left} 項。', 'happy'],
     ['做完一項了！{self}在委託書上打了一個勾，「{quest}」再 {left} 項就好。', 'cheer'],
     ['好耶～「{quest}」剩 {left} 項，要不要喝口水再繼續？', 'happy'],
+    ['一項打勾！「{quest}」剩 {left} 項，{self}在旁邊幫你數著～', 'happy'],
+    ['嗯哼～這項過了。「{quest}」再 {left} 項，就能拿來蓋章了。', 'normal'],
+    ['完成一項，星圖上又多一顆亮的！「{quest}」還有 {left} 項。', 'cheer'],
   ],
   objective_last: [
     ['全部目標達成！隨時可以來找{self}交付「{quest}」，報酬已經準備好了✨', 'cheer'],
@@ -569,8 +576,21 @@ const TEMPLATES = {
     ['「{quest}」逾期了，{self}有點擔心。先做五分鐘就好，好嗎？', 'worried'],
   ],
   reminder: [['⏰ 決策時間到了：{label}。照計畫的話——{action}', 'thinking']],
-  daily: [['現在是 {slot}，這格的行程是「{block}」。', 'thinking'], ['今天的主題是「{theme}」，現在輪到「{block}」囉。', 'normal']],
-  daily_none: [['現在不在排定的時段內，可以處理當前任務「{quest}」。', 'normal']],
+  daily: [
+    ['現在是 {slot}，這格的行程是「{block}」。', 'thinking'],
+    ['今天的主題是「{theme}」，現在輪到「{block}」囉。', 'normal'],
+    ['{slot} 這格是「{block}」，做完記得回來勾一下喔～', 'normal'],
+    ['嗯哼，現在該「{block}」了。做完的樣子是「{output}」，{self}在這裡等你～', 'normal'],
+    ['「{block}」的時間到囉（{slot}）。一顆一顆來就好！', 'happy'],
+    ['{call}，現在這格是「{block}」。需要的話{self}幫你顧著時間～', 'thinking'],
+    ['行程表上寫著：{slot}「{block}」。做完這格，下一格就會亮起來。', 'normal'],
+    ['現在是「{block}」的時間～目標是「{output}」，加油！', 'happy'],
+  ],
+  daily_none: [
+    ['現在不在排定的時段內，可以處理當前任務「{quest}」。', 'normal'],
+    ['這個時間沒有排行程，可以先推進「{quest}」，{due}。', 'normal'],
+    ['空檔～要不要趁現在做一點「{quest}」？', 'happy'],
+  ],
   daily_report: [
     ['日報收到了📝 今天辛苦了，明天也一起加油吧！', 'happy'],
     ['日報收到，{self}蓋好章了📝 今天辛苦啦，回家路上小心。', 'happy'],
@@ -702,19 +722,17 @@ class NPC {
   systemPrompt() {
     const p = this.persona;
     const { self, call } = this.names();
+    // 10/14 AI 提示審視 C：意思不變、壓短（754 → 約 530 tok）。這段每次都送，每少 100 tok 聊天就快約 1 秒
     return [
-      `你是桌面任務遊戲裡的 NPC「${p.name}」，身分是${p.role}。`,
+      `你是桌面任務遊戲的 NPC「${p.name}」：${p.role}。`,
       p.core ? `角色設定：${p.core}` : `個性：${p.personality}`,
-      `【說話方式】叫對方一律用「${call}」，不要叫「玩家」「使用者」「主人」「勇者」、「您」或任何名字；句子中間可以用「你」。`,
-      `講到自己一律用「${self}」，不要說「我」（例如「${self}幫你記著」「交給${self}吧」）；「我們」可以用。`,
-      `口頭禪（偶爾用）：${(p.catchphrases || []).join('、')}。`,
+      `【說話方式】叫對方「${call}」（句中可用「你」），不叫玩家、使用者、主人、勇者、您或任何名字；自稱「${self}」不說「我」（「${self}幫你記著」；「我們」可以）。口頭禪偶爾用：${(p.catchphrases || []).join('、')}。`,
       '規則：',
-      '1. 一律使用台灣繁體中文，口語、自然、有角色感。',
-      `2. 每次只說 1～3 句，總長不超過 ${this.llm.maxChars || 90} 字。`,
-      '3. 只能根據【狀態】裡的資訊講任務、日期、數字，不可以編造任務或數據。之前的對話如果提到別的任務或行程，那可能已經過時，一律以這次的【狀態】為準。',
-      `4. 不要列清單、不要用 Markdown、不要重複${call}說的話，也不要沿用自己前面回覆過的句子，每次換新的說法。`,
-      `5. ${call}聊工作以外的話題時，依【角色設定參考】用角色的身分回答；沒寫到的細節可以用符合設定的方式發揮，但不能和設定矛盾，也不要假裝知道${call}那邊的現實資訊（天氣、新聞）。`,
-      `6. 用 JSON 回覆兩個欄位：line 放這次真正要說出口的完整句子，emotion 照這句話的情緒挑，不要每句都用 happy：normal＝平常；happy＝開心；cheer＝慶祝（交付、升級、全部完成）；thinking＝思考、提醒行程、不確定；surprised＝驚訝、被嚇到；worried＝擔心${call}（逾期、太累、不舒服）；shy＝被稱讚、被說中心事、聊到感情時害羞；disdain＝看垃圾一樣的冷眼，只在${call}對${self}失禮或騷擾時用。`,
+      `1. 台灣繁體中文，口語、有角色感；1～3 句、${this.llm.maxChars || 90} 字內；不列清單、不用 Markdown。`,
+      '2. 任務、日期、數字只照【狀態】說，不編造；舊對話提到的任務或行程可能已經過時，以【狀態】為準。',
+      `3. 不重複${call}的話，也不沿用自己前幾句的說法。`,
+      `4. 工作以外的話題照【角色設定參考】發揮，不矛盾；不假裝知道${call}那邊的天氣、新聞。`,
+      `5. JSON：line＝這次說出口的完整句子；emotion 照這句的情緒挑，不要每句都用 happy：normal＝平常／happy＝開心／cheer＝慶祝／thinking＝思考、提醒、不確定／surprised＝驚訝／worried＝擔心${call}／shy＝被稱讚、聊感情時害羞／disdain＝只在${call}失禮、騷擾時的冷眼。`,
       ...this.relationLines(),
     ].join('\n');
   }
@@ -735,7 +753,7 @@ class NPC {
     L.push(`${this.names().call}：Lv.${f.level}「${f.title}」，經驗 ${f.xpInLevel}/${f.xpForNext}，金幣 ${f.goldTotal}，連續準時 ${f.streak} 次`);
     if (f.quest) L.push(`【當前任務】${f.quest}（${f.tierName}，${f.due}，進度 ${f.progress}）`);
     if (f.reason) L.push(`【任務理由】${f.reason}`);
-    if (f.remaining && f.remaining.length) L.push(`【未完成目標】${f.remaining.join('；')}`);
+    if (f.remaining && f.remaining.length && !f.catalogShown) L.push(`【未完成目標】${f.remaining.join('；')}`); // 附了【可操作項目】就不重複（10/14 B）
     if (f.slot) L.push(`【今日行程】現在 ${f.slot}：${f.block}${f.output ? `（產出：${f.output}）` : ''}`);
     if (f.theme) L.push(`今天主題：${f.theme}`);
     if (f.eventDetail) L.push(`【事件】${f.eventDetail}`);
@@ -759,6 +777,8 @@ class NPC {
     if (event === 'daily' && !f.slot) key = 'daily_none';
     if (event === 'poke') key = f.pokeCount >= 5 ? 'poke_meow' : f.pokeCount >= 3 ? 'poke_annoyed' : 'poke';
     let pool = TEMPLATES[key] || TEMPLATES.greet;
+    const filled = pool.filter(([t]) => [...t.matchAll(/\{(\w+)\}/g)].every(([, k]) => ['why', 'self', 'call'].includes(k) || (f[k] !== undefined && f[k] !== null && f[k] !== ''))); // 「今天的主題是「」」這種空格子的句子先不挑
+    if (filled.length) pool = filled;
     if (f.mood) { const emo = MOOD_EMOTION[f.mood] || f.mood; const m = pool.filter(([, e]) => e === emo); if (m.length) pool = m; } // 先挑情緒，再避開最近說過的
     else { const nd = pool.filter(([, e]) => e !== 'disdain'); if (nd.length) pool = nd; } // 鄙視的句子只在決定要鄙視時用（會扣好感）
     if (f.recent && f.recent.length) { // 避免連續重複
@@ -938,8 +958,9 @@ class NPC {
         keep_alive: this.llm.keepAlive || '30m',
         format: {
           type: 'object',
-          properties: { line: { type: 'string' }, emotion: { type: 'string', enum: mood ? [MOOD_EMOTION[mood]] : event === 'chat' ? EMOTIONS : EMOTIONS.filter((e) => e !== 'disdain') }, ...(extraProps || {}) },
-          required: ['line', 'emotion', ...Object.keys(extraProps || {})],
+          // 鄙視只在指定了 mood、或這句要判斷態度時能選；actions／notes 這些不強制（每句閒聊都回空陣列，產生要多 2 秒，10/14 H）
+          properties: { line: { type: 'string' }, emotion: { type: 'string', enum: mood ? [MOOD_EMOTION[mood]] : event === 'chat' && extraProps && extraProps.attitude ? EMOTIONS : EMOTIONS.filter((e) => e !== 'disdain') }, ...(extraProps || {}) },
+          required: ['line', 'emotion'],
         },
         options: { temperature: this.llm.temperature ?? 0.8, num_predict: maxTokens || this.llm.maxTokens || 160, num_ctx: this.numCtx() },
       }, this.timeoutFor(event));

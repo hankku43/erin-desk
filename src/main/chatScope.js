@@ -21,11 +21,13 @@ const STOP = new Set(('今天 明天 昨天 後天 現在 等等 一下 一起 �
   + '我們 你們 他們 自己 大家 知道 覺得 喜歡 看看 一點 有點 真的 好像 然後 之後 之前 以後 以前 早上 下午 晚上 '
   + '週一 週二 週三 週四 週五 週六 週日 星期 禮拜 上午 中午 冒險 艾琳 公會').split(/\s+/));
 
+// 有虛詞、代名詞的兩字（「己的」「是我」「了一」）多半是跨詞切出來的，不算計畫用字（10/14：「自己的」打到「己的」就附了整份清單）
+const FUNC = /[的了嗎吧呢啊喔哦呀嘛啦我你妳他她它們是也都很就]/;
 // 中文兩字詞＋英文／數字字（3 個以上字元）
 function terms(s) {
   const out = new Set();
   const t = String(s || '').toLowerCase();
-  for (const run of t.match(/[㐀-鿿]+/g) || []) for (let i = 0; i + 1 < run.length; i++) { const b = run.slice(i, i + 2); if (!STOP.has(b)) out.add(b); }
+  for (const run of t.match(/[㐀-鿿]+/g) || []) for (let i = 0; i + 1 < run.length; i++) { const b = run.slice(i, i + 2); if (!STOP.has(b) && !FUNC.test(b)) out.add(b); }
   for (const w of t.match(/[a-z0-9][a-z0-9._+-]{2,}/g) || []) out.add(w);
   return out;
 }

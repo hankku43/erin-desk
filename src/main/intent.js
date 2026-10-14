@@ -24,18 +24,10 @@ const ACTION_SCHEMA = {
   },
 };
 
+// 10/14 AI 提示審視 C：欄位和型別 schema 已經規定，這裡只講「什麼時候放、放哪一種」（427 → 約 190 tok）
 const ACTION_RULES = [
-  '【改進度規則】冒險者可能在聊天中回報進度。只有在冒險者「明確」表示以下事情時，才在 actions 放入動作：',
-  '- 某個目標做完了 → {"type":"check","target":"目標代號"}（例如 q1-0）',
-  '- 某個目標其實還沒做完、勾錯了 → {"type":"uncheck","target":"目標代號"}',
-  '- 要交付整個任務 → {"type":"submit","target":"任務代號","report":"回報內容"}（例如 q1）',
-  '- 想改做另一個任務 → {"type":"activate","target":"任務代號"}',
-  '- 今日行程某一格做完／取消 → {"type":"daily_done"或"daily_undo","target":"行程代號"}（例如 d0）',
-  '- 收工回報（下班回報、日報） → {"type":"report","done":"實際完成","blocker":"卡點","next":"明日調整"}',
-  '代號只能使用【可操作項目】裡列出的；不確定是哪一項就不要放動作，改在 line 裡問清楚。',
-  '只是聊天、詢問建議時，actions 用空陣列 []。',
-  '有放動作時，line 要用角色口吻確認你要做的事，例如「要艾琳幫你把『週報寄出』勾起來嗎？」。',
-  'line 裡不要出現代號（q1、q1-0、d0），要說任務或目標的名字。',
+  '【改進度規則】冒險者「明確」說了下面的事才在 actions 放動作：目標做完 check／勾錯了 uncheck（target＝目標代號 q1-0）；要交付 submit（target＝任務代號 q1，report＝回報內容）；改做另一個任務 activate（q1）；今日行程某格做完 daily_done／取消 daily_undo（d0）；收工回報 report（done＝完成、blocker＝卡點、next＝明日調整）。',
+  '代號只能用【可操作項目】列出的；不確定是哪一項就不放，在 line 問清楚；閒聊、問建議不放。有放動作時 line 要確認（「要艾琳幫你把『週報寄出』勾起來嗎？」），line 不出現代號、要說名字。',
 ].join('\n');
 
 // 模型偶爾會在台詞裡講代號（「要檢查 q4-0 嗎？」），換回任務／目標／行程的名字
@@ -73,12 +65,15 @@ function buildCatalog(plan, ps, todayInfo, now) {
 //   已勾掉的目標、已完成的行程只留數量（冒險者說要取消勾選時 showDone 才列出來）；
 //   任務名、目標說明超過 clip 個字就截短——AI 只要認得出是哪一項，代號會對回完整的目標
 const clipText = (t, n) => { const s = String(t || ''); return n && s.length > n ? `${s.slice(0, n)}…` : s; };
-function catalogText(cat, { showDone = false, clip = 40 } = {}) {
+// expand（10/14 AI 提示審視 B）：只有這些任務列出目標，其他任務一行標題（說到它的時候 engine 會把它放進 expand）
+function catalogText(cat, { showDone = false, clip = 40, expand = null } = {}) {
   const L = ['【可操作項目】'];
+  let folded = 0;
   for (const q of cat.quests) {
     const st = q.status === 'done' ? '已交付' : q.status === 'ready' ? '目標全完成，可交付' : q.active ? '當前任務' : '未完成';
     L.push(`任務 ${q.key}：${clipText(q.title, clip)}（${st}，${q.doneCount}/${q.total}）`);
     if (q.status === 'done') continue;
+    if (expand && !expand.has(q.key)) { folded++; continue; }
     const objs = cat.objectives.filter((x) => x.questId === q.id);
     for (const o of objs) if (showDone || !o.done) L.push(`  ${o.key} [${o.done ? 'x' : ' '}] ${clipText(o.text, clip)}`);
     const done = objs.filter((o) => o.done).length;
@@ -90,7 +85,19 @@ function catalogText(cat, { showDone = false, clip = 40 } = {}) {
     const done = cat.daily.filter((d) => d.done).length;
     if (!showDone && done) L.push(`  （已完成 ${done} 格）`);
   }
+  if (folded) L.push(`（另外 ${folded} 個任務的目標沒列出來；冒險者說的是那些任務的目標，就在 line 問是哪一項）`);
   return L.join('\n');
+}
+// 聊天要列出目標的任務：當前任務、關鍵字解析打到的、句子裡提到任務名或像某個目標的（10/14 B）
+function focusQuests(msg, cat, workItems = []) {
+  const keys = new Set();
+  const active = cat.quests.find((q) => q.active && q.status !== 'done');
+  if (active) keys.add(active.key);
+  for (const a of workItems || []) { const k = String(a.target || '').replace(/-\d+$/, ''); if (k) keys.add(k); }
+  for (const q of cat.quests) if (q.status !== 'done' && score(msg, q.title) >= 0.5) keys.add(q.key);
+  const o = fuzzyObjective(msg, cat, {}); if (o) keys.add(o.key.replace(/-\d+$/, ''));
+  if (!keys.size) return null; // 沒有當前任務、也沒說到哪個：全部列出來
+  return keys;
 }
 
 // 驗證 AI 或關鍵字解析出的動作 → 可以顯示給玩家確認的提案
@@ -229,4 +236,4 @@ function explainNoop(msg, cat) {
   return null;
 }
 
-module.exports = { ACTION_SCHEMA, ACTION_RULES, RE_UNDO, RE_DONE, RE_SUBMIT, RE_SWITCH, buildCatalog, catalogText, validate, ruleParse, explainNoop, decodeKeys };
+module.exports = { ACTION_SCHEMA, ACTION_RULES, RE_UNDO, RE_DONE, RE_SUBMIT, RE_SWITCH, buildCatalog, catalogText, focusQuests, validate, ruleParse, explainNoop, decodeKeys };

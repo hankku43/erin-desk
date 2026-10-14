@@ -57,7 +57,7 @@ const RUDE_DIRECTED = new RegExp(`(你|妳|艾琳)(是|很|好|真|超|有夠|�
 const RUDE_ALONE = new RegExp(`^(${RUDE_WORD}|滾|笨)[!！。～~]*$`);
 const RUDE_IMPERATIVE = /閉嘴|滾開|滾啦|滾吧|給我滾|去死|死開|少囉嗦|幹你|操你|你媽的?|妳媽的?|吵死了|煩死了你|你很煩|妳很煩|你好煩|妳好煩|討厭你|討厭妳/;
 const APOLOGY = /對不起|抱歉|我錯了|原諒我|不好意思啦|不好意思剛剛|sorry/i;
-const KIND = /謝謝|感謝|辛苦了|你真好|妳真好|好棒|好厲害|可愛|喜歡你|喜歡妳|愛你|愛妳|最棒|最好了/;
+const KIND = /謝謝|謝啦|謝囉|多謝|感謝|感恩|辛苦了|辛苦啦|你真好|妳真好|你人真好|妳人真好|好棒|好厲害|真厲害|超厲害|好聰明|可愛|好萌|喜歡你|喜歡妳|愛你|愛妳|最棒|最好了|幫大忙|靠你了|靠妳了|有你真好|有妳真好|好貼心|好溫柔/;
 
 function classify(text, words = {}) {
   const t = norm(text);
@@ -109,6 +109,14 @@ function spamCheck(text, recent = [], now = Date.now()) {
 const RELATION = /我們.{0,4}(什麼|甚麼|怎樣的?|哪種)關係|(你|妳)(覺得|認為)我.{0,4}(怎麼樣|如何|是誰|是你的誰)|我在(你|妳)心(中|裡|裏|目中)|(你|妳)對我.{0,3}(感覺|印象|看法)|好感度/;
 
 const ATTITUDES = ['ok', 'kind', 'apology', 'rude', 'harass'];
+// 這句要不要請 AI 判斷態度（10/14 AI 提示審視 D）：AI 說的失禮／騷擾，guardAttitude 只在句子裡有罵人或騷擾的字、
+//   而且是對艾琳說（或 6 個字以內）時才採信——其他句子問了也不會用，就不問（每句聊天少 190 tok）。稱讚、道歉靠關鍵字
+function needsJudge(text) {
+  const t = norm(text);
+  if (!t || CARE.test(t)) return false;
+  if (!HARASS_HINT.test(t) && !NEG_HINT.test(t)) return false;
+  return TARGET.test(t) || t.length <= 6;
+}
 const attitudeRules = (call, self) => [
   `【態度判斷】attitude 判斷${call}這句話對${self}的態度：ok＝一般（閒聊、問問題、抱怨工作或 bug、說自己累或難過都算 ok）；kind＝稱讚${self}或向${self}道謝；apology＝向${self}道歉；rude＝罵${self}、嘲笑${self}、對${self}很不禮貌；harass＝對${self}性騷擾、講露骨的性暗示。不確定就填 ok。`,
   `attitude 是 rude 或 harass 時，line 要冷淡地表示不喜歡、emotion 用 disdain；其他時候不要用 disdain。`,
@@ -117,5 +125,5 @@ const attitudeRules = (call, self) => [
 
 module.exports = {
   STAGES, DEFAULTS, ATTITUDES, config, stageOf, stageInfo, pick, classify, guardAttitude, spamCheck, spamKey,
-  attitudeRules, RELATION, TARGET, CARE,
+  attitudeRules, needsJudge, RELATION, TARGET, CARE,
 };
