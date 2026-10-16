@@ -35,6 +35,44 @@ function tokens(s) {
   return out;
 }
 
+// ---- 話題的標籤：「話題（好感3・下午・秋天）：…」 ----
+// 好感N＝第幾階才聊；早上／中午／下午／傍晚／晚上＝只在那個時段聊；週一～週日、週末＝只在那天；春夏秋冬＝只在那個季節
+const TIME_TAGS = { 早上: 'morning', 上午: 'morning', 一早: 'morning', 中午: 'noon', 午休: 'noon', 下午: 'afternoon', 下午茶: 'afternoon', 傍晚: 'evening', 下班前: 'evening', 晚上: 'night', 加班: 'night', 夜裡: 'night' };
+const DAY_TAGS = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
+const SEASON_TAGS = { 春: 'spring', 春天: 'spring', 夏: 'summer', 夏天: 'summer', 秋: 'autumn', 秋天: 'autumn', 冬: 'winter', 冬天: 'winter' };
+function topicTags(s) {
+  const out = { stage: 0, times: [], days: [], seasons: [] };
+  for (const w of String(s || '').split(/[・、,，\s/／+＋]+/).filter(Boolean)) {
+    let m;
+    if ((m = w.match(/^好感\s*(\d)$/))) out.stage = Number(m[1]);
+    else if (TIME_TAGS[w]) out.times.push(TIME_TAGS[w]);
+    else if ((m = w.match(/^(?:週|周|星期|禮拜)([一二三四五六日天])$/))) out.days.push(DAY_TAGS[m[1]]);
+    else if (w === '週末' || w === '周末') out.days.push(0, 6);
+    else if (w === '平日') out.days.push(1, 2, 3, 4, 5);
+    else if (SEASON_TAGS[w]) out.seasons.push(SEASON_TAGS[w]);
+  }
+  return out;
+}
+// 現在算哪些時段（有重疊：16 點既是下午也是傍晚）、哪個季節（台灣的感覺：3～5 月春天…）
+function periodsAt(d) {
+  const h = d.getHours(), out = [];
+  if (h >= 5 && h < 11) out.push('morning');
+  if (h >= 11 && h < 14) out.push('noon');
+  if (h >= 14 && h < 17) out.push('afternoon');
+  if (h >= 16 && h < 19) out.push('evening');
+  if (h >= 18 || h < 5) out.push('night');
+  return out;
+}
+function seasonAt(d) { const m = d.getMonth() + 1; return m >= 3 && m <= 5 ? 'spring' : m >= 6 && m <= 8 ? 'summer' : m >= 9 && m <= 11 ? 'autumn' : 'winter'; }
+const hasWhen = (t) => !!(t && ((t.times || []).length || (t.days || []).length || (t.seasons || []).length));
+// 這個話題現在能不能聊（沒有標時段／日子／季節的隨時都可以）
+function topicFits(t, d = new Date()) {
+  if ((t.times || []).length && !periodsAt(d).some((p) => t.times.includes(p))) return false;
+  if ((t.days || []).length && !t.days.includes(d.getDay())) return false;
+  if ((t.seasons || []).length && !t.seasons.includes(seasonAt(d))) return false;
+  return true;
+}
+
 // ---- 解析 markdown ----
 function parseLore(md) {
   const text = String(md).replace(/\r\n/g, '\n').replace(/<!--[\s\S]*?-->/g, '');
@@ -55,12 +93,12 @@ function parseLore(md) {
     const rp = line.match(/^台詞[:：]\s*(.+)/);
     const em = line.match(/^表情[:：]\s*(\w+)/);
     const st = line.match(/^好感[:：]\s*(\d+)/); // 好感到第幾階才會出現（隱藏好感度）
-    const tp = line.match(/^話題\s*(?:[（(]\s*好感\s*(\d+)\s*[）)])?\s*[:：]\s*(.+)/); // 艾琳主動找冒險者聊天的開場；可以標好感階段
+    const tp = line.match(/^話題\s*(?:[（(]([^）)]*)[）)])?\s*[:：]\s*(.+)/); // 艾琳主動找冒險者聊天的開場；括號裡可以標好感階段、時段、星期、季節
     if (kw) cur.keywords = kw[1].split(/[、,，\s]+/).map((x) => x.trim()).filter(Boolean);
     else if (rp) cur.reply = rp[1].trim();
     else if (em) cur.emotion = EMOTIONS.includes(em[1]) ? em[1] : 'normal';
     else if (st) cur.minStage = Number(st[1]);
-    else if (tp) cur.topics.push({ text: tp[2].trim(), stage: tp[1] ? Number(tp[1]) : 0 });
+    else if (tp) cur.topics.push({ text: tp[2].trim(), ...topicTags(tp[1]) });
     else if (line.trim()) cur.text.push(line.trim());
   }
   for (const e of entries) e.text = e.text.join('\n');
@@ -274,12 +312,13 @@ class Lore {
 
   // 給 AI 看的參考段落
   // 主動聊天的話題：每條設定的「話題：」都是一個；階段＝設定的好感和那一行標的好感取大的（至少 1）
+  // when＝有標時段／日子／季節（只有那時候聊、聊的機會比較大）
   topicPool(stage = 99) {
     const out = [];
     for (const e of this.entries) {
       (e.topics || []).forEach((t, i) => {
         const st = Math.max(1, e.minStage || 0, t.stage || 0);
-        if (st <= stage) out.push({ key: `${e.title}#${i}`, entry: e, text: t.text, stage: st });
+        if (st <= stage) out.push({ key: `${e.title}#${i}`, entry: e, text: t.text, stage: st, times: t.times || [], days: t.days || [], seasons: t.seasons || [], when: hasWhen(t) });
       });
     }
     return out;
@@ -294,4 +333,4 @@ class Lore {
   }
 }
 
-module.exports = { Lore, parseLore, tokens, BM25 };
+module.exports = { Lore, parseLore, tokens, BM25, topicTags, topicFits, periodsAt, seasonAt };

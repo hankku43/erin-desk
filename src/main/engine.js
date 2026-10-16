@@ -19,7 +19,7 @@ const G = require('./game');
 const { NPC, partialSteps } = require('./npc');
 const I = require('./intent');
 const CS = require('./chatScope');
-const { Lore } = require('./lore');
+const { Lore, topicFits } = require('./lore');
 const ICS = require('./ics');
 const MH = require('./meihua');
 const A = require('./affection');
@@ -541,10 +541,11 @@ class Engine {
   quickLine(event, extra = {}, opts = {}) {
     this.npc.relation = this.relationInfo();
     const f = this.facts(extra);
-    this.recentTpl = this.recentTpl || {};
-    const recent = f.recent || this.recentTpl[event] || [];
+    // 最近說過的記在存檔裡（重開也記得），每種事件記 12 句：內建台詞多了，就照「最久沒說」輪著挑
+    const rt = this.state.recentTpl && typeof this.state.recentTpl === 'object' ? this.state.recentTpl : (this.state.recentTpl = {});
+    const recent = f.recent || rt[event] || [];
     const line = this.npc.template(event, { ...f, recent, ...(opts.mood ? { mood: opts.mood } : {}) });
-    if (line.tpl) this.recentTpl[event] = [line.tpl, ...recent].slice(0, 4);
+    if (line.tpl && !f.recent) rt[event] = [line.tpl, ...recent.filter((x) => x !== line.tpl)].slice(0, 12);
     return { ...line, event };
   }
 
@@ -646,7 +647,7 @@ class Engine {
     const disdainChance = this.affOn() ? A.pick(this.affCfg().pokeDisdain, stage) : chance;
     const mood = event === 'poke' ? (this.rnd() < chance * 0.4 ? 'shy' : null) : event === 'poke_annoyed' ? (this.rnd() < disdainChance ? 'disdain' : null) : null;
     const line = await this.say(event, { pokeCount, inspiration, recent, eventDetail: `冒險者戳了你（12 秒內第 ${pokeCount} 次）` }, { mood });
-    if (line.tpl) { this.state.recentQuips = [line.tpl, ...recent].slice(0, 10); this.saveState(); }
+    if (line.tpl) { this.state.recentQuips = [line.tpl, ...recent.filter((x) => x !== line.tpl)].slice(0, 24); this.saveState(); } // 戳的反應記 24 句（戳、無奈、喵分開輪）
     delete line.tpl;
     const loss = this.affCfg().loss;
     if (event === 'poke_annoyed') this.affect(-loss.poke_annoyed, `一直戳${this.config.npc.name}`);
@@ -1406,6 +1407,30 @@ class Engine {
     return { ...res, kind, lines: res.lines.map((l) => ({ ...l, ambient: true })) };
   }
   // 開一個話題：從角色設定的「話題：」裡挑（還沒解鎖的不挑；越熟越常挑私人的、最近聊過的先不挑）
+  // 挑一個話題：每一句記住上次說的時間，冷卻期（預設 14 天，window.topicCooldownDays）內說過的先不挑；最近三個話題的同一條設定先不挑；
+  //   都說過了就挑最久沒說的那幾句。權重：同一階 4、前一階 2、其他 1；現在這個時段／星期／季節才有的 ×3；從來沒說過的 ×1.5
+  pickTopic(pool, stage, now) {
+    const p = this.proState();
+    if (!p.seen || typeof p.seen !== 'object') { // 舊存檔：最近說過的那幾句當作剛說過
+      p.seen = {};
+      (p.recent || []).forEach((k, i, a) => { p.seen[k] = now - (a.length - i) * 60000; });
+    }
+    for (const [k, at] of Object.entries(p.seen)) if (!(at > 0) || now - at > 60 * 86400000) delete p.seen[k]; // 兩個月前的不記了
+    const days = Number((this.config.window || {}).topicCooldownDays);
+    const cool = (Number.isFinite(days) && days >= 0 ? days : 14) * 86400000;
+    const lastTitles = (p.lastTitles && p.lastTitles.length ? p.lastTitles : [p.lastTitle]).filter(Boolean).slice(-3);
+    const base = pool.filter((x) => !lastTitles.includes(x.entry.title));
+    const from = base.length ? base : pool;
+    let cand = from.filter((x) => !(p.seen[x.key] && now - p.seen[x.key] < cool));
+    if (!cand.length) { // 全部都在冷卻：挑最久沒說的（差一天以內的一起抽，不會每次都同一個順序）
+      const oldest = Math.min(...from.map((x) => p.seen[x.key] || 0));
+      cand = from.filter((x) => (p.seen[x.key] || 0) <= oldest + 86400000);
+    }
+    const w = (x) => (x.stage === stage ? 4 : x.stage === stage - 1 ? 2 : 1) * (x.when ? 3 : 1) * (p.seen[x.key] ? 1 : 1.5);
+    let roll = this.rnd() * cand.reduce((n, x) => n + w(x), 0);
+    for (const x of cand) { roll -= w(x); if (roll < 0) return x; }
+    return cand[cand.length - 1];
+  }
   async topic() {
     if (this.isCold()) return null;
     const stage = this.affStage();
@@ -1413,32 +1438,31 @@ class Engine {
     const ncfg = this.nbCfg();
     const fu = ncfg.enabled !== false && (this.affOn() ? stage : 2) >= ncfg.followStage ? M.dueFollowUp(this.nb(), this.now(), ncfg) : null;
     if (fu && this.rnd() < 0.7) return this.followUp(fu);
-    const pool = this.lore.topicPool(stage);
+    const nowD = this.now();
+    const pool = this.lore.topicPool(stage).filter((x) => topicFits(x, nowD)); // 標了時段／星期／季節的，只在那時候聊
     if (!pool.length) return null;
     const p = this.proState();
-    const recent = p.recent || [];
-    let cand = pool.filter((x) => !recent.includes(x.key) && x.entry.title !== p.lastTitle);
-    if (!cand.length) cand = pool.filter((x) => x.entry.title !== p.lastTitle);
-    if (!cand.length) cand = pool;
-    const w = (x) => (x.stage === stage ? 6 : x.stage === stage - 1 ? 3 : 1);
-    let roll = this.rnd() * cand.reduce((n, x) => n + w(x), 0);
-    let t = cand[cand.length - 1];
-    for (const x of cand) { roll -= w(x); if (roll < 0) { t = x; break; } }
+    const t = this.pickTopic(pool, stage, nowD.getTime());
     const mood = t.entry.emotion === 'shy' && this.rnd() < this.emotionChance() ? 'shy' : null;
     const info = t.entry.text.replace(/\n+/g, ' ');
-    // 開場是角色設定檔裡人寫好的，直接說（以前每次請 AI 用自己的話再說一次：最常跑的呼叫，一次約 10 秒，10/14 J）
-    //   config.json 的 llm.rewriteTopics 設成 true 才請 AI 改寫
-    const line = (this.config.llm || {}).rewriteTopics === true ? await this.say('topic', {
+    // 開場是角色設定檔裡人寫好的，大多直接說（每次請 AI 改寫一次約 10 秒，10/14 J）；偶爾（預設四次一次）請 AI 用自己的話說，聽起來才不會每次一模一樣
+    //   config.json 的 llm.rewriteTopics：true＝每次、false＝不要、0～1 的數字＝機率（沒填＝0.25）；用電池時不改寫
+    const rw = (this.config.llm || {}).rewriteTopics;
+    const chance = rw === true ? 1 : rw === false ? 0 : Number.isFinite(Number(rw)) && rw !== null && rw !== '' ? Math.max(0, Math.min(1, Number(rw))) : 0.25;
+    const rewrite = chance > 0 && this.aiOn() && !this.saveBattery('topic') && this.rnd() < chance;
+    const line = rewrite ? await this.say('topic', {
       quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [], noPlayer: true, // 聊天就聊天，不提任務
       topic: `「${t.entry.title}」。開場可以參考（用自己的話說，不要照抄）：${t.text}`,
       topicInfo: info.length > 220 ? `${info.slice(0, 220)}…` : info,
       opener: t.text,
-    }, { mood, maxTokens: 220 }) : { source: 'lore' };
+    }, { mood, maxTokens: 220, ai: true }) : { source: 'lore' };
     if (line.source !== 'llm') { line.text = t.text; line.emotion = mood ? 'shy' : (t.entry.emotion || 'normal'); line.source = 'lore'; }
     delete line.repeated; delete line.data; delete line.tpl;
     const now = this.now().getTime();
-    p.recent = [...recent, t.key].slice(-Math.min(8, Math.max(1, Math.floor(pool.length / 2))));
+    p.seen[t.key] = now;
+    p.recent = [...(p.recent || []), t.key].slice(-8);
     p.lastTitle = t.entry.title;
+    p.lastTitles = [...(p.lastTitles || []), t.entry.title].slice(-3);
     p.topic = { key: t.key, title: t.entry.title, text: line.text, at: now, replied: false };
     // 放進聊天紀錄：冒險者回話時，AI 才知道剛剛在聊什麼
     this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest: this.ps.activeQuestId || null, at: now, topic: t.entry.title });

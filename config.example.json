@@ -28,7 +28,7 @@
     "numCtx": 6144,
     "keepAlive": "30m",
     "quickLines": true,
-    "rewriteTopics": false,
+    "rewriteTopics": 0.25,
     "batterySaver": true
   },
   "rewards": {
@@ -90,6 +90,7 @@
   "window": {
     "alwaysOnTop": true,
     "idleChatterMinutes": 30,
+    "topicCooldownDays": 14,
     "idleAnim": true
   },
   "lore": {

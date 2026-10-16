@@ -187,6 +187,135 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   console.log('角色設定檢索測試通過 ✔');
 })();
 
+// ---------- 💬 主動話題擴增（10/16）：標籤（好感・時段・星期・季節）、兩週不重複、偶爾請 AI 換句話、內建台詞記得最近說過的 ----------
+(async () => {
+  const os = require('os');
+  const LR = require('../src/main/lore');
+  const { Engine } = require('../src/main/engine');
+  // 標籤
+  assert.deepStrictEqual(LR.topicTags('好感3・下午・秋天'), { stage: 3, times: ['afternoon'], days: [], seasons: ['autumn'] });
+  assert.deepStrictEqual(LR.topicTags('週五・下午'), { stage: 0, times: ['afternoon'], days: [5], seasons: [] });
+  assert.deepStrictEqual(LR.topicTags('好感2'), { stage: 2, times: [], days: [], seasons: [] }, '舊寫法照舊');
+  const at = (s) => new Date(s);
+  assert.deepStrictEqual(LR.periodsAt(at('2026-10-16T16:30:00')), ['afternoon', 'evening'], '16 點半既是下午也是傍晚');
+  assert.deepStrictEqual([LR.seasonAt(at('2026-10-16T09:00:00')), LR.seasonAt(at('2026-01-05T09:00:00')), LR.seasonAt(at('2026-04-05T09:00:00')), LR.seasonAt(at('2026-07-05T09:00:00'))], ['autumn', 'winter', 'spring', 'summer']);
+  const fri3pm = at('2026-10-16T15:00:00'), mon9 = at('2026-10-12T09:00:00');
+  assert.ok(LR.topicFits(LR.topicTags('週五・下午'), fri3pm) && !LR.topicFits(LR.topicTags('週五・下午'), mon9) && LR.topicFits(LR.topicTags('週一・早上'), mon9), '星期＋時段');
+  assert.ok(LR.topicFits(LR.topicTags('秋天'), fri3pm) && !LR.topicFits(LR.topicTags('冬天'), fri3pm) && LR.topicFits(LR.topicTags(''), fri3pm), '季節；沒標的隨時');
+  // 角色設定檔：話題夠多、每一階都有、口吻、不提任務、問句結尾、各時段季節都有
+  const lore = new LR.Lore({ file: path.join(__dirname, '..', 'lore', '艾琳.md'), dataDir: os.tmpdir(), llm: {}, embeddings: 'off' });
+  const all = lore.topicPool(5);
+  const by = (n) => all.filter((x) => x.stage === n).length;
+  assert.ok(all.length >= 200 && by(1) >= 90 && by(2) >= 45 && by(3) >= 30 && by(4) >= 15 && by(5) >= 10, `話題：${all.length}（${[1, 2, 3, 4, 5].map(by).join('／')}）`);
+  assert.strictEqual(new Set(all.map((x) => x.text)).size, all.length, '沒有重複的話題');
+  for (const x of all) {
+    assert.ok(!/(^|[^我])我(?!們)|您|玩家/.test(x.text), '口吻：' + x.text);
+    assert.ok(/[？?]/.test(x.text), '用問句結尾才好回：' + x.text);
+    if (x.stage <= 3) assert.ok(!/任務|進度/.test(x.text), '不提任務：' + x.text);
+  }
+  for (const k of ['morning', 'noon', 'afternoon', 'evening', 'night']) assert.ok(all.filter((x) => x.times.includes(k)).length >= 5, '時段話題：' + k);
+  for (const k of ['spring', 'summer', 'autumn', 'winter']) assert.ok(all.filter((x) => x.seasons.includes(k)).length >= 3, '季節話題：' + k);
+  assert.ok(all.some((x) => x.days.includes(1)) && all.some((x) => x.days.includes(5)), '開門日、週末前夜祭');
+  // 新設定：問得到；工作句（有星期、時段、下班這些字）不會強命中
+  const fresh = { '閣樓的鴿子都叫什麼名字': '閣樓的傳信鴿', '出個謎語考考我': '艾琳的小問題', '還有哪些冒險者常來': '來櫃台的冒險者們', '午休都在做什麼': '午休時間' };
+  for (const [q, title] of Object.entries(fresh)) {
+    const h = await lore.retrieve(q, 3, { stage: 5 });
+    assert.ok(h.some((x) => x.entry.title === title), `「${q}」應該找得到「${title}」：${h.map((x) => x.entry.title).join('/')}`);
+  }
+  const added = new Set(['早上的公會', '午休時間', '下午三點', '傍晚與收櫃台', '晚上的公會', '開門日與週末前夜祭', '來櫃台的冒險者們', '閣樓的傳信鴿', '艾琳的小問題', '冒險者的工作習慣']);
+  assert.strictEqual(lore.entries.filter((e) => added.has(e.title)).length, added.size, '新設定都讀得到');
+  for (const q of ['週五前交報告', '下班前把簡報寄出去', '早上開完會了', '下午三點要跟客戶開會', '中午前回信', '週一的站會改到十點', '今天加班把測試跑完', '待辦清單做完一半了', '把桌上的資料整理好了']) {
+    const h = (await lore.retrieve(q, 3, { stage: 5 })).filter((x) => x.strong && added.has(x.entry.title));
+    assert.deepStrictEqual(h.map((x) => x.entry.title), [], `工作句「${q}」不該強命中新設定`);
+  }
+  // 引擎：兩週不重複；用完了挑最久沒說的；同一條設定不會連著來；只有對的時段季節才聊
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-topic2-'));
+  fs.writeFileSync(path.join(dir, 'plan.md'), '# 2026 話題測試 10/12–10/16\n\n## 寫完週報 🔧 📅 10/16\n- [ ] 收資料\n');
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, achievements: { enabled: false }, streak: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] }, window: { idleChatterMinutes: 10 } }));
+  let t = new Date('2026-10-12T09:00:00').getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  E.aff().points = 117; E.aff().stage = 3; E.aff().maxStage = 3;
+  E.state.proactive = { lastAt: 0, recent: ['為什麼當接待員#0', '音樂、書、娛樂#0'], lastTitle: '音樂、書、娛樂', topic: null, slot: '' }; // 舊存檔
+  const said = [];
+  const day = (iso) => new Date(`${iso}T00:00:00`).getDay();
+  // 兩週工作日、每天 9:00～17:00 每 30 分鐘一句（一天 16 句，使用者 10/15 實際大約這個密度）
+  for (let d = 0; d < 14; d++) {
+    const date = new Date(new Date('2026-10-12T00:00:00').getTime() + d * 86400000);
+    const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    if ([0, 6].includes(day(iso))) continue;
+    for (let m = 9 * 60; m < 17 * 60; m += 30) {
+      t = new Date(`${iso}T${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`).getTime();
+      const r = await E.topic();
+      said.push({ t, text: r.lines[0].text, title: r.lines[0].topic, key: E.state.proactive.topic.key });
+    }
+  }
+  assert.ok(!said.slice(0, 2).some((x) => ['為什麼當接待員#0', '音樂、書、娛樂#0'].includes(x.key)), '舊存檔最近說過的：先不說');
+  const pool3 = E.lore.topicPool(3).length;
+  assert.ok(said.length === 160 && said.length < pool3, `兩週 ${said.length} 句、第 3 階有 ${pool3} 句`);
+  assert.strictEqual(new Set(said.map((x) => x.key)).size, said.length, '兩週內一句都沒重複');
+  assert.ok(said.every((x, i) => i < 1 || x.title !== said[i - 1].title), '同一條設定不會連著來');
+  for (const x of said) {
+    const tp = E.lore.topicPool(3).find((y) => y.key === x.key);
+    assert.ok(LR.topicFits(tp, new Date(x.t)), `時段／星期／季節要對：${x.text}（${new Date(x.t).toString().slice(0, 21)}）`);
+    assert.ok(tp.stage <= 3, '沒到的好感階段不聊');
+  }
+  assert.ok(said.filter((x) => E.lore.topicPool(3).find((y) => y.key === x.key).when).length >= 15, '時段、季節的話題有機會出來');
+  // 用完了（冷卻改 0.5 天）→ 挑最久沒說的
+  E.config.window.topicCooldownDays = 0.5;
+  t += 86400000;
+  const k1 = (await E.topic()) && E.state.proactive.topic.key;
+  const oldest = Math.min(...Object.values(E.state.proactive.seen).filter((x) => x < t - 86400000 * 0.5));
+  assert.ok(E.state.proactive.seen[k1] === t, '記下這次說的時間');
+  delete E.config.window.topicCooldownDays;
+  E.state.proactive.seen = Object.fromEntries(E.lore.topicPool(3).map((x, i) => [x.key, t - 86400000 * 3 + i])); // 全部三天內說過
+  const pick = E.pickTopic(E.lore.topicPool(3).filter((x) => LR.topicFits(x, new Date(t))), 3, t);
+  assert.ok(E.state.proactive.seen[pick.key] <= t - 86400000 * 3 + 86400000, '都說過了：挑最久沒說的那一批');
+  // 偶爾請 AI 換句話說（預設 0.25；true＝每次、false＝不要；AI 沒開就照寫好的）
+  E.config.llm.enabled = true; E.npc.status = { online: true };
+  let asked = 0;
+  E.npc.say = async (event, f) => { asked++; return { text: `（AI 換句話）${f.opener}`, emotion: 'happy', source: 'llm' }; };
+  E.state.proactive.seen = {};
+  let sd = 11; E.rand = () => { sd = (sd * 1103515245 + 12345) % 2147483648; return sd / 2147483648; };
+  const viaAI = [];
+  for (let i = 0; i < 60; i++) { t += 3600000; const r = await E.topic(); viaAI.push(r.lines[0].source); }
+  const ratio = viaAI.filter((x) => x === 'llm').length / viaAI.length;
+  assert.ok(ratio > 0.1 && ratio < 0.45 && viaAI.includes('lore'), `偶爾換句話（大約四次一次）：${Math.round(ratio * 100)}%`);
+  E.npc.status = { online: false }; asked = 0;
+  await E.topic();
+  assert.strictEqual(asked, 0, 'AI 沒連上：照寫好的說');
+  E.npc.status = { online: true };
+  E.config.llm.rewriteTopics = false; asked = 0; E.rand = () => 0;
+  await E.topic();
+  assert.strictEqual(asked, 0, 'rewriteTopics false：不問 AI');
+  E.config.llm.rewriteTopics = true; E.rand = () => 0.99;
+  await E.topic();
+  assert.strictEqual(asked, 1, 'rewriteTopics true：每次');
+  delete E.rand;
+  // 內建台詞：記在存檔裡、每種記 12 句（重開也記得）
+  E.config.llm.enabled = false;
+  const lunch = [];
+  for (let i = 0; i < 10; i++) lunch.push(E.quickLine('lunch', {}).text);
+  assert.strictEqual(new Set(lunch).size, 10, '午休提醒 10 次不重複：' + lunch.join('｜'));
+  assert.ok(E.state.recentTpl.lunch.length === 10, '記在存檔裡');
+  // 內建台詞的量：戳、打招呼、行程提醒、待機自言自語都要夠多，而且口吻對
+  const { TEMPLATES: TP } = require('../src/main/npc');
+  const need = { poke: 50, poke_annoyed: 12, poke_meow: 10, greet: 12, greet_none: 6, morning: 10, morning_none: 5, lunch: 10, afternoon: 6, afternoon_none: 4, wrapup: 6, daily: 12, daily_none: 6, overdue: 5, topic_reply: 12 };
+  for (const [k, n] of Object.entries(need)) {
+    const arr = TP[k].map(([t]) => t);
+    assert.ok(arr.length >= n, `${k} 至少 ${n} 句（現在 ${arr.length}）`);
+    assert.strictEqual(new Set(arr).size, arr.length, `${k} 沒有重複的句子`);
+    for (const t of arr) assert.ok(!/我(?!們)|您|玩家/.test(t), `${k} 口吻：${t}`);
+  }
+  assert.ok(TP.wrapup.every(([t]) => /卡住/.test(t)), '收尾提醒都會問卡住');
+  const IL = require('../src/renderer/idle-brain').LINES;
+  for (const k of ['wake', 'morning', 'tea', 'break', 'overtime']) assert.ok(IL[k].length >= 10, `待機 ${k} 至少 10 句`);
+  for (const k of ['monday', 'friday']) assert.ok(IL[k].length >= 5, `待機 ${k} 至少 5 句`);
+  for (const k of Object.keys(IL.ambient)) assert.ok(IL.ambient[k].length >= 8, `自言自語 ${k} 至少 8 句`);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('主動話題擴增測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
 // 引擎：程式內新增／編輯／刪除會寫進計畫檔，狀態跟著搬
 (async () => {
   const os = require('os');
@@ -1286,10 +1415,17 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   // 第 5 階：間隔變 12 分鐘，私人話題變多
   E.aff().points = 300; E.aff().stage = 5;
   E.touch(); min(11); assert.strictEqual(due(), null); min(2); assert.strictEqual(due(), 'topic', '越熟越常來（12 分鐘）');
+  // 權重：同一階 4、前一階 2、其他 1（固定亂數，只看挑選、不記錄）→ 4、5 階的比例要明顯高於它們在話題裡的比例
+  let seed = 7; E.rand = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const pool5 = L.topicPool(5);
+  const share = pool5.filter((x) => x.stage >= 4).length / pool5.length;
+  const picks = Array.from({ length: 600 }, () => E.pickTopic(pool5, 5, t).stage);
+  const high = picks.filter((s) => s >= 4).length / picks.length;
+  assert.ok(picks.includes(5) && high > share * 1.6, `第 5 階常聊私人的話題（4、5 階佔 ${Math.round(high * 100)}%，話題裡只佔 ${Math.round(share * 100)}%）`);
+  delete E.rand;
   const stages = [];
-  for (let i = 0; i < 120; i++) { E.touch(); min(13); const x = await E.proactive({}); stages.push(L.topicPool(5).find((y) => y.text === x.lines[0].text).stage); }
-  const high = stages.filter((s) => s >= 4).length / stages.length;
-  assert.ok(stages.includes(5) && high > 0.35, `第 5 階常聊私人的話題（4、5 階佔 ${Math.round(high * 100)}%）`);
+  for (let i = 0; i < 20; i++) { E.touch(); min(13); const x = await E.proactive({}); stages.push(pool5.find((y) => y.text === x.lines[0].text).stage); }
+  assert.ok(stages.some((s) => s >= 4), '第 5 階實際開話題也會聊到私人的');
   // 排定的時段內：每格先提一次行程，之後才開話題
   t = new Date(`${Y}-09-30T10:00:00`).getTime(); E.touch(); min(13);
   assert.strictEqual(due(), 'daily', '時段裡先提這格行程');
