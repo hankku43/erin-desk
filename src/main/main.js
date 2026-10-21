@@ -840,6 +840,7 @@ app.whenReady().then(async () => {
   engine.onSpeech = (lines) => push('npc:lines', lines);
   engine.onPartial = (p) => push('npc:partial', p); // 聊天串流：讀完提示、寫出來的字（10/14 I）
   engine.onBattery = () => powerMonitor.isOnBatteryPower(); // 筆電用電池：艾琳自己開口的話用內建台詞（10/14 J）
+  if (engine.config.window && engine.config.window.hud === false) engine.setHud(true); // 📊 狀態欄：每次打開程式都先顯示（收起來只到這次關掉為止）
 
   ipcMain.handle('view:get', wrap(async () => ({ view: engine.view(), character: characterImages(), mini: isMini(), openingPending: !!openingWin })));
   // 🎬 開場

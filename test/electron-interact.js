@@ -40,15 +40,20 @@ module.exports = ({ win, engine, app, runWeather }) => {
         throw new Error('blocked ' + u);
       };
       await runWeather(true); await wait(500);
-      const wt = await js(`(()=>{const t=document.querySelector('#hudWeather');return {hidden:t.classList.contains('hidden'),dim:t.classList.contains('dim'),temp:t.querySelector('.wx-t').textContent,svg:!!t.querySelector('svg'),tip:t.dataset.tip};})()`);
-      assert(!wt.hidden && !wt.dim && wt.temp === '26°' && wt.svg && /台中/.test(wt.tip) && /晴時多雲/.test(wt.tip), '狀態欄的天候水晶：' + JSON.stringify(wt));
-      const hb = await js(`(()=>{const t=document.querySelector('#hudTop');return {sw:t.scrollWidth,cw:t.clientWidth};})()`);
-      assert(hb.sw <= hb.cw + 1, '狀態欄放得下：' + JSON.stringify(hb));
-      await shot('x01_hud_crystal');
-      await js(`document.querySelector('#hudWeather').dispatchEvent(new MouseEvent('mouseover',{bubbles:true}))`); await wait(400);
+      // ✨ 魔法那排：第三顆是天候水晶（會動的小圖＋現在的天氣）
+      await js(`document.querySelector('#choices .more button[data-act="magic"]').click()`); await wait(400);
+      const wt = await js(`(()=>{const b=document.querySelector('#subRow .sub-btn[data-act="weather"]');const all=[...document.querySelectorAll('#subRow .sub-btn')].map(x=>x.dataset.act);if(!b)return {all};const g=b.querySelector('.wx-cloud,.wx-rays');return {all,dim:b.classList.contains('dim'),note:b.querySelector('small').textContent,svg:!!b.querySelector('svg'),tip:b.dataset.tip,anim:g?getComputedStyle(g).animationName:''};})()`);
+      assert(wt.all && wt.all.join() === 'fortune,divine,weather' && !wt.dim && /晴時多雲 26°/.test(wt.note) && /降雨 20%/.test(wt.note) && wt.svg && /台中/.test(wt.tip) && /^wx/.test(wt.anim), '魔法裡的天候水晶：' + JSON.stringify(wt));
+      assert(!(await js(`!!document.querySelector('#hudWeather')`)), '狀態欄不再放水晶');
+      await shot('x01_magic_crystal');
+      await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').dispatchEvent(new MouseEvent('mouseover',{bubbles:true}))`); await wait(400);
       await shot('x02_crystal_tip');
-      await js(`document.querySelector('#hudWeather').dispatchEvent(new MouseEvent('mouseout',{bubbles:true}));hideTip()`);
-      await js(`document.querySelector('#hudWeather').click()`); await wait(400); await flush();
+      await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').dispatchEvent(new MouseEvent('mouseout',{bubbles:true}));hideTip()`);
+      await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').click()`); await wait(250);
+      const cast = await js(`(()=>{const b=document.querySelector('#subRow .sub-btn[data-act="weather"]');return {cast:!!b&&b.classList.contains('wx-cast'),rowOpen:!document.querySelector('#subRow').classList.contains('hidden'),emote:!!document.querySelector('#npcWrap > .emote')};})()`);
+      assert(cast.cast && cast.rowOpen && cast.emote, '點水晶：水晶亮一下、她身邊閃星星、魔法那排留著：' + JSON.stringify(cast));
+      await shot('x03b_crystal_cast');
+      await wait(300); await flush();
       const wl = await text();
       assert(/26/.test(wl) && /晴時多雲/.test(wl), '點水晶：她看天空說一句：' + wl);
       await shot('x03_crystal_line');
@@ -141,7 +146,8 @@ module.exports = ({ win, engine, app, runWeather }) => {
       }
       assert(/萬聖節/.test(ft), '萬聖節的那句：' + ft);
       await shot('x10_halloween');
-      const tip2 = await js(`document.querySelector('#hudWeather').dataset.tip`);
+      await js(`hideSub(); document.querySelector('#choices .more button[data-act="magic"]').click()`); await wait(300);
+      const tip2 = await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').dataset.tip`);
       assert(/萬聖節/.test(tip2) && /農曆/.test(tip2), '水晶滑過看得到今天是什麼日子：' + tip2);
       console.log('DONE');
     } catch (e) { console.error('TEST FAIL', e); }

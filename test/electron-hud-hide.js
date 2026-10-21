@@ -30,7 +30,7 @@ module.exports = ({ win, engine, app, menuTemplate }) => {
       assert(await js(`document.body.classList.contains('hud-out')`), '先滑下去');
       await wait(700);
       assert(!(await hudShown()) && (await js(`document.body.classList.contains('no-hud')`)), '收起來了');
-      assert(cfg().window.hud === false && engine.view().hud === false, '設定存起來（下次打開還是收著）');
+      assert(cfg().window.hud === false && engine.view().hud === false, '這次先收著（下次打開程式會再出現）');
       assert(/顯示狀態欄/.test(await js(`document.querySelector('#toast').textContent`)), '提示怎麼打開');
       // 提示出現在狀態欄原本的位置（不會飄在視窗最上面）
       const tr = await js(`(() => { const r = document.querySelector('#toast').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, h: innerHeight }; })()`);

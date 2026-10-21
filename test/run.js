@@ -641,11 +641,13 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const rjs = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'renderer.js'), 'utf8');
   const pre = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'preload.js'), 'utf8');
   const mainJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.js'), 'utf8');
-  assert.ok(/id="hudWeather"/.test(html) && /id="pickRow"/.test(html) && /touch\.js/.test(html) && /weather-art\.js/.test(html));
+  assert.ok(!/id="hudWeather"/.test(html) && /function weatherItem/.test(rjs) && /weatherItem\(\), \/\/ ☁/.test(rjs), '天候水晶在 ✨ 魔法裡（不在狀態欄）');
+  assert.ok(/id="pickRow"/.test(html) && /touch\.js/.test(html) && /weather-art\.js/.test(html));
   assert.ok(html.indexOf('cursors.js') > 0 && html.indexOf('cursors.js') < html.indexOf('renderer.js') && /Cursors\.css\(kind\)/.test(rjs) && /Cursors\.OF_ZONE\[z\]/.test(rjs), '摸的時候換鼠標');
   assert.ok(html.indexOf('touch.js') < html.indexOf('renderer.js') && html.indexOf('weather-art.js') < html.indexOf('renderer.js'), '先載入再用');
   assert.ok(/api\.poke\(zone\)/.test(rjs) && /api\.poke\('head', 'pat'\)/.test(rjs) && /api\.decide\(/.test(rjs) && /api\.weatherSay\(/.test(rjs));
   assert.ok(/decide:/.test(pre) && /weatherSay:/.test(pre) && /weatherRefresh:/.test(pre));
+  assert.ok(/window\.hud === false\) engine\.setHud\(true\)/.test(mainJs), '狀態欄：每次打開程式都先顯示');
   assert.ok(/'npc:decide'/.test(mainJs) && /'weather:say'/.test(mainJs) && /'weather:refresh'/.test(mainJs) && /net\.fetch\(url/.test(mainJs), '天氣用 Chromium 的網路（走系統 proxy）');
   assert.ok(/QUEST_NPC_TEST \? null : wxFetchJson/.test(mainJs), '自動測試不連網路');
   fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(dir2, { recursive: true, force: true });

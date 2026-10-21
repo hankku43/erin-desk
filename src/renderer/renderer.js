@@ -381,7 +381,7 @@ $('#hudHide').addEventListener('click', (e) => {
     const r = await api.setHud(false);
     document.body.classList.remove('hud-out');
     if (r && r.view) applyView(r.view);
-    toast(`📊 狀態欄收起來了。右鍵${npcNameR()} →「📊 顯示狀態欄」可以再打開`, 4200, { at: 'hud' });
+    toast(`📊 狀態欄收起來了（下次打開程式會再出現）。右鍵${npcNameR()} →「📊 顯示狀態欄」可以馬上打開`, 4200, { at: 'hud' });
   }, 300);
 });
 
@@ -770,7 +770,7 @@ function fitHud() {
   const tags = [...top.querySelectorAll('.fit-hide')];
   tags.forEach((t) => t.classList.remove('fit-hide'));
   if (!top.offsetWidth) return; // 縮小、還沒排版：下次再算
-  const order = [top.querySelector('.fortune-tag.drawn'), $('#hudStreak'), top.querySelector('.weather-tag .wx-t'), top.querySelector('.fortune-tag.new'), $('#hudDraft')].filter((el) => el && !el.classList.contains('hidden') && getComputedStyle(el).display !== 'none');
+  const order = [top.querySelector('.fortune-tag.drawn'), $('#hudStreak'), top.querySelector('.fortune-tag.new'), $('#hudDraft')].filter((el) => el && !el.classList.contains('hidden') && getComputedStyle(el).display !== 'none');
   for (const el of order) {
     if (top.scrollWidth <= top.clientWidth + 1) break;
     el.classList.add('fit-hide');
@@ -779,22 +779,41 @@ function fitHud() {
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitHud()); // 字型晚一點載好、字變寬：再排一次
 
 // ---------- 🔮 今日運勢 ----------
-// ---------- ☁ 天候水晶（狀態欄）----------
-function renderWeather() {
+// ---------- ☁ 天候水晶（✨ 魔法裡的第三顆）----------
+// 一行字：晴時多雲 26°・降雨 20%；看不到天空時說原因
+function weatherNote(w) {
+  if (!w || !w.on) return '';
+  if (!w.ok) return w.error ? `${w.error}・點一下再看` : '正在看天空…';
+  const line = String(w.tip || '').split('\n').find((x) => x.startsWith('現在：')) || '';
+  const sky = line.replace(/^現在：/, '').split(/[・（]/)[0].trim();
+  const rain = (String(w.tip || '').split('\n').find((x) => x.startsWith('今天：')) || '').match(/降雨 (\d+)%/);
+  return `${sky || ''}${rain ? `・降雨 ${rain[1]}%` : ''}`;
+}
+function weatherItem() {
   const w = state.view && state.view.weather;
-  const tag = $('#hudWeather');
-  if (!tag) return;
-  if (!w || !w.on) { tag.classList.add('hidden'); return; }
-  tag.classList.remove('hidden');
-  tag.classList.toggle('dim', !w.ok);
+  if (!w || !w.on) return null;
   const kind = w.ok ? w.kind : 'unknown';
-  if (tag.dataset.kind !== kind && typeof WxArt !== 'undefined') { tag.querySelector('.wx').innerHTML = WxArt.svg(kind, { size: 20 }); tag.dataset.kind = kind; }
-  tag.querySelector('.wx-t').textContent = w.ok && w.temp !== null && w.temp !== undefined ? `${w.temp}°` : '';
-  tag.dataset.tip = `${w.tip || '天候水晶'}\n（點一下：請${npcNameR()}看看天空）`;
+  return { act: 'weather', ico: typeof WxArt !== 'undefined' ? WxArt.svg(kind, { size: 28 }) : '☁', html: true, label: '天候水晶', note: weatherNote(w), tip: `${w.tip || '天候水晶'}\n（點一下：請${npcNameR()}看看天空）`, kind, dim: !w.ok };
+}
+// 魔法那排開著的時候，天氣更新了就把水晶那顆換掉（其他兩顆不動）
+function renderWeather() {
+  if (state.subRow !== 'magic') return;
+  const b = document.querySelector('#subRow .sub-btn[data-act="weather"]');
+  const it = weatherItem();
+  if (!it) { if (b) toggleSub('magic', { refresh: true }); return; }
+  if (!b) { toggleSub('magic', { refresh: true }); return; }
+  if (b.dataset.kind !== it.kind) { b.querySelector('.sb-ico').innerHTML = it.ico; b.dataset.kind = it.kind; }
+  b.querySelector('small').textContent = it.note;
+  b.dataset.tip = it.tip;
+  b.classList.toggle('dim', it.dim);
 }
 async function weatherClick() {
   const w = state.view && state.view.weather;
   if (!w || !w.on) return;
+  // 小動畫：水晶亮一下、她身邊閃星星
+  const btn = document.querySelector('#subRow .sub-btn[data-act="weather"]');
+  if (btn) { btn.classList.remove('wx-cast'); void btn.offsetWidth; btn.classList.add('wx-cast'); setTimeout(() => btn.classList.remove('wx-cast'), 1200); }
+  if (typeof Emotes !== 'undefined' && !state.mini) Emotes.show($('#npcWrap'), 'shine', 1600);
   if (!w.ok) { // 霧濛濛的：先重新看一次天空
     toast('☁ 天候水晶重新看一次天空…', 2000);
     const r = await api.weatherRefresh();
@@ -864,7 +883,6 @@ $('#hudTop').addEventListener('click', (e) => {
   if (e.target.closest('#hudStreak') || e.target.closest('#lv')) { openAch(); return; } // 🔥、Lv：成就（等級、稱號也在裡面）
   if (e.target.closest('#hudDraft')) { openPdNote(); return; } // ✏️ 還沒寫進計畫檔：打開筆記本
   if (e.target.closest('#fortuneTag')) drawFortune();
-  if (e.target.closest('#hudWeather')) weatherClick();
 });
 $('.xpbar').addEventListener('click', () => { hideTip(); openAch(); }); // 稱號／經驗條也能點
 
@@ -1122,6 +1140,7 @@ $('#choices').addEventListener('click', async (e) => {
   if (act === 'report') openPanel('report');
   if (act === 'pd') openPdNote(); // 📓 筆記本（另一個大視窗）
   if (act === 'magic' || act === 'memories') { toggleSub(act); return; } // ✨ 魔法、📒 回憶：原位展開子選項（10/13 G：不再多一層面板）
+  if (act === 'weather') { weatherClick(); return; } // ☁ 天候水晶：魔法那排留著（看得到水晶亮一下）
   hideSub();
   if (act === 'chat') { $('#chatRow').classList.toggle('hidden'); $('#chatInput').focus(); }
   if (act === 'album') openPanel('album');
@@ -1141,7 +1160,8 @@ function subItems(kind) {
     return [
       { act: 'fortune', ico: '🔮', label: '今日運勢', note: f ? `今天「${f.rank}」・再看一次` : '一天一次，有小獎勵' },
       { act: 'divine', ico: '🌌', label: '星環占卜', note: `問一件事・${cost} 金幣` },
-    ];
+      weatherItem(), // ☁ 天候水晶（關掉時沒有這顆）
+    ].filter(Boolean);
   }
   const nb = v.notebook || {}, sh = (v.affection && v.affection.shows) || { album: [] };
   return [
@@ -1150,12 +1170,14 @@ function subItems(kind) {
     { act: 'album', ico: '🎬', label: '回憶相簿', note: `${(sh.album || []).length + 1} 頁` },
   ];
 }
-function toggleSub(kind) {
-  if (state.subRow === kind) { hideSub(); return; }
+function toggleSub(kind, { refresh = false } = {}) {
+  if (state.subRow === kind && !refresh) { hideSub(); return; }
   state.subRow = kind;
   const row = $('#subRow');
-  row.innerHTML = subItems(kind).map((i) => `<button class="sub-btn" data-act="${i.act}"><span class="sb-ico">${i.ico}</span><span class="sb-txt"><b>${esc(i.label)}</b><small>${esc(i.note)}</small></span></button>`).join('');
+  const items = subItems(kind);
+  row.innerHTML = items.map((i) => `<button class="sub-btn${i.dim ? ' dim' : ''}" data-act="${i.act}"${i.kind ? ` data-kind="${esc(i.kind)}"` : ''}${i.tip ? ` data-tip="${esc(i.tip)}"` : ''}><span class="sb-ico">${i.html ? i.ico : esc(i.ico)}</span><span class="sb-txt"><b>${esc(i.label)}</b><small>${esc(i.note)}</small></span></button>`).join('');
   row.dataset.kind = kind;
+  row.dataset.n = String(items.length);
   row.classList.remove('hidden');
   for (const b of document.querySelectorAll('#choices .more button')) b.classList.toggle('on', b.dataset.act === kind);
 }

@@ -37,7 +37,7 @@
         <button class="btn" data-act="daily">📅 今日行程</button>
         <button class="btn" data-act="chat">💬 聊聊</button>
         <div class="more" role="group" aria-label="魔法、回憶、日誌、雜貨舖">
-          <button data-act="magic" data-tip="魔法：今日運勢、星環占卜"><span>✨</span>魔法</button>
+          <button data-act="magic" data-tip="魔法：今日運勢、星環占卜、天候水晶"><span>✨</span>魔法</button>
           <button data-act="memories" data-tip="回憶：艾琳的小本子、成就、回憶相簿"><span>📒</span>回憶</button>
           <button data-act="journal" data-tip="冒險日誌與工作週報"><span>📖</span>日誌</button>
           <button data-act="shop" data-tip="雲朵雜貨舖：買禮物、裝飾、抽星座卡"><span>🛒</span>雜貨舖</button>
@@ -53,7 +53,6 @@
       <span class="lv" id="lv" role="button" tabindex="0">Lv.1</span>
       <span class="streak hidden" id="hudStreak" data-tip="連續上工">🔥0</span>
       <span class="draft-tag hidden" id="hudDraft" role="button" data-tip="筆記本裡有改好還沒寫進計畫檔的">✏️0</span>
-      <span class="weather-tag hidden" id="hudWeather" role="button" tabindex="0" data-tip="天候水晶"><i class="wx" aria-hidden="true"></i><b class="wx-t"></b></span>
       <span class="fortune-tag" id="fortuneTag" data-tip="今日運勢">🔮</span>
       <span class="gold" id="gold" data-tip="金幣"><i class="coin" aria-hidden="true"></i>0</span>
       <button class="hud-btn hud-focus" id="hudFocus" data-tip="專注 25 分鐘">🍅</button>
@@ -61,7 +60,7 @@
     <!-- 縮小／收起：滑過狀態欄才出現在右上角，不佔圖示列 -->
     <div class="hud-corner">
       <button class="hud-mini" id="hudMini" data-tip="縮小化：變回貓咪" aria-label="縮小化">▁</button>
-      <button class="hud-mini hud-hide" id="hudHide" data-tip="收起狀態欄，只留艾琳（右鍵 →「📊 顯示狀態欄」再打開）" aria-label="收起狀態欄">✕</button>
+      <button class="hud-mini hud-hide" id="hudHide" data-tip="收起狀態欄，只留艾琳（下次打開程式會再出現；右鍵 →「📊 顯示狀態欄」馬上打開）" aria-label="收起狀態欄">✕</button>
     </div>
     <div class="xpbar" data-tip="稱號和經驗值・點一下看成就"><div class="xpfill" id="xpfill"></div><span class="xp-label"><b id="ptitle">見習冒險者</b><i id="xptext">0 / 120 XP</i></span></div>
     <div class="tracker" id="tracker"></div>
