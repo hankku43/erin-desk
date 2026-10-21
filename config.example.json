@@ -93,6 +93,21 @@
     "topicCooldownDays": 14,
     "idleAnim": true
   },
+  "weather": {
+    "enabled": true,
+    "place": "",
+    "lat": null,
+    "lon": null,
+    "refreshMinutes": 30
+  },
+  "festivals": {
+    "enabled": true
+  },
+  "decide": {
+    "enabled": true,
+    "minHour": 10,
+    "cooldownDays": 21
+  },
   "lore": {
     "path": "lore/艾琳.md",
     "topK": 3,

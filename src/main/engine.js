@@ -43,6 +43,9 @@ const F = require('./fortune'); // 🔮 今日運勢的文案
 const R = require('./raids'); // 📯 團戰（會議）：提醒、自動專注
 const CAL = require('./calendar'); // 📆 週末、台灣國定假日、請假
 const PD = require('./plandraft'); // 📓 艾琳的筆記本（委託）
+const FE = require('./festivals'); // 📅 現實的節日、節氣、認識的紀念日
+const DC = require('./decide'); // 🤔 幫艾琳做決定
+const WX = require('./weather'); // ☁ 天候水晶
 const pad2 = (n) => String(n).padStart(2, '0');
 const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建的「艾琳」換成現在的名字
 const OS = require('../renderer/opening-script'); // 🎬 開場：名字規則
@@ -499,6 +502,8 @@ class Engine {
       decor: { ...this.state.shop.equip }, // 🛒 主題配色、櫃台吊飾／擺設
       streak: this.streakOn() ? AC.current(this.state.streak, G.todayISO(this.now()), this.streakOpts()) : 0,
       twins: { waiting: this.twinsWaiting(), tickets: this.state.collection.tickets || 0, enabled: this.twCfg().enabled !== false }, // 🐰 排隊要來櫃台的次數、抽卡券
+      weather: this.weatherView(), // ☁ 天候水晶
+      idleExtra: this.idleExtra(), // 待機小字：今天的節日、之前幫她做的決定
     };
   }
 
@@ -624,18 +629,47 @@ class Engine {
     }
     if (overdue.length) lines.push(await this.act('overdue', { questView: overdue[0], eventDetail: `逾期任務：${overdue.map((q) => q.title).join('、')}` })); // 打招呼先說（內建台詞），逾期的提醒問 AI、晚一點說
     lines.push(...await this.noteDateLines()); // 📒 今天是小本子上的重要日子
+    lines.push(...this.festLines()); // 📅 今天是節日、節氣、認識的紀念日（內建台詞，一天一次）
     return this.settle({ lines, view: this.view() });
   }
 
+  // 🐾 摸不同的地方：好感分三段（第 1 階 low、2～3 階 mid、4～5 階 high）
+  touchBand() { const st = this.affOn() ? this.affStage() : 2; return st >= 4 ? 'high' : st >= 2 ? 'mid' : 'low'; }
+  // 摸頭（滑鼠在頭上來回滑）：不算戳；一分鐘內摸第 4 次起換「還要摸嗎」；一天第一次摸頭 +1 好感；都是內建台詞
+  pat() {
+    if (this.isCold()) return { lines: [{ ...this.affTpl('touch_cold'), event: 'poke' }], view: this.view() };
+    const now = Date.now();
+    this.patTimes = (this.patTimes || []).filter((t) => now - t < 60000);
+    this.patTimes.push(now);
+    const line = this.quickLine(this.patTimes.length >= 4 ? 'touch_pat_more' : `touch_pat_${this.touchBand()}`);
+    delete line.tpl;
+    const stats = this.state.stats || (this.state.stats = {});
+    stats.pats = (stats.pats || 0) + 1;
+    if (this.affOn()) {
+      const a = this.aff(); const today = G.todayISO(this.now());
+      if (a.patDay !== today) { a.patDay = today; this.affect(this.affCfg().gain.pat || 0, `摸${this.config.npc.name}的頭`); }
+    }
+    this.saveState();
+    return this.settle({ lines: [{ ...line, event: 'poke', touch: 'pat' }], view: this.view() });
+  }
+
   // 點一下角色：符合個性的小反應。短時間內連戳會越來越無奈，戳五下會喵
-  async poke() {
+  // zone：點到哪裡（head／ear／tail／face，左右耳也收）；gesture 'pat'＝摸頭。點到部位的前兩下用那個部位的內建台詞，第三下起一樣會無奈、喵
+  async poke(zone = null, gesture = 'tap') {
+    const part = { head: 'head', ear: 'ear', earL: 'ear', earR: 'ear', tail: 'tail', face: 'face' }[zone] || null;
+    if (gesture === 'pat' && part) return this.pat();
     const now = Date.now();
     this.pokeTimes = (this.pokeTimes || []).filter((t) => now - t < 12000);
     this.pokeTimes.push(now);
     const pokeCount = this.pokeTimes.length;
     const event = pokeCount >= 5 ? 'poke_meow' : pokeCount >= 3 ? 'poke_annoyed' : 'poke';
     // 冷戰中：不理你（不問 AI、也不再扣）
-    if (this.isCold()) return { lines: [{ ...this.affTpl('poke_cold'), event: 'poke' }], view: this.view() };
+    if (this.isCold()) return { lines: [{ ...this.affTpl(part ? 'touch_cold' : 'poke_cold'), event: 'poke' }], view: this.view() };
+    if (part && event === 'poke') {
+      const line = this.quickLine(`touch_${part}_${this.touchBand()}`);
+      delete line.tpl;
+      return this.settle({ lines: [{ ...line, event: 'poke', touch: part }], view: this.view() });
+    }
     const stage = this.affStage();
     // 從角色設定裡隨機抽一條當靈感，AI 的閒聊才不會每次都一樣（還沒解鎖的不抽）
     const pool = this.lore.entries.filter((x) => (x.minStage || 0) <= stage);
@@ -1379,6 +1413,7 @@ class Engine {
     const now = this.now().getTime();
     const p = this.proState();
     if (this.nbCfg().enabled !== false && M.dueDates(this.nb(), this.now()).length && now - (p.lastAt || 0) > 60000) return 'note'; // 📒 重要的日子：當天一定說（不用等間隔）
+    if (this.festDue() && now - (p.lastAt || 0) > 60000) return 'fest'; // 📅 節日、節氣、紀念日：當天一定說（沒點她打招呼也會說）
     const stage = this.affOn() ? this.affStage() : 1;
     const gap = base * A.pick(this.affCfg().chatty || [1], stage) * 60000; // 越熟越常來
     const lastAt = (p.lastAt || 0) > now ? 0 : (p.lastAt || 0); // 時鐘被調回去過
@@ -1387,6 +1422,7 @@ class Engine {
     if (lastAt > (this.lastTouch || 0) && now - lastAt < gap * 3) return null; // 上一句還沒人理：先別一直說
     const t = this.todayInfo();
     if (t.current && !t.current.raid && !this.dayOff(t.date).off && p.slot !== `${t.date}|${t.current.id || t.current.slot}`) return 'daily'; // 團戰那格有自己的提醒；放假那天不催行程
+    if (this.decideDue()) return 'decide'; // 🤔 一天最多請你幫忙決定一件事（還有：提起之前的決定）
     return 'topic';
   }
   async proactive(opts = {}) {
@@ -1400,6 +1436,8 @@ class Engine {
       p.slot = `${t.date}|${t.current.id || t.current.slot}`;
       res = await this.daily({ ai: true });
     } else if (kind === 'note') res = { lines: await this.noteDateLines(), view: this.view() };
+    else if (kind === 'fest') res = { lines: this.festLines(), view: this.view() };
+    else if (kind === 'decide') res = this.decideAsk();
     else res = await this.topic();
     if (!res || !res.lines || !res.lines.length) return null;
     p.lastAt = now;
@@ -1548,6 +1586,10 @@ class Engine {
     }
     const wrapped = await this.wrapAnswer(text, cat, now); // 🌙 收工時問的「今天有卡住的嗎？」
     if (wrapped) return wrapped;
+    const decided = this.decideFromChat(text); // 🤔 她剛剛請你幫忙決定：說出選項（或取的名字）就算，不問 AI
+    if (decided) return this.localChat(text, decided);
+    const wq = this.weatherCfg().enabled !== false ? WX.weatherQuestion(text) : null; // ☁ 問天氣：看天候水晶回答，不問 AI、不加提示
+    if (wq) return this.localChat(text, this.weatherSay(wq));
     const stage = this.affStage();
     const hits = await this.lore.retrieve(text, (this.config.lore || {}).topK || 3, { stage }); // 跟這句話相關的角色設定（還沒解鎖的不算）
     // 是不是在回她剛剛主動開的話題（20 分鐘內、中間沒有聊別的）
@@ -1789,6 +1831,217 @@ class Engine {
     }
     this.saveState();
     return lines;
+  }
+
+  // ---- 📅 現實的日子：節日、節氣、認識的紀念日（都是內建台詞） ----
+  festCfg() { return { enabled: true, ...(this.config.festivals || {}) }; }
+  festState() { const st = this.state.fest || (this.state.fest = {}); if (!st.said || typeof st.said !== 'object') st.said = {}; return st; }
+  // 認識的第一天：記一次就不再變（以前的存檔從最早的紀錄算）
+  firstMet() {
+    if (this.state.firstMet) return this.state.firstMet;
+    const ts = [];
+    for (const h of this.state.history || []) { const t = Date.parse(h.at); if (t) ts.push(t); }
+    for (const c of this.state.chat || []) if (c.at) ts.push(Number(c.at));
+    for (const o of [this.state.onboarding, this.state.opening]) if (o && o.at) { const t = Date.parse(o.at); if (t) ts.push(t); }
+    const first = ts.length ? new Date(Math.min(...ts)) : this.now();
+    this.state.firstMet = FE.isoOf(first);
+    return this.state.firstMet;
+  }
+  festItems() {
+    if (this.festCfg().enabled === false) return [];
+    const st = this.festState();
+    return FE.linesFor(this.now(), { firstMet: this.firstMet(), stage: this.affOn() ? this.affStage() : 1, rnd: () => this.rnd() }).filter((x) => !st.said[x.key]);
+  }
+  festDue() { return !this.isCold() && !!(this.state.onboarding && this.state.onboarding.done) && this.festItems().length > 0; }
+  festLines() {
+    if (this.isCold()) return [];
+    const items = this.festItems();
+    if (!items.length) return [];
+    const st = this.festState();
+    const today = G.todayISO(this.now());
+    const stats = this.state.stats || (this.state.stats = {});
+    const lines = [];
+    for (const it of items) {
+      st.said[it.key] = today;
+      const gold = it.gold || 0;
+      if (gold) G.grant(this.state, { xp: 0, gold }, it.kind === 'anniv' ? `認識第 ${it.n} 天的心意` : `${this.config.npc.name}的節日心意：${it.name}`, this.config.rewards, this.now());
+      if (it.kind === 'fest' && (it.n || 1) === 1) stats.festivals = (stats.festivals || 0) + 1;
+      lines.push({ ...this.npc.textLine(it.text, it.emotion, { gold, n: it.n, years: it.years }), event: 'fest', fest: it.kind, festName: it.name });
+    }
+    const cut = G.todayISO(new Date(this.now().getTime() - 400 * 86400000));
+    for (const [k, d] of Object.entries(st.said)) if (!d || d < cut) delete st.said[k];
+    this.idleCache = null;
+    this.saveState();
+    return lines;
+  }
+
+  // ---- 🤔 幫艾琳做決定：一天最多問一件；決定好的事隔天以後會提起一次、大決定也會出現在待機小字 ----
+  decideCfg() { return { enabled: true, minHour: 10, cooldownDays: 21, ...(this.config.decide || {}) }; }
+  dcState() {
+    const st = this.state.decide || (this.state.decide = {});
+    if (!st.answers || typeof st.answers !== 'object') st.answers = {};
+    if (!st.asked || typeof st.asked !== 'object') st.asked = {};
+    return st;
+  }
+  decideDue() {
+    const cfg = this.decideCfg();
+    if (cfg.enabled === false || this.isCold()) return null;
+    const now = this.now(); const today = G.todayISO(now); const st = this.dcState();
+    if (st.laterDay !== today && DC.dueLater(st, today, now.getTime()).length) return 'later';
+    if (st.askDay !== today && now.getHours() >= cfg.minHour && DC.candidates(st, now, cfg).length) return 'ask';
+    return null;
+  }
+  decideAsk() {
+    const kind = this.decideDue();
+    if (!kind) return null;
+    const now = this.now(); const today = G.todayISO(now); const st = this.dcState(); const nowMs = now.getTime();
+    if (kind === 'later') {
+      const it = DC.dueLater(st, today, nowMs)[0];
+      it.a.laterSaid = true; st.laterDay = today;
+      this.saveState();
+      return { lines: [{ ...this.npc.textLine(it.opt.later, 'happy', { pick: it.a.label }), event: 'decide' }], view: this.view() };
+    }
+    const q = DC.choose(st, now, () => this.rnd(), this.decideCfg());
+    if (!q) return null;
+    st.askDay = today; st.asked[q.id] = nowMs; st.pending = { id: q.id, day: today, at: nowMs };
+    if (q.kind === 'big') st.lastBigAt = nowMs;
+    this.saveState();
+    const line = { ...this.npc.textLine(q.ask, q.emotion || 'thinking'), event: 'decide' };
+    line.pick = { id: q.id, options: q.options.map((o) => ({ id: o.id, label: this.npc.textLine(o.label).text })), free: !!q.free };
+    if (q.free) line.reply = true; // 可以自己取名字：聊天框打開
+    return { lines: [line], view: this.view() };
+  }
+  // 做決定：按鈕（optId）或聊天裡打的名字（freeText）
+  decide(id, optId, freeText = '') {
+    const st = this.dcState();
+    const q = DC.BY[id];
+    if (!q || !st.pending || st.pending.id !== id) return { lines: [], view: this.view(), stale: true }; // 已經決定過、或是很久以前的按鈕
+    let opt = q.options.find((o) => o.id === optId) || null;
+    let label = opt ? this.npc.textLine(opt.label).text : '';
+    const free = !opt && !!q.free && !!freeText;
+    if (free) { opt = q.free; label = freeText; }
+    if (!opt) throw new Error('沒有這個選項');
+    const now = this.now();
+    st.answers[id] = { pick: free ? 'free' : opt.id, label, free, at: now.getTime(), day: G.todayISO(now) };
+    st.pending = null;
+    const stats = this.state.stats || (this.state.stats = {});
+    stats.decisions = (stats.decisions || 0) + 1;
+    if (this.affOn()) this.affect(this.affCfg().gain.decide || 0, `幫${this.config.npc.name}做決定`);
+    this.idleCache = null;
+    this.saveState();
+    return this.settle({ lines: [{ ...this.npc.textLine(opt.reply, opt.emotion || 'happy', { pick: label }), event: 'decide' }], view: this.view(), decided: id });
+  }
+  // 聊天框裡回答：說出選項的字；可以取名的題目打一個短短的名字也算（剛問完 15 分鐘內）；「隨便」「你決定」＝她自己挑
+  decideFromChat(text) {
+    const st = this.dcState();
+    if (!st.pending || this.isCold()) return null;
+    const q = DC.BY[st.pending.id];
+    if (!q) { st.pending = null; return null; }
+    const t = String(text || '').trim();
+    if (t.length > 20) return null;
+    const o = DC.matchOption(q, t);
+    if (o) return this.decide(q.id, o.id);
+    const fresh = this.now().getTime() - (st.pending.at || 0) < 15 * 60000;
+    if (fresh && /^(隨便|都可以|都好|你決定|妳決定|你選|妳選)/.test(t)) {
+      const pickOne = q.options[Math.floor(this.rnd() * q.options.length) % q.options.length];
+      return this.decide(q.id, pickOne.id);
+    }
+    if (fresh && q.free) {
+      const named = /^(就)?(叫|取名叫|取叫)|^[「『"']/.test(t);
+      const name = DC.cleanFree(t, q.free.max);
+      if (name && (named || (t.length <= q.free.max && !DC.NOT_NAME.test(t)))) return this.decide(q.id, null, name);
+    }
+    return null;
+  }
+  // 沒問 AI 就回答的聊天（做決定、問天氣）：照樣記進對話紀錄
+  localChat(text, res) {
+    const quest = this.ps.activeQuestId || null;
+    const at = this.now().getTime();
+    const line = res && res.lines && res.lines[0];
+    if (!line) return res;
+    this.state.chat.push({ role: 'user', content: text, quest, at });
+    this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: 'template', quest, at });
+    this.state.chat = this.state.chat.slice(-20);
+    this.saveState();
+    return { proposal: null, noted: [], ...res };
+  }
+
+  // ---- ☁ 天候水晶：網路位置（或設定裡填的）＋ Open-Meteo；只給畫面和內建台詞用，不加進 AI 提示 ----
+  weatherCfg() { return { enabled: true, refreshMinutes: 30, place: '', lat: null, lon: null, ...(this.config.weather || {}) }; }
+  wxState() { return this.state.weather || (this.state.weather = {}); }
+  // fetchJson(url) → JSON（main 用 Chromium 的網路，走系統 proxy）。回傳有沒有變（要不要推畫面）
+  async refreshWeather(fetchJson, { force = false } = {}) {
+    const cfg = this.weatherCfg();
+    if (cfg.enabled === false || typeof fetchJson !== 'function') return false;
+    const W = this.wxState();
+    const nowMs = Date.now();
+    const every = Math.max(10, Number(cfg.refreshMinutes) || 30) * 60000;
+    if (!force && W.at && nowMs - W.at < every * 0.9) return false;
+    if (!force && W.failAt && nowMs - W.failAt < Math.min(every, 10 * 60000)) return false; // 剛失敗過：等一下再試
+    try {
+      let loc;
+      const lat = Number(cfg.lat), lon = Number(cfg.lon);
+      if (cfg.lat !== null && cfg.lat !== '' && cfg.lon !== null && cfg.lon !== '' && Number.isFinite(lat) && Number.isFinite(lon)) loc = { lat, lon, by: 'config', at: nowMs };
+      else if (W.loc && W.loc.by === 'ip' && nowMs - (W.loc.at || 0) < 12 * 3600000) loc = W.loc;
+      else loc = { ...(await WX.locate(fetchJson)), at: nowMs };
+      loc = { ...loc, lat: Math.round(loc.lat * 100) / 100, lon: Math.round(loc.lon * 100) / 100 };
+      const data = await WX.fetchWeather(fetchJson, loc, nowMs);
+      W.loc = loc; W.data = data; W.at = nowMs; W.error = ''; W.failAt = 0;
+    } catch (e) {
+      W.error = /位置/.test(e.message || '') ? '猜不出在哪裡' : '連不上天空';
+      W.failAt = nowMs;
+      W.detail = String((e.detail || [e.message || e]).join('；')).slice(0, 300);
+    }
+    this.saveState();
+    return true;
+  }
+  weatherFresh() { const W = this.wxState(); return !!(W.data && W.at && Date.now() - W.at < 6 * 3600000); }
+  weatherPlace() { const W = this.wxState(); const cfg = this.weatherCfg(); return cfg.place || WX.placeName(W.loc) || ''; }
+  weatherView() {
+    const cfg = this.weatherCfg();
+    if (cfg.enabled === false) return { on: false };
+    const W = this.wxState();
+    const ok = this.weatherFresh();
+    const day = this.dayInfoCached();
+    return {
+      on: true, ok, kind: ok ? W.data.kind : 'unknown', temp: ok ? W.data.temp : null, error: ok ? '' : (W.error || ''),
+      tip: WX.tipText(ok ? W.data : null, { place: this.weatherPlace(), by: (W.loc && W.loc.by) || 'ip', at: W.at, dayInfo: day, error: W.error || '' }),
+    };
+  }
+  // 點水晶、或在聊天裡問天氣：一句內建台詞＋一句建議（帶傘、加衣服、喝水）
+  weatherSay({ tomorrow = false } = {}) {
+    if (this.weatherCfg().enabled === false) return { lines: [{ ...this.quickLine('weather_disabled'), event: 'weather' }], view: this.view() };
+    const W = this.wxState();
+    if (!this.weatherFresh()) return { lines: [{ ...this.quickLine('weather_off'), event: 'weather' }], view: this.view() };
+    const w = W.data;
+    const k = WX.KINDS[w.kind] || WX.KINDS.cloudy;
+    const place = this.weatherPlace();
+    let line;
+    if (tomorrow && w.tomorrow) {
+      const t = w.tomorrow;
+      line = this.quickLine('weather_tomorrow', { sky: (WX.KINDS[t.kind] || k).name, hi: t.hi, lo: t.lo, rain: t.rain === null ? '?' : t.rain, place });
+    } else line = this.quickLine('weather_now', { sky: k.name, temp: w.temp, magic: k.magic, place });
+    delete line.tpl;
+    const tip = WX.advice(w, { tomorrow });
+    if (tip) line.text = `${line.text}${tip}`;
+    return { lines: [{ ...line, event: 'weather' }], view: this.view() };
+  }
+
+  // 天候水晶滑過時的日子資訊、待機小字：一天算一次（節日要算農曆）
+  dayInfoCached() {
+    const today = G.todayISO(this.now());
+    if (!this.dayCache || this.dayCache.day !== today) this.dayCache = { day: today, info: FE.dayInfo(this.now(), this.firstMet()), whispers: FE.whispersOn(this.now()) };
+    return this.dayCache.info;
+  }
+  idleExtra() {
+    const today = G.todayISO(this.now());
+    if (this.idleCache && this.idleCache.day === today) return this.idleCache.list;
+    this.dayInfoCached();
+    const list = [];
+    if (this.festCfg().enabled !== false) list.push(...this.dayCache.whispers.map((t) => this.npc.textLine(t).text));
+    if (this.decideCfg().enabled !== false) list.push(...DC.whispers(this.dcState(), this.now().getTime()).map((w) => this.npc.textLine(w.text, 'normal', { pick: w.pick }).text));
+    this.idleCache = { day: today, list };
+    return list;
   }
 
   // ---- 🔥 連續上工、🏅 成就 ----
@@ -2273,6 +2526,7 @@ class Engine {
     const realGifts = S.GIFTS.filter((g) => !g.joke);
     return {
       objectives: s.objectives || 0, quests: s.quests || 0, onTime: s.onTime || 0, onTimeStreak: this.state.player.onTimeStreak || 0,
+      pats: s.pats || 0, decisions: s.decisions || 0, festivals: s.festivals || 0,
       focus: s.focus || 0, reports: s.reports || 0, daikichi: s.daikichi || 0, divinations: s.divinations || 0,
       level: G.levelInfo(this.state.player.xp, this.config.rewards.levelStep).level, streakBest: this.state.streak.best || 0,
       gifts: Object.values(sh.gifts).reduce((n, x) => n + x, 0), giftKinds: realGifts.filter((g) => sh.gifts[g.id]).length, giftKindsTotal: realGifts.length,

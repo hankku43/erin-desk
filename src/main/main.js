@@ -662,6 +662,7 @@ function menuTemplate() {
       { label: '📊 狀態欄（等級、當前任務）', type: 'checkbox', checked: engine.config.window.hud !== false, click: (m) => { const r = engine.setHud(m.checked); push('view:update', { view: r.view }); } },
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
       { label: '🐰 棉棉和朵朵來櫃台串門子（下午茶外送、道賀、許願單）', type: 'checkbox', checked: engine.twCfg().enabled !== false, click: (m) => { const r = engine.setTwins(m.checked); push('view:update', { view: r.view }); } },
+      { label: '☁ 天候水晶（連網看天氣，用網路位置猜在哪裡）', type: 'checkbox', checked: engine.weatherCfg().enabled !== false, click: (m) => { engine.saveConfigPatch({ weather: { enabled: m.checked } }); push('view:update', { view: engine.view() }); if (m.checked) runWeather(true); } },
       { label: `📒 讓${npcName}記小本子（記住你說過的事）`, type: 'checkbox', checked: engine.nbCfg().enabled !== false, click: (m) => { const r = engine.setNotebook(m.checked); push('npc:lines', r.lines); push('view:update', { view: r.view }); } },
       { label: '🖥 固定在顯示器', submenu: displayMenu() },
       { label: '縮到工作列', click: () => win.minimize() },
@@ -785,6 +786,30 @@ function schedulePresence() {
   }, 500);
 }
 
+// ☁ 天候水晶：用 Chromium 的網路（走系統的 proxy 設定），12 秒逾時。每 5 分鐘看一次「該不該更新」（預設 30 分鐘更新一次，失敗 10 分鐘後再試），電腦醒來也看一次
+//   自動測試不連網路（測試自己塞假的 fetch：global.wxFetch）
+async function wxFetchJson(url) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 12000);
+  try {
+    const r = await net.fetch(url, { signal: ac.signal, headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+let weatherTimer = null;
+async function runWeather(force = false) {
+  if (!engine) return;
+  const f = global.wxFetch || (process.env.QUEST_NPC_TEST ? null : wxFetchJson);
+  if (!f) return;
+  try { if (await engine.refreshWeather(f, { force })) push('view:update', { view: engine.view() }); } catch (e) { console.error(e); }
+}
+function scheduleWeather() {
+  clearInterval(weatherTimer);
+  setTimeout(() => runWeather(), 8000);
+  weatherTimer = setInterval(() => runWeather(), 5 * 60000);
+}
+
 // 主動找冒險者聊天：每分鐘看一次該不該開口（間隔、好感、有沒有在電腦前，都在 engine.proactiveDue 裡判斷）
 let proactiveBusy = false;
 async function runProactive() {
@@ -833,8 +858,11 @@ app.whenReady().then(async () => {
   ipcMain.on('win:mini', (_e, on) => setMini(on));
   ipcMain.handle('npc:greet', wrap(() => engine.greet()));
   ipcMain.handle('npc:daily', wrap(() => engine.daily()));
-  ipcMain.handle('npc:poke', wrap(() => engine.poke()));
+  ipcMain.handle('npc:poke', wrap((zone, gesture) => engine.poke(typeof zone === 'string' ? zone : null, gesture === 'pat' ? 'pat' : 'tap'))); // 🐾 點到哪裡、摸頭
   ipcMain.handle('npc:chat', wrap((text) => engine.chat(String(text).slice(0, 500))));
+  ipcMain.handle('npc:decide', wrap((id, opt) => engine.decide(String(id || ''), String(opt || '')))); // 🤔 幫她做決定
+  ipcMain.handle('weather:say', wrap(() => engine.weatherSay())); // ☁ 點天候水晶
+  ipcMain.handle('weather:refresh', wrap(async () => { await runWeather(true); return { view: engine.view() }; }));
   ipcMain.handle('npc:confirm', wrap((id, keep) => engine.confirmProposal(id, Array.isArray(keep) ? keep.map(Number) : null)));
   ipcMain.handle('npc:cancel', wrap(() => engine.cancelProposal()));
   ipcMain.handle('npc:status', wrap(async () => ({ status: await engine.npc.checkStatus() })));
@@ -1014,9 +1042,11 @@ app.whenReady().then(async () => {
   scheduleIdle();
   schedulePresence();
   scheduleFocus(4000); // 上次關程式時還在專注：時間到了就補結算（等畫面載好）
+  scheduleWeather(); // ☁ 天候水晶
+  try { powerMonitor.on('resume', () => setTimeout(() => runWeather(), 15000)); } catch (_) { /* 有些系統沒有 */ }
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
-  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, runTick, updater, pdWin: () => pdWin, pdOpen, opening: { start: startOpening, win: () => openingWin } });
+  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, runTick, runWeather, updater, pdWin: () => pdWin, pdOpen, opening: { start: startOpening, win: () => openingWin } });
 });
 
 app.on('second-instance', () => { if (openingWin && !openingWin.isDestroyed()) { openingWin.focus(); return; } if (win) { win.restore(); win.focus(); } });

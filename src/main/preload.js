@@ -8,8 +8,11 @@ contextBridge.exposeInMainWorld('api', {
   storyDone: (n, opts) => ipcRenderer.invoke('story:done', n, opts || {}), // 💗 升階漫畫演完（或跳過）
   replayOpening: () => ipcRenderer.invoke('opening:replay'), // 🎬 回憶相簿：重看開場
   daily: () => ipcRenderer.invoke('npc:daily'),
-  poke: () => ipcRenderer.invoke('npc:poke'),
+  poke: (zone, gesture) => ipcRenderer.invoke('npc:poke', zone || null, gesture || 'tap'),
   chat: (text) => ipcRenderer.invoke('npc:chat', text),
+  decide: (id, opt) => ipcRenderer.invoke('npc:decide', id, opt), // 🤔 幫她做決定（按鈕）
+  weatherSay: () => ipcRenderer.invoke('weather:say'), // ☁ 點天候水晶
+  weatherRefresh: () => ipcRenderer.invoke('weather:refresh'),
   confirmProposal: (id, keep) => ipcRenderer.invoke('npc:confirm', id, keep),
   cancelProposal: () => ipcRenderer.invoke('npc:cancel'),
   checkStatus: () => ipcRenderer.invoke('npc:status'),

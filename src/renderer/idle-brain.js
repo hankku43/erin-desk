@@ -57,6 +57,7 @@
   }
 
   // ctx：{ now(ms), idleSec, locked, enabled, busy（正在說話／打字）, mini, focus, onboarding, cold, fond（很熟了）, wrap（下班時間 HH:MM） }
+  const EXTRA_KINDS = new Set(['think', 'write', 'heart']);
   // 回傳要演的動作，或 null
   function decide(ctx, mem, rnd = Math.random) {
     const now = ctx.now;
@@ -107,7 +108,9 @@
     mem.lastAt = now;
     mem.nextGap = (busyUser || ctx.cold ? 70000 : 35000) + rnd() * (busyUser ? 80000 : 55000);
     const lines = !busyUser && !ctx.cold && LINES.ambient[k];
-    const say = lines && rnd() < AMBIENT_SAY ? pick(lines, rnd) : null;
+    // 想事情、寫字、冒愛心的時候：一半機會說今天的節日、或之前冒險者幫她做的決定
+    const extra = EXTRA_KINDS.has(k) && ctx.extra && ctx.extra.length ? ctx.extra : null;
+    const say = lines && rnd() < AMBIENT_SAY ? (extra && rnd() < 0.5 ? pick(extra, rnd) : pick(lines, rnd)) : null;
     return say ? { type: k, ...AMBIENT[k], whisper: say } : { type: k, ...AMBIENT[k] };
   }
 

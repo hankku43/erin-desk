@@ -1,6 +1,7 @@
 // 角色設定檢索：讀 lore/*.md，用 BM25（中文 bigram＋關鍵字）找出跟冒險者的話最相關的幾條設定
 // 可選：Ollama 的 embedding 模型做語意比對（混合排序），向量會快取在 data/lore_vectors.json
 'use strict';
+const FE = require('./festivals'); // 📅 話題的節日標籤
 
 const fs = require('fs');
 const path = require('path');
@@ -41,7 +42,7 @@ const TIME_TAGS = { 早上: 'morning', 上午: 'morning', 一早: 'morning', 中
 const DAY_TAGS = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
 const SEASON_TAGS = { 春: 'spring', 春天: 'spring', 夏: 'summer', 夏天: 'summer', 秋: 'autumn', 秋天: 'autumn', 冬: 'winter', 冬天: 'winter' };
 function topicTags(s) {
-  const out = { stage: 0, times: [], days: [], seasons: [] };
+  const out = { stage: 0, times: [], days: [], seasons: [], fests: [] };
   for (const w of String(s || '').split(/[・、,，\s/／+＋]+/).filter(Boolean)) {
     let m;
     if ((m = w.match(/^好感\s*(\d)$/))) out.stage = Number(m[1]);
@@ -50,6 +51,7 @@ function topicTags(s) {
     else if (w === '週末' || w === '周末') out.days.push(0, 6);
     else if (w === '平日') out.days.push(1, 2, 3, 4, 5);
     else if (SEASON_TAGS[w]) out.seasons.push(SEASON_TAGS[w]);
+    else if (FE.TAGS.includes(w.replace(/節$/, '')) || FE.TAGS.includes(w)) out.fests.push(FE.TAGS.includes(w) ? w : w.replace(/節$/, '')); // 📅 節日：只在那一天聊（中秋、萬聖節…）
   }
   return out;
 }
@@ -64,12 +66,13 @@ function periodsAt(d) {
   return out;
 }
 function seasonAt(d) { const m = d.getMonth() + 1; return m >= 3 && m <= 5 ? 'spring' : m >= 6 && m <= 8 ? 'summer' : m >= 9 && m <= 11 ? 'autumn' : 'winter'; }
-const hasWhen = (t) => !!(t && ((t.times || []).length || (t.days || []).length || (t.seasons || []).length));
+const hasWhen = (t) => !!(t && ((t.times || []).length || (t.days || []).length || (t.seasons || []).length || (t.fests || []).length));
 // 這個話題現在能不能聊（沒有標時段／日子／季節的隨時都可以）
 function topicFits(t, d = new Date()) {
   if ((t.times || []).length && !periodsAt(d).some((p) => t.times.includes(p))) return false;
   if ((t.days || []).length && !t.days.includes(d.getDay())) return false;
   if ((t.seasons || []).length && !t.seasons.includes(seasonAt(d))) return false;
+  if ((t.fests || []).length && !FE.tagsOn(d).some((x) => t.fests.includes(x))) return false;
   return true;
 }
 
@@ -318,7 +321,7 @@ class Lore {
     for (const e of this.entries) {
       (e.topics || []).forEach((t, i) => {
         const st = Math.max(1, e.minStage || 0, t.stage || 0);
-        if (st <= stage) out.push({ key: `${e.title}#${i}`, entry: e, text: t.text, stage: st, times: t.times || [], days: t.days || [], seasons: t.seasons || [], when: hasWhen(t) });
+        if (st <= stage) out.push({ key: `${e.title}#${i}`, entry: e, text: t.text, stage: st, times: t.times || [], days: t.days || [], seasons: t.seasons || [], fests: t.fests || [], when: hasWhen(t) });
       });
     }
     return out;

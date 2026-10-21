@@ -21,6 +21,8 @@
       <div class="dlg-text" id="dlgText"></div>
       <div class="dlg-more hidden" id="dlgMore">點一下繼續 ▼</div>
       <div class="proposal hidden" id="proposal"></div>
+      <!-- 🤔 她請你幫忙決定的時候：選項按鈕 -->
+      <div class="pick-row hidden" id="pickRow" role="group" aria-label="幫她決定"></div>
       <div class="chat-row hidden" id="chatRow">
         <!-- 10/14 E：不用打字的回報（直接開畫面，不用等 AI） -->
         <div class="chat-quick" id="chatQuick" role="group" aria-label="不用打字的回報"></div>
@@ -51,6 +53,7 @@
       <span class="lv" id="lv" role="button" tabindex="0">Lv.1</span>
       <span class="streak hidden" id="hudStreak" data-tip="連續上工">🔥0</span>
       <span class="draft-tag hidden" id="hudDraft" role="button" data-tip="筆記本裡有改好還沒寫進計畫檔的">✏️0</span>
+      <span class="weather-tag hidden" id="hudWeather" role="button" tabindex="0" data-tip="天候水晶"><i class="wx" aria-hidden="true"></i><b class="wx-t"></b></span>
       <span class="fortune-tag" id="fortuneTag" data-tip="今日運勢">🔮</span>
       <span class="gold" id="gold" data-tip="金幣"><i class="coin" aria-hidden="true"></i>0</span>
       <button class="hud-btn hud-focus" id="hudFocus" data-tip="專注 25 分鐘">🍅</button>
@@ -83,6 +86,8 @@
   <script src="rename.js"></script>
   <script src="opening-script.js"></script>
   <script src="panel-lines.js"></script>
+  <script src="touch.js"></script>
+  <script src="weather-art.js"></script>
   <script src="renderer.js"></script>
   <script src="emotes.js"></script>
   <script src="idle-brain.js"></script>

@@ -22,6 +22,7 @@
       now: nowMs(), idleSec: S.presence.idleSec, locked: S.presence.locked, enabled: enabled(),
       busy: busy(), mini: state.mini, focus: !!(v.focus && v.focus.active), onboarding: state.panel === 'onboard',
       cold: !!(v.affection && v.affection.cold), fond: !!(v.affection && v.affection.fond), wrap: (v.schedule && v.schedule.wrap) || '',
+      extra: Array.isArray(v.idleExtra) ? v.idleExtra : [], // 今天的節日、之前幫她做的決定（已經換好名字）
     };
   }
 

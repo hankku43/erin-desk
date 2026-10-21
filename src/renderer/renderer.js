@@ -116,8 +116,16 @@ window.addEventListener('mouseleave', () => { lastIgnore = null; });
   let down = null;
   wrap.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
-    down = { x: e.screenX, y: e.screenY, moved: false };
+    down = { x: e.screenX, y: e.screenY, moved: false, zone: zoneOf(e) };
   });
+  // 🐾 摸頭：沒按著滑鼠、在頭上左右來回滑（按著拖＝搬動視窗）
+  const pat = typeof Touch !== 'undefined' ? Touch.PatDetector() : null;
+  wrap.addEventListener('mousemove', (e) => {
+    if (down || !pat || state.mini) return;
+    const z = zoneOf(e);
+    if (pat.feed(e.screenX, Date.now(), z === 'head' || z === 'earL' || z === 'earR')) onPat();
+  });
+  wrap.addEventListener('mouseleave', () => { if (pat) pat.reset(); });
   window.addEventListener('mousemove', (e) => {
     if (!down) return;
     const dx = e.screenX - down.x, dy = e.screenY - down.y;
@@ -129,8 +137,9 @@ window.addEventListener('mouseleave', () => { lastIgnore = null; });
   window.addEventListener('mouseup', () => {
     if (!down) return;
     const wasClick = !down.moved;
+    const zone = down.zone;
     down = null; dragging = false;
-    if (wasClick) onNpcClick(); else { api.dragEnd(); if (typeof obMark === 'function') obMark('drag'); }
+    if (wasClick) onNpcClick(zone); else { api.dragEnd(); if (typeof obMark === 'function') obMark('drag'); }
   });
   wrap.addEventListener('contextmenu', (e) => { e.preventDefault(); if (typeof obMark === 'function') obMark('menu'); api.openMenu(); });
   $('#hud').addEventListener('contextmenu', (e) => { e.preventDefault(); api.openMenu(); });
@@ -163,7 +172,28 @@ function jump() { const w = $('#npcWrap'); w.classList.remove('jump'); void w.of
 // 跳完就把 jump 拿掉，說話的抖動才能接回去
 $('#npcWrap').addEventListener('animationend', (e) => { if (e.animationName === 'jump') $('#npcWrap').classList.remove('jump'); });
 
-async function onNpcClick() {
+// 🐾 滑鼠在立繪的哪個部位（頭、耳朵、尾巴、臉頰）；縮成貓、還沒載入立繪時不判定
+function zoneOf(e) {
+  if (state.mini || typeof Touch === 'undefined') return null;
+  const r = $('#npcImg').getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  return Touch.zoneAt((e.clientX - r.left) / r.width * Touch.IMG_W, (e.clientY - r.top) / r.height * Touch.IMG_H, state.emotion);
+}
+// 摸頭：先冒小愛心（馬上），她沒在說話才回一句（5 秒內再摸只冒愛心）；專注中只冒愛心
+let patAt = 0;
+async function onPat() {
+  if (state.mini || dragging || (typeof Story !== 'undefined' && Story.active())) return;
+  if (typeof Emotes !== 'undefined') Emotes.show($('#npcWrap'), 'pat', 2200);
+  const now = Date.now();
+  if (now - patAt < 5000) return;
+  patAt = now;
+  if (state.talking || state.typing || state.queue.length || state.proposal) return;
+  if (state.view && state.view.focus && state.view.focus.active) return;
+  openDialog();
+  await run(() => api.poke('head', 'pat'), { talk: true, thinking: false });
+}
+
+async function onNpcClick(zone = null) {
   if (state.mini) { if (!fx.busy) api.setMini(false); return; } // 展開後由 ui:mini 事件接手（縮小動畫中先不理）
   jump();
   if (typeof obMark === 'function' && obMark('click')) return; // 🎓 新手教學的「點她一下」
@@ -180,7 +210,8 @@ async function onNpcClick() {
     await greet();
   } else {
     openDialog();
-    await run(() => api.poke(), { talk: true });
+    if (zone && typeof Emotes !== 'undefined' && Touch.EMOTE[zone]) Emotes.show($('#npcWrap'), Touch.EMOTE[zone], 1800); // 🐾 點到的地方先抖一下
+    await run(() => api.poke(zone), { talk: true });
   }
 }
 // 她主動想說的話（頭上的「!」）：已經想好了，點她就直接說，不用再問 AI、也不算戳她
@@ -314,7 +345,7 @@ function toggleLog() { if (state.panel === 'log') closePanel(); else openPanel('
 function openDialog() { if (FORM_PANELS.has(state.panel)) return; $('#dialog').classList.remove('hidden'); hideWhisper(); } // 表單開著時先不冒出來，關掉表單再顯示
 // 待機時頭旁的小字跟對話泡泡在同一個位置：對話框一出來就把小字收掉
 function hideWhisper() { const w = document.getElementById('idleWhisper'); if (w) w.classList.add('hidden'); }
-function closeDialog() { hideSub(); showProposal(null); state.shownLogId = null; $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.queue = []; clearInterval(typeTimer); state.typing = false; $('#npcWrap').classList.remove('talking'); setEmotion('normal'); }
+function closeDialog() { hideSub(); showProposal(null); setPick(null); state.shownLogId = null; $('#dialog').classList.add('hidden'); $('#chatRow').classList.add('hidden'); state.queue = []; clearInterval(typeTimer); state.typing = false; $('#npcWrap').classList.remove('talking'); setEmotion('normal'); }
 $('#dlgClose').addEventListener('click', () => { closeDialog(); closePanel(); });
 $('#dlgMini').addEventListener('click', goMini);
 $('#dlgLog').addEventListener('click', toggleLog);
@@ -368,6 +399,7 @@ function advance() {
   if (!line.logId) line.logId = logPush('npc', line.text);
   setShown(line.logId);
   if (line.topic || line.reply) openReply(); // 她開了話題（或收工時問今天有沒有卡住）：把聊天框打開，方便回她
+  setPick(line.pick || null); // 🤔 她請你幫忙決定：下面出現選項按鈕
   if (line.journal) setTimeout(() => { if (!state.panel) openJournal(line.journal, { quiet: true }); }, 1800); // 📖 這週最後一天：冒險日誌自動交
   setEmotion(line.emotion || 'normal');
   if (line.emotion === 'cheer' || line.emotion === 'surprised') jump();
@@ -391,6 +423,7 @@ function showLine(line) {
   clearInterval(typeTimer); state.typing = false; state.queue = [];
   openDialog();
   state.current = line;
+  setPick(line.pick || null);
   setEmotion(line.emotion || 'normal');
   $('#dlgText').innerHTML = rich(line.text || '');
   setShown(line.logId);
@@ -421,6 +454,7 @@ async function run(fn, { thinking = true, talk = false, reward = true, fxDelay =
     return r;
   }
   if (r.writeError) toast(`⚠ 回寫計畫檔失敗：${r.writeError}`, 5000);
+  if (r.decided) { state.decided[r.decided] = true; setPick(null); } // 🤔 在聊天框回答了：選項按鈕收起來
   // 演出排隊：先跳獎勵數字（升級多等一下），再出成就，最後連續上工的提示；不要全部同時蓋在畫面上
   let at = fxDelay;
   if (r.reward && reward) { celebrate(r.reward); if (r.reward.xp) at = Math.max(at, r.reward.levelUp ? 2600 : 900); }
@@ -520,6 +554,7 @@ function applyView(v) {
   renderTracker();
   renderFocus();
   renderFortuneTag();
+  renderWeather();
   fitHud();
   const a = v.active;
   const canSubmit = !!(a && a.status === 'ready');
@@ -718,7 +753,7 @@ function fitHud() {
   const tags = [...top.querySelectorAll('.fit-hide')];
   tags.forEach((t) => t.classList.remove('fit-hide'));
   if (!top.offsetWidth) return; // 縮小、還沒排版：下次再算
-  const order = [top.querySelector('.fortune-tag.drawn'), $('#hudStreak'), top.querySelector('.fortune-tag.new'), $('#hudDraft')].filter((el) => el && !el.classList.contains('hidden') && getComputedStyle(el).display !== 'none');
+  const order = [top.querySelector('.fortune-tag.drawn'), $('#hudStreak'), top.querySelector('.weather-tag .wx-t'), top.querySelector('.fortune-tag.new'), $('#hudDraft')].filter((el) => el && !el.classList.contains('hidden') && getComputedStyle(el).display !== 'none');
   for (const el of order) {
     if (top.scrollWidth <= top.clientWidth + 1) break;
     el.classList.add('fit-hide');
@@ -727,6 +762,54 @@ function fitHud() {
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitHud()); // 字型晚一點載好、字變寬：再排一次
 
 // ---------- 🔮 今日運勢 ----------
+// ---------- ☁ 天候水晶（狀態欄）----------
+function renderWeather() {
+  const w = state.view && state.view.weather;
+  const tag = $('#hudWeather');
+  if (!tag) return;
+  if (!w || !w.on) { tag.classList.add('hidden'); return; }
+  tag.classList.remove('hidden');
+  tag.classList.toggle('dim', !w.ok);
+  const kind = w.ok ? w.kind : 'unknown';
+  if (tag.dataset.kind !== kind && typeof WxArt !== 'undefined') { tag.querySelector('.wx').innerHTML = WxArt.svg(kind, { size: 20 }); tag.dataset.kind = kind; }
+  tag.querySelector('.wx-t').textContent = w.ok && w.temp !== null && w.temp !== undefined ? `${w.temp}°` : '';
+  tag.dataset.tip = `${w.tip || '天候水晶'}\n（點一下：請${npcNameR()}看看天空）`;
+}
+async function weatherClick() {
+  const w = state.view && state.view.weather;
+  if (!w || !w.on) return;
+  if (!w.ok) { // 霧濛濛的：先重新看一次天空
+    toast('☁ 天候水晶重新看一次天空…', 2000);
+    const r = await api.weatherRefresh();
+    if (r && r.view) applyView(r.view);
+    if (!(r && r.view && r.view.weather && r.view.weather.ok)) { openDialog(); await run(() => api.weatherSay(), { talk: true }); }
+    return;
+  }
+  openDialog();
+  await run(() => api.weatherSay(), { talk: true });
+}
+
+// ---------- 🤔 幫她做決定：選項按鈕 ----------
+state.decided = state.decided || {};
+function setPick(p) {
+  const row = $('#pickRow');
+  if (!row) return;
+  if (!p || state.decided[p.id]) { row.classList.add('hidden'); row.innerHTML = ''; delete row.dataset.id; return; }
+  row.dataset.id = p.id;
+  row.innerHTML = p.options.map((o) => `<button class="btn small pick" data-pick="${esc(p.id)}" data-opt="${esc(o.id)}">${esc(o.label)}</button>`).join('')
+    + (p.free ? '<small class="pick-free">想自己取名字？在下面的聊天框打就好</small>' : '');
+  row.classList.remove('hidden');
+}
+$('#pickRow').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-pick]');
+  if (!b || state.talking) return;
+  const id = b.dataset.pick;
+  state.decided[id] = true;
+  setPick(null);
+  const r = await run(() => api.decide(id, b.dataset.opt), { talk: true });
+  if (r && r.stale) toast('這件事已經決定好了喔', 2000);
+});
+
 function renderFortuneTag() {
   const f = state.view && state.view.fortune;
   const tag = $('#fortuneTag');
@@ -764,6 +847,7 @@ $('#hudTop').addEventListener('click', (e) => {
   if (e.target.closest('#hudStreak') || e.target.closest('#lv')) { openAch(); return; } // 🔥、Lv：成就（等級、稱號也在裡面）
   if (e.target.closest('#hudDraft')) { openPdNote(); return; } // ✏️ 還沒寫進計畫檔：打開筆記本
   if (e.target.closest('#fortuneTag')) drawFortune();
+  if (e.target.closest('#hudWeather')) weatherClick();
 });
 $('.xpbar').addEventListener('click', () => { hideTip(); openAch(); }); // 稱號／經驗條也能點
 

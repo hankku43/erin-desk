@@ -425,6 +425,10 @@ body.mini .marker.img { top: 1px; right: 3px; width: 38px; height: 38px; }
 body.mini .float-reward, body.mini .levelup { display: none; }
 
 /* ---------- 聊天改進度：確認卡 ---------- */
+/* 🤔 幫她做決定：選項按鈕（一排，放不下換行） */
+.pick-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pick-row .btn.pick { background: linear-gradient(180deg, var(--gold-wash), var(--gold-soft)); border-color: var(--gold); }
+.pick-row .pick-free { flex-basis: 100%; color: #6c6f8e; }
 .proposal { margin-top: 8px; background: linear-gradient(180deg, var(--gold-wash), var(--gold-soft)); border: 2px solid var(--gold); border-radius: var(--r-m); padding: 8px 10px; box-shadow: inset 0 0 0 2px #fff; }
 .pp-title { font-size: var(--fs-m); font-weight: 800; margin-bottom: 4px; color: var(--gold-text); display: flex; align-items: baseline; gap: 8px; }
 .pp-title small { font-weight: 400; color: var(--ink-soft); }
@@ -477,6 +481,12 @@ body.appearing #dialog { animation: pop .3s ease-out .65s both; }
 .fortune-tag.drawn { background: rgba(255, 255, 255, .12); }
 .fortune-tag.t5 { color: var(--hi); } .fortune-tag.t4 { color: #ff9dbb; } .fortune-tag.t3 { color: #8fd8ff; } .fortune-tag.t2 { color: #9be8b4; } .fortune-tag.t1 { color: #d2c6ff; }
 .hud-top:hover .fortune-tag { background: rgba(182, 156, 255, .4); }
+/* ☁ 天候水晶：小水晶＋溫度；看不到天空時變淡 */
+.weather-tag { display: inline-flex; align-items: center; gap: 1px; padding: 0 4px 0 2px; border-radius: var(--r-m); font-size: var(--fs-xs); font-weight: 800; line-height: 16px; white-space: nowrap; }
+.weather-tag .wx { display: inline-flex; width: 20px; height: 20px; margin: -2px 0; }
+.weather-tag .wx svg { display: block; }
+.weather-tag.dim { opacity: .55; }
+.hud-top:hover .weather-tag { background: rgba(126, 195, 255, .22); }
 @keyframes fortuneGlow { 0%, 100% { box-shadow: 0 0 0 1px rgba(182, 156, 255, .55) inset; } 50% { box-shadow: 0 0 0 1px rgba(210, 190, 255, .95) inset, 0 0 10px rgba(182, 156, 255, .85); } }
 .hud-btn { border: none; background: rgba(255, 255, 255, .15); color: #fff; border-radius: var(--r-s); height: 20px; padding: 0 5px; font-size: var(--fs-s); line-height: 20px; white-space: nowrap; }
 .hud-btn:hover { background: rgba(255, 255, 255, .3); }
@@ -1001,7 +1011,7 @@ body.mini #decor, #npcWrap.transforming #decor, #npcWrap.shrinking #decor { disp
 .panel-foot .btn.gold { min-width: 96px; }
 
 /* 滑過就出現的說明小卡 */
-#tip { position: absolute; z-index: 9; max-width: 260px; padding: 5px 10px; border-radius: var(--r-s); background: rgba(26, 30, 56, .96); color: #fff; font-size: var(--fs-xs); line-height: 1.5; box-shadow: 0 4px 12px rgba(20, 24, 60, .35); border: 1px solid rgba(255, 214, 120, .45); pointer-events: none; animation: tipIn .12s ease-out; }
+#tip { white-space: pre-line; position: absolute; z-index: 9; max-width: 260px; padding: 5px 10px; border-radius: var(--r-s); background: rgba(26, 30, 56, .96); color: #fff; font-size: var(--fs-xs); line-height: 1.5; box-shadow: 0 4px 12px rgba(20, 24, 60, .35); border: 1px solid rgba(255, 214, 120, .45); pointer-events: none; animation: tipIn .12s ease-out; }
 @keyframes tipIn { from { opacity: 0; translate: 0 3px; } to { opacity: 1; translate: 0 0; } }
 body.mini #tip { display: none !important; }
 

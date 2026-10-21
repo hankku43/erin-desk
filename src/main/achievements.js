@@ -43,6 +43,9 @@ const ACH = [
   // 艾琳
   { id: 'notes10', icon: '📒', name: '被記住的人', desc: '艾琳的小本子記了 10 件你的事', gold: 30, test: (c) => c.notes >= 10, goal: (c) => [c.notes, 10] },
   { id: 'friend', icon: '🐾', name: '公會的好朋友', desc: '跟艾琳變得很熟', gold: 50, hidden: true, test: (c) => c.stage >= 3 },
+  { id: 'pat30', icon: '🐾', name: '摸頭專家', desc: '摸了艾琳的頭 30 次', gold: 30, hidden: true, test: (c) => c.pats >= 30 },
+  { id: 'decide10', icon: '🤔', name: '可靠的參謀', desc: '幫艾琳做了 10 個決定', gold: 30, test: (c) => c.decisions >= 10, goal: (c) => [c.decisions, 10] },
+  { id: 'fest5', icon: '🏮', name: '一起過節', desc: '跟艾琳一起過了 5 個節日', gold: 50, test: (c) => c.festivals >= 5, goal: (c) => [c.festivals, 5] },
   { id: 'dearest', icon: '💫', name: '最重要的冒險者', desc: '艾琳心裡那顆描了兩次金邊的星', gold: 100, hidden: true, test: (c) => c.stage >= 5 },
 ];
 const BY = Object.fromEntries(ACH.map((a) => [a.id, a]));

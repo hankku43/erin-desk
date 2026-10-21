@@ -193,9 +193,9 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const LR = require('../src/main/lore');
   const { Engine } = require('../src/main/engine');
   // 標籤
-  assert.deepStrictEqual(LR.topicTags('好感3・下午・秋天'), { stage: 3, times: ['afternoon'], days: [], seasons: ['autumn'] });
-  assert.deepStrictEqual(LR.topicTags('週五・下午'), { stage: 0, times: ['afternoon'], days: [5], seasons: [] });
-  assert.deepStrictEqual(LR.topicTags('好感2'), { stage: 2, times: [], days: [], seasons: [] }, '舊寫法照舊');
+  assert.deepStrictEqual(LR.topicTags('好感3・下午・秋天'), { stage: 3, times: ['afternoon'], days: [], seasons: ['autumn'], fests: [] });
+  assert.deepStrictEqual(LR.topicTags('週五・下午'), { stage: 0, times: ['afternoon'], days: [5], seasons: [], fests: [] });
+  assert.deepStrictEqual(LR.topicTags('好感2'), { stage: 2, times: [], days: [], seasons: [], fests: [] }, '舊寫法照舊');
   const at = (s) => new Date(s);
   assert.deepStrictEqual(LR.periodsAt(at('2026-10-16T16:30:00')), ['afternoon', 'evening'], '16 點半既是下午也是傍晚');
   assert.deepStrictEqual([LR.seasonAt(at('2026-10-16T09:00:00')), LR.seasonAt(at('2026-01-05T09:00:00')), LR.seasonAt(at('2026-04-05T09:00:00')), LR.seasonAt(at('2026-07-05T09:00:00'))], ['autumn', 'winter', 'spring', 'summer']);
@@ -231,7 +231,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   // 引擎：兩週不重複；用完了挑最久沒說的；同一條設定不會連著來；只有對的時段季節才聊
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-topic2-'));
   fs.writeFileSync(path.join(dir, 'plan.md'), '# 2026 話題測試 10/12–10/16\n\n## 寫完週報 🔧 📅 10/16\n- [ ] 收資料\n');
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, achievements: { enabled: false }, streak: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] }, window: { idleChatterMinutes: 10 } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, achievements: { enabled: false }, streak: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] }, window: { idleChatterMinutes: 10 }, decide: { enabled: false }, festivals: { enabled: false } }));
   let t = new Date('2026-10-12T09:00:00').getTime();
   const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
   E.state.onboarding = { done: true };
@@ -314,6 +314,327 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const k of Object.keys(IL.ambient)) assert.ok(IL.ambient[k].length >= 8, `自言自語 ${k} 至少 8 句`);
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('主動話題擴增測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🐾 互動擴充（10/21）：摸不同的地方、幫艾琳做決定、現實的節日與紀念日、天候水晶（都不問 AI、不加提示長度）----------
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const { TEMPLATES } = require('../src/main/npc');
+  const Touch = require('../src/renderer/touch');
+  const Emotes = require('../src/renderer/emotes');
+  const WxArt = require('../src/renderer/weather-art');
+  const DC = require('../src/main/decide');
+  const FE = require('../src/main/festivals');
+  const WX = require('../src/main/weather');
+  const LR = require('../src/main/lore');
+  const VOICE = /我(?!們)|您|玩家/;
+  const fillName = (x) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者');
+  const fromTpl = (k, text) => TEMPLATES[k].some(([x]) => new RegExp('^' + fillName(x).replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '.*') + '$').test(text));
+
+  // ===== 🐾 摸不同的地方 =====
+  assert.strictEqual(Touch.zoneAt(515, 150, 'normal'), 'head', '頭頂');
+  assert.strictEqual(Touch.zoneAt(350, 100, 'normal'), 'earL', '左耳');
+  assert.strictEqual(Touch.zoneAt(720, 170, 'happy'), 'earR', '右耳');
+  assert.strictEqual(Touch.zoneAt(515, 400, 'normal'), 'face', '臉頰');
+  assert.strictEqual(Touch.zoneAt(900, 950, 'normal'), 'tail', '尾巴（垂著）');
+  assert.strictEqual(Touch.zoneAt(900, 500, 'thinking'), 'tail', '尾巴（翹起來）');
+  assert.strictEqual(Touch.zoneAt(900, 500, 'normal'), null, '平常那個高度沒有尾巴');
+  assert.strictEqual(Touch.zoneAt(900, 950, 'shy'), null, '害羞時尾巴繞到前面：不判定');
+  assert.strictEqual(Touch.zoneAt(515, 800, 'normal'), null, '身體其他地方＝一般的戳（不做特別的部位）');
+  assert.strictEqual(Touch.zoneAt(NaN, 1, 'normal'), null);
+  for (const b of [...Touch.BASE, Touch.TAIL.low, Touch.TAIL.tall]) assert.ok(b.x0 >= 0 && b.x1 <= Touch.IMG_W && b.y0 >= 0 && b.y1 <= Touch.IMG_H, '框在立繪裡');
+  for (const z of Object.values(Touch.EMOTE)) assert.ok(Emotes.KINDS.includes(z) && Emotes.svgOf(z).length > 200, `表情符號 ${z}`);
+  // 摸頭手勢：來回滑才算；一路滑過去、太慢、離開頭頂都不算
+  const feed = (det, xs, step = 60, onHead = true) => xs.some((x, i) => det.feed(x, 1000 + i * step, onHead));
+  assert.ok(feed(Touch.PatDetector(), [0, 15, 30, 15, 0, 15, 30, 15, 0]), '左右來回＝摸頭');
+  assert.ok(!feed(Touch.PatDetector(), [0, 10, 20, 30, 40, 50, 60, 70, 80, 90]), '一路滑過去不算');
+  assert.ok(!feed(Touch.PatDetector(), [0, 15, 30, 15, 0, 15, 30, 15, 0], 700), '太慢不算');
+  assert.ok(!feed(Touch.PatDetector(), [0, 3, 0, 3, 0, 3, 0, 3], 60), '抖一下下（不到 8px）不算');
+  assert.ok(!feed(Touch.PatDetector(), [0, 15, 30, 15, 0, 15, 30, 15, 0], 60, false), '不在頭上不算');
+  // 台詞：每個部位、每段好感都有，口吻對
+  for (const part of ['head', 'ear', 'tail', 'face', 'pat']) for (const band of ['low', 'mid', 'high']) {
+    const k = `touch_${part}_${band}`;
+    assert.ok(TEMPLATES[k] && TEMPLATES[k].length >= 5, `${k} 至少 5 句`);
+    for (const [t] of TEMPLATES[k]) assert.ok(!VOICE.test(t), `${k} 口吻：${t}`);
+  }
+  for (const k of ['touch_pat_more', 'touch_cold']) assert.ok(TEMPLATES[k].length >= 2);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-interact-'));
+  fs.writeFileSync(path.join(dir, 'plan.md'), '# 2026 互動測試 10/19–10/23\n\n## 寫完週報 🔧 📅 10/23\n- [ ] 收資料\n');
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, streak: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] }, window: { idleChatterMinutes: 10 } }));
+  let t = new Date('2026-10-21T09:30:00').getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  E.npc.fetchJSON = async () => { throw new Error('這些互動不該問 AI'); };
+  const setStage = (n, pts) => { const a = E.aff(); a.points = pts; a.stage = n; a.maxStage = Math.max(a.maxStage || 1, n); };
+  setStage(1, 10);
+  let r = await E.poke('head');
+  assert.ok(r.lines[0].touch === 'head' && fromTpl('touch_head_low', r.lines[0].text), '第 1 階拍頭：low 那段：' + r.lines[0].text);
+  E.pokeTimes = [];
+  setStage(3, 117);
+  r = await E.poke('earR'); assert.ok(r.lines[0].touch === 'ear' && fromTpl('touch_ear_mid', r.lines[0].text), '第 3 階摸耳朵：mid');
+  r = await E.poke('tail'); assert.ok(fromTpl('touch_tail_mid', r.lines[0].text), '尾巴');
+  r = await E.poke('face'); assert.ok(!r.lines[0].touch, '12 秒內第三下：照舊變無奈（不是部位台詞）');
+  E.pokeTimes = [];
+  setStage(5, 300);
+  r = await E.poke('face'); assert.ok(fromTpl('touch_face_high', r.lines[0].text), '第 5 階戳臉頰：high');
+  E.pokeTimes = [];
+  r = await E.poke(null); assert.ok(!r.lines[0].touch, '沒點到部位：一般的戳');
+  // 摸頭：不算戳；一天第一次 +1 好感；一分鐘第四次起「還要摸嗎」
+  setStage(3, 117); E.aff().gainedToday = 0; E.aff().patDay = null; E.pokeTimes = [];
+  const before = E.aff().points;
+  r = await E.poke('head', 'pat');
+  assert.ok(r.lines[0].touch === 'pat' && fromTpl('touch_pat_mid', r.lines[0].text) && E.aff().points === before + 1, '摸頭 +1');
+  await E.poke('head', 'pat'); await E.poke('head', 'pat');
+  assert.strictEqual(E.aff().points, before + 1, '一天只加一次');
+  r = await E.poke('head', 'pat'); assert.ok(fromTpl('touch_pat_more', r.lines[0].text), '摸太多次');
+  assert.strictEqual((E.pokeTimes || []).length, 0, '摸頭不算戳（不會被當成一直戳）');
+  assert.strictEqual(E.state.stats.pats, 4);
+  E.aff().coldUntil = t + 60000;
+  r = await E.poke('tail'); assert.ok(fromTpl('touch_cold', r.lines[0].text), '冷戰中');
+  r = await E.poke('head', 'pat'); assert.ok(fromTpl('touch_cold', r.lines[0].text));
+  E.aff().coldUntil = 0; E.patTimes = []; E.pokeTimes = [];
+
+  // ===== 🤔 幫艾琳做決定 =====
+  assert.strictEqual(new Set(DC.QUESTIONS.map((q) => q.id)).size, DC.QUESTIONS.length, '題目 id 不重複');
+  assert.ok(DC.QUESTIONS.filter((q) => q.kind !== 'big').length >= 12 && DC.QUESTIONS.filter((q) => q.kind === 'big').length >= 6, '每天的小事 ≥12、大決定 ≥6');
+  for (const q of DC.QUESTIONS) {
+    assert.ok(q.options.length >= 2 && q.options.length <= 3, `${q.id} 2～3 個選項`);
+    assert.strictEqual(new Set(q.options.map((o) => o.label)).size, q.options.length);
+    const texts = [q.ask, ...q.options.flatMap((o) => [o.label, o.reply, o.later, o.whisper]), ...(q.free ? [q.free.reply, q.free.later, q.free.whisper] : [])].filter(Boolean);
+    for (const x of texts) assert.ok(!VOICE.test(x) && !/任務進度|代號/.test(x), `${q.id} 口吻：${x}`);
+    for (const o of q.options) assert.ok(o.reply && o.later, `${q.id}/${o.id} 有回答、之後會提起`);
+    if (q.kind === 'big') assert.ok(q.options.every((o) => o.whisper), `${q.id} 大決定會出現在待機小字`);
+  }
+  assert.strictEqual(DC.matchOption(DC.BY.tea, '照舊好了').id, 'sweet');
+  assert.strictEqual(DC.matchOption(DC.BY.tea, '少糖吧').id, 'less');
+  assert.strictEqual(DC.matchOption(DC.BY.tea, '今天好累'), null);
+  assert.strictEqual(DC.cleanFree('就叫阿福吧'), '阿福');
+  assert.strictEqual(DC.cleanFree('「小白」'), '小白');
+  assert.strictEqual(DC.cleanFree('我覺得叫小白'), '', '有「我」不行');
+  assert.strictEqual(DC.cleanFree('這個名字太長了啦啦啦'), '');
+  assert.strictEqual(E.decideDue(), null, '10 點以前不問');
+  t = new Date('2026-10-21T10:30:00').getTime();
+  assert.strictEqual(E.decideDue(), 'ask');
+  E.rand = () => 0.3;
+  r = E.decideAsk();
+  const ask = r.lines[0];
+  assert.ok(ask.pick && ask.pick.options.length >= 2 && E.state.decide.pending.id === ask.pick.id, '問了：有選項按鈕、記住在等回答');
+  assert.ok(!VOICE.test(ask.text));
+  assert.strictEqual(E.decideDue(), null, '一天只問一次');
+  const q1 = DC.BY[ask.pick.id];
+  const before2 = E.aff().points; E.aff().gainedToday = 0;
+  r = E.decide(q1.id, q1.options[1].id);
+  assert.ok(r.decided === q1.id && r.lines[0].text && E.state.decide.answers[q1.id].pick === q1.options[1].id && !E.state.decide.pending, '按鈕回答');
+  assert.strictEqual(E.aff().points, before2 + 1, '幫她決定 +1 好感');
+  assert.ok(E.decide(q1.id, q1.options[0].id).stale, '決定過了：舊按鈕沒反應');
+  // 隔天：先提起昨天的決定，再問新的一件
+  t = new Date('2026-10-22T10:40:00').getTime();
+  assert.strictEqual(E.decideDue(), 'later');
+  r = E.decideAsk();
+  assert.ok(r.lines[0].text.includes(fillName(q1.options[1].later).replace(/\{pick\}/g, '').slice(0, 6)), '提起昨天的決定：' + r.lines[0].text);
+  assert.strictEqual(E.decideDue(), 'ask');
+  r = E.decideAsk();
+  const q2 = DC.BY[r.lines[0].pick.id];
+  assert.notStrictEqual(q2.id, q1.id, '不會馬上又問同一件');
+  // 聊天框回答：說出選項的字就算，不問 AI
+  const o2 = q2.options[0];
+  r = await E.chat(o2.label);
+  assert.ok(r.decided === q2.id && E.state.decide.answers[q2.id].pick === o2.id, '聊天回答：' + o2.label);
+  assert.ok(E.state.chat.slice(-1)[0].source === 'template', '照樣記進對話紀錄（內建的回答）');
+  // 自己取名字（第七隻鴿子）：聊天框打名字；「好累」這種不是名字的不算
+  E.state.decide.pending = { id: 'pigeon7', day: '2026-10-22', at: t };
+  r = await E.chat('好累');
+  assert.ok(!r.decided && E.state.decide.pending, '「好累」不是名字');
+  r = await E.chat('就叫阿福吧');
+  assert.ok(r.decided === 'pigeon7' && E.state.decide.answers.pigeon7.label === '阿福' && /阿福/.test(r.lines[0].text), '取了名字：' + r.lines[0].text);
+  assert.ok(E.idleExtra().some((x) => /阿福/.test(x)), '待機小字會提到新鴿子的名字');
+  // 「隨便」：她自己挑
+  E.state.decide.pending = { id: 'hair', day: '2026-10-22', at: t };
+  r = await E.chat('隨便');
+  assert.ok(r.decided === 'hair', '隨便＝她自己挑');
+  // 一個月：一天最多問一次，小事 21 天內不重複；大決定一輩子問一次
+  const asked = [];
+  for (let d = 0; d < 30; d++) {
+    t = new Date(new Date('2026-11-01T11:00:00').getTime() + d * 86400000).getTime();
+    for (let k = 0; k < 3; k++) {
+      const due = E.decideDue();
+      if (!due) break;
+      const x = E.decideAsk();
+      if (due === 'ask') { const id = x.lines[0].pick.id; asked.push({ id, t }); E.decide(id, DC.BY[id].options[0].id); }
+    }
+  }
+  const perDay = {}; for (const a of asked) perDay[a.t] = (perDay[a.t] || 0) + 1;
+  assert.ok(Object.values(perDay).every((n) => n === 1), '一天最多問一件');
+  for (const a of asked) {
+    const prev = asked.filter((b) => b.id === a.id && b.t < a.t);
+    if (DC.BY[a.id].kind === 'big') assert.strictEqual(prev.length, 0, `大決定 ${a.id} 只問一次`);
+    else assert.ok(prev.every((b) => a.t - b.t >= 21 * 86400000), `小事 ${a.id} 21 天內不重複`);
+  }
+  assert.ok(asked.length >= 20, '一個月大部分的日子都有一件可以問：' + asked.length);
+  E.config.decide = { enabled: false }; assert.strictEqual(E.decideDue(), null, '關掉就不問'); delete E.config.decide;
+
+  // ===== 📅 現實的日子 =====
+  const D = (s) => new Date(`${s}T09:00:00`);
+  const keys = (s, o = {}) => FE.linesFor(D(s), { firstMet: '2026-09-29', stage: 3, rnd: () => 0, ...o }).map((x) => x.key.split(':').slice(0, 2).join(':'));
+  assert.deepStrictEqual(keys('2026-10-31'), ['fest:halloween']);
+  assert.deepStrictEqual(keys('2026-10-30'), ['eve:halloween'], '前一天預告');
+  assert.deepStrictEqual(keys('2026-10-23'), ['term:霜降'], '節氣');
+  assert.deepStrictEqual(keys('2026-10-28'), ['anniv:30'], '認識第 30 天');
+  assert.deepStrictEqual(keys('2027-02-05'), ['fest:cnyeve'], '除夕（農曆）');
+  assert.deepStrictEqual(keys('2027-02-06'), ['fest:cny']);
+  assert.deepStrictEqual(keys('2027-02-07'), ['fest:cny'], '春節第二天');
+  assert.strictEqual(FE.linesFor(D('2027-02-07'), { firstMet: '2026-09-29' })[0].gold, 0, '春節紅包只給一次');
+  assert.deepStrictEqual(keys('2026-12-22'), ['fest:dongzhi'], '冬至（節氣算節日）');
+  assert.deepStrictEqual(keys('2027-05-09'), ['fest:mother'], '母親節：五月第二個星期日');
+  assert.deepStrictEqual(keys('2027-09-25'), [], '平常的日子沒事');
+  assert.deepStrictEqual(keys('2027-09-29'), ['anniv:366'], '認識滿一年');
+  assert.ok(FE.linesFor(D('2026-08-19'), { stage: 1 }).length === 1 && /星/.test(FE.linesFor(D('2026-08-19'), { stage: 1 })[0].text), '七夕：還不熟只說星星');
+  assert.ok(/能每天/.test(FE.linesFor(D('2026-08-19'), { stage: 4 })[0].text), '七夕：很熟才說心裡話');
+  // 口吻、金幣：寫了 {gold} 的那句一定有金幣
+  for (const f of Object.values(FE.FESTS)) for (const [x] of [...f.day, ...(f.eve || []), ...(f.again || [])]) assert.ok(!VOICE.test(x) && (!/\{gold\}/.test(x) || f.day.some(([y]) => y === x) && f.gold > 0), `節日台詞：${x}`);
+  for (const f of Object.values(FE.FESTS)) for (const x of f.whisper || []) assert.ok(!VOICE.test(x), x);
+  for (const f of Object.values(FE.FESTS)) for (const [x] of f.day) assert.ok(x.includes(f.tag) || x.includes(f.name), `節日當天那句要說出是什麼節日：${x}`);
+  for (const [x] of Object.values(FE.TERM_LINES)) assert.ok(!VOICE.test(x), x);
+  for (const [x] of Object.values(FE.ANNIV_LINES)) assert.ok(!VOICE.test(x) && /\{gold\}/.test(x), x);
+  assert.strictEqual(Object.keys(FE.TERM_LINES).length, 24, '二十四節氣都有一句');
+  assert.ok(FE.TERMS.every((x) => FE.TERM_LINES[x]));
+  // 角色設定檔：節日標籤只在那一天聊
+  assert.ok(LR.topicFits(LR.topicTags('萬聖節'), D('2026-10-31')) && !LR.topicFits(LR.topicTags('萬聖節'), D('2026-10-30')));
+  assert.ok(LR.topicFits(LR.topicTags('中秋'), D('2026-09-25')));
+  const lore = new LR.Lore({ file: path.join(__dirname, '..', 'lore', '艾琳.md'), dataDir: dir, embeddings: false });
+  const festTopics = lore.topicPool(5).filter((x) => x.fests.length);
+  assert.ok(festTopics.length >= 10 && festTopics.every((x) => /[？?]/.test(x.text) && !VOICE.test(x.text)), '節日話題 ≥10，都用問句');
+  // 引擎：認識的第一天從最早的紀錄算；節日那天第一次見面說一句、送金幣；同一天不再說；沒點她也會主動說
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-fest-'));
+  fs.writeFileSync(path.join(dir2, 'plan.md'), '# 2026 節日測試 10/26–10/30\n\n## 寫完週報 🔧 📅 10/30\n- [ ] 收資料\n');
+  fs.writeFileSync(path.join(dir2, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, streak: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] }, window: { idleChatterMinutes: 10 }, decide: { enabled: false } }));
+  let t2 = new Date('2026-10-31T09:00:00').getTime();
+  const F2 = new Engine({ appDir: dir2, dataDir: path.join(dir2, 'data'), now: () => new Date(t2) });
+  F2.state.onboarding = { done: true, at: '2026-10-01T03:00:00.000Z' };
+  F2.state.history = [{ at: '2026-10-20T03:00:00.000Z', reason: 'x', xp: 1, gold: 0 }, { at: '2026-09-29T05:39:41.812Z', reason: 'y', xp: 1, gold: 0 }];
+  assert.strictEqual(F2.firstMet(), '2026-09-29', '從最早的紀錄算');
+  const gold0 = F2.state.player.gold;
+  assert.strictEqual(F2.proactiveDue({}), 'fest', '節日：不用等間隔');
+  r = await F2.greet();
+  const fl = r.lines.find((l) => l.event === 'fest');
+  assert.ok(fl && /萬聖節/.test(fl.text) && /20/.test(fl.text) && F2.state.player.gold === gold0 + 20, '萬聖節：說一句、送 20 金幣：' + (fl && fl.text));
+  assert.ok(!VOICE.test(fl.text) && !/\{/.test(fl.text));
+  assert.strictEqual(F2.proactiveDue({}), null, '說過了');
+  r = await F2.greet(); assert.ok(!r.lines.some((l) => l.event === 'fest'), '同一天不再說');
+  assert.strictEqual(F2.state.stats.festivals, 1);
+  assert.ok(F2.idleExtra().some((x) => /南瓜/.test(x)), '待機小字換成節日的');
+  assert.ok(/農曆九月廿二/.test(F2.weatherView().tip) && /萬聖節/.test(F2.weatherView().tip) && /認識第 33 天/.test(F2.weatherView().tip), '水晶滑過看得到日子：' + F2.weatherView().tip);
+  t2 = new Date('2026-11-01T09:00:00').getTime();
+  assert.ok(!F2.idleExtra().some((x) => /南瓜/.test(x)), '隔天就換回來');
+  t2 = new Date('2026-10-30T09:00:00').getTime(); F2.aff().coldUntil = t2 + 60000;
+  assert.strictEqual(F2.festLines().length, 0, '冷戰中不說'); F2.aff().coldUntil = 0;
+  F2.config.festivals = { enabled: false }; assert.strictEqual(F2.festItems().length, 0, '關掉'); delete F2.config.festivals;
+
+  // ===== ☁ 天候水晶 =====
+  assert.strictEqual(WX.kindOf(0, true), 'clear'); assert.strictEqual(WX.kindOf(0, false), 'night'); assert.strictEqual(WX.kindOf(2), 'partly');
+  assert.strictEqual(WX.kindOf(61), 'rain'); assert.strictEqual(WX.kindOf(82), 'heavy'); assert.strictEqual(WX.kindOf(95), 'thunder'); assert.strictEqual(WX.kindOf(45), 'fog'); assert.strictEqual(WX.kindOf(73), 'snow');
+  for (const k of Object.keys(WX.KINDS)) assert.ok(WxArt.KINDS.includes(k), `水晶小圖：${k}`);
+  for (const k of WxArt.KINDS) { const s = WxArt.svg(k); assert.ok(s.startsWith('<svg') && !/\bid=/.test(s) && !/url\(#/.test(s), `水晶小圖不用漸層 id：${k}`); }
+  const url = WX.forecastUrl(24.14771, 120.67361);
+  assert.ok(/latitude=24\.15&longitude=120\.67/.test(url) && /timezone=auto/.test(url) && /^https:\/\/api\.open-meteo\.com\//.test(url), '只送四捨五入的經緯度：' + url);
+  const nowMs = Date.parse('2026-10-21T06:30:00Z'); // 台北 14:30
+  const fixture = {
+    utc_offset_seconds: 28800,
+    current: { time: '2026-10-21T14:30', temperature_2m: 26.4, apparent_temperature: 28.1, relative_humidity_2m: 70, weather_code: 2, is_day: 1, precipitation: 0, wind_speed_10m: 8 },
+    hourly: { time: ['2026-10-21T14:00', '2026-10-21T15:00', '2026-10-21T16:00', '2026-10-21T17:00', '2026-10-21T18:00'], precipitation_probability: [10, 20, 70, 40, 10], weather_code: [2, 2, 61, 3, 3], temperature_2m: [26, 26, 24, 23, 22] },
+    daily: { time: ['2026-10-21', '2026-10-22'], weather_code: [61, 0], temperature_2m_max: [27.2, 25.6], temperature_2m_min: [21.4, 19.8], precipitation_probability_max: [70, 10] },
+  };
+  const w = WX.summarize(fixture, nowMs);
+  assert.ok(w.temp === 26 && w.feels === 28 && w.kind === 'partly' && w.today.hi === 27 && w.today.lo === 21 && w.tomorrow.kind === 'clear' && w.soon.prob === 70 && w.soon.inHours === 2, JSON.stringify(w));
+  assert.ok(/帶傘/.test(WX.advice(w)), '等一下會下雨：帶傘');
+  assert.ok(/好天氣/.test(WX.advice(w, { tomorrow: true })));
+  assert.ok(/喝水/.test(WX.advice({ ...w, soon: null, today: { ...w.today, rain: 0 }, temp: 34 })));
+  assert.ok(/多穿/.test(WX.advice({ ...w, soon: null, today: { ...w.today, rain: 0 }, temp: 12 })));
+  assert.ok(/帶傘/.test(WX.advice({ ...w, kind: 'rain' })));
+  assert.throws(() => WX.summarize({}), /格式/);
+  assert.deepStrictEqual(WX.weatherQuestion('今天天氣如何？'), { tomorrow: false });
+  assert.deepStrictEqual(WX.weatherQuestion('明天會下雨嗎'), { tomorrow: true });
+  for (const x of ['今天天氣不錯', '今天天氣好熱', '週報寫好了嗎', '下雨天的歌好好聽']) assert.strictEqual(WX.weatherQuestion(x), null, `「${x}」不是在問天氣`);
+  assert.strictEqual(WX.placeName({ city: 'Taichung', region: 'Taichung City' }), '台中');
+  assert.strictEqual(WX.placeName({ city: 'Taipei', region: 'Taiwan' }), '台灣台北');
+  assert.strictEqual(WX.placeName({ city: 'Osaka', region: 'Osaka' }), 'Osaka');
+  // 抓天氣：位置服務一個不通換下一個；都不通＝猜不出位置
+  const calls = [];
+  const fakeFetch = (fail = {}) => async (u) => {
+    calls.push(u);
+    if (/geojs/.test(u)) { if (fail.geojs) throw new Error('HTTP 403'); return { latitude: '24.14771', longitude: '120.67361', city: 'Taichung', region: 'Taichung City', country: 'Taiwan' }; }
+    if (/ipwho/.test(u)) return { success: true, latitude: 25.03, longitude: 121.56, city: 'Taipei', region: 'Taipei City', country: 'Taiwan', timezone: { id: 'Asia/Taipei' } };
+    if (/ipapi/.test(u)) throw new Error('HTTP 429');
+    if (/open-meteo/.test(u)) { if (fail.meteo) throw new Error('fetch failed'); return fixture; }
+    throw new Error('沒想到的網址 ' + u);
+  };
+  assert.strictEqual((await WX.locate(fakeFetch({ geojs: true }))).via, 'ipwho', '第一個不通換下一個');
+  await assert.rejects(WX.locate(async () => { throw new Error('blocked'); }), /猜不出位置/);
+  // 引擎：抓一次、半小時內不重抓、失敗會記原因；水晶、點她說的話、聊天問天氣都不問 AI
+  t = new Date('2026-10-21T14:30:00').getTime();
+  assert.ok(E.weatherView().on && !E.weatherView().ok, '還沒抓：水晶霧濛濛的');
+  assert.ok(fromTpl('weather_off', E.weatherSay().lines[0].text));
+  calls.length = 0;
+  assert.strictEqual(await E.refreshWeather(fakeFetch()), true);
+  assert.ok(calls.length === 2 && /geojs/.test(calls[0]) && /open-meteo/.test(calls[1]), '先猜位置、再問天氣');
+  const W = E.state.weather;
+  assert.ok(W.loc.lat === 24.15 && W.loc.lon === 120.67 && W.data.temp === 26, '存檔裡的位置也只到小數點兩位');
+  const v = E.weatherView();
+  assert.ok(v.ok && v.kind === 'partly' && v.temp === 26 && /台中/.test(v.tip) && /晴時多雲 26°/.test(v.tip) && /Open-Meteo/.test(v.tip) && /網路位置/.test(v.tip), v.tip);
+  calls.length = 0;
+  assert.strictEqual(await E.refreshWeather(fakeFetch()), false, '半小時內不重抓'); assert.strictEqual(calls.length, 0);
+  await E.refreshWeather(fakeFetch(), { force: true });
+  assert.ok(calls.length === 1 && /open-meteo/.test(calls[0]), '位置 12 小時內不重猜');
+  r = E.weatherSay();
+  assert.ok(r.lines[0].event === 'weather' && /26/.test(r.lines[0].text) && /晴時多雲/.test(r.lines[0].text) && /帶傘/.test(r.lines[0].text) && !VOICE.test(r.lines[0].text), r.lines[0].text);
+  r = E.weatherSay({ tomorrow: true });
+  assert.ok(/明天/.test(r.lines[0].text) && /晴天/.test(r.lines[0].text) && /20/.test(r.lines[0].text), r.lines[0].text);
+  const chatN = E.state.chat.length;
+  r = await E.chat('今天天氣如何？');
+  assert.ok(r.lines[0].event === 'weather' && /26/.test(r.lines[0].text) && E.state.chat.length === chatN + 2, '聊天問天氣：內建回答（不問 AI）');
+  r = await E.chat('明天會下雨嗎');
+  assert.ok(/明天/.test(r.lines[0].text), '問明天');
+  // 失敗：記原因，10 分鐘內不再試；舊的天氣 6 小時內還看得到
+  W.at = Date.now() - 3600000;
+  await E.refreshWeather(fakeFetch({ meteo: true }));
+  assert.ok(W.error === '連不上天空' && W.failAt && E.weatherView().ok, '失敗了，但一小時前的還能用');
+  calls.length = 0; await E.refreshWeather(fakeFetch()); assert.strictEqual(calls.length, 0, '剛失敗過：等一下再試');
+  W.at = Date.now() - 7 * 3600000; W.failAt = 0;
+  assert.ok(!E.weatherView().ok && fromTpl('weather_off', E.weatherSay().lines[0].text), '太舊（6 小時以上）就不用');
+  // 設定裡填了位置：不猜（不連查位置的服務）
+  E.config.weather = { lat: 22.63, lon: 120.3, place: '高雄' };
+  calls.length = 0; await E.refreshWeather(fakeFetch(), { force: true });
+  assert.ok(calls.length === 1 && /latitude=22\.63/.test(calls[0]) && E.state.weather.loc.by === 'config' && /高雄/.test(E.weatherView().tip) && /設定檔裡填的/.test(E.weatherView().tip));
+  E.config.weather = { enabled: false };
+  assert.strictEqual(E.weatherView().on, false, '關掉：水晶收起來');
+  calls.length = 0; assert.strictEqual(await E.refreshWeather(fakeFetch(), { force: true }), false); assert.strictEqual(calls.length, 0, '關掉就不連網');
+  r = await E.chat('今天天氣如何？'); assert.notStrictEqual(r.lines[0].event, 'weather', '關掉時問天氣照一般聊天');
+  delete E.config.weather;
+  // 天氣、節日、決定都不會加進給 AI 的提示
+  let sent = null;
+  t += 30 * 60000; E.aff().spam = []; E.aff().coldUntil = 0;
+  E.config.llm.enabled = true; E.npc.llm.enabled = true; E.npc.status.online = true;
+  E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '嗯哼～', emotion: 'happy', actions: [] }) } }; };
+  await E.chat('你最喜歡什麼顏色');
+  const prompt = JSON.stringify(sent && sent.messages);
+  assert.ok(sent && !/天候水晶|晴時多雲|26°|萬聖節|阿福|幫艾琳決定/.test(prompt), '提示裡沒有天氣、節日、決定');
+  E.config.llm.enabled = false; E.npc.llm.enabled = false;
+
+  // ===== 畫面接好了 =====
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');
+  const rjs = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'renderer.js'), 'utf8');
+  const pre = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'preload.js'), 'utf8');
+  const mainJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.js'), 'utf8');
+  assert.ok(/id="hudWeather"/.test(html) && /id="pickRow"/.test(html) && /touch\.js/.test(html) && /weather-art\.js/.test(html));
+  assert.ok(html.indexOf('touch.js') < html.indexOf('renderer.js') && html.indexOf('weather-art.js') < html.indexOf('renderer.js'), '先載入再用');
+  assert.ok(/api\.poke\(zone\)/.test(rjs) && /api\.poke\('head', 'pat'\)/.test(rjs) && /api\.decide\(/.test(rjs) && /api\.weatherSay\(/.test(rjs));
+  assert.ok(/decide:/.test(pre) && /weatherSay:/.test(pre) && /weatherRefresh:/.test(pre));
+  assert.ok(/'npc:decide'/.test(mainJs) && /'weather:say'/.test(mainJs) && /'weather:refresh'/.test(mainJs) && /net\.fetch\(url/.test(mainJs), '天氣用 Chromium 的網路（走系統 proxy）');
+  assert.ok(/QUEST_NPC_TEST \? null : wxFetchJson/.test(mainJs), '自動測試不連網路');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(dir2, { recursive: true, force: true });
+  console.log('互動擴充測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
 
 // 引擎：程式內新增／編輯／刪除會寫進計畫檔，狀態跟著搬
@@ -916,7 +1237,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   await E.chat('你好可愛'); assert.ok(!/這次的情緒/.test(sys()), 'emotionChance 0');
   // 台詞裡的代號換成名字
   t += 60000; reply = { line: '先幫艾琳完成 q2-0 吧？', emotion: 'happy', actions: [] };
-  r = await E.chat('今天天氣如何');
+  r = await E.chat('今天過得如何');
   assert.ok(/「菜單定稿，店長回饋已處理」/.test(r.lines[0].text) && !/q2-0/.test(r.lines[0].text), r.lines[0].text);
   // 整句都在重複前面的話 → 改用這個話題預寫的台詞
   t += 60000; reply = { line: '喵～艾琳的尾巴現在在搖晃，但更開心的是能和你分享奶茶的時光！', emotion: 'happy', actions: [] };
@@ -1373,7 +1694,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-topic-'));
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30 } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30 }, decide: { enabled: false }, festivals: { enabled: false } })); // 做決定、節日另外測
   const Y = new Date().getFullYear();
   let t = new Date(`${Y}-10-03T10:00:00`).getTime(); // 週六：計畫裡沒有這天的行程
   const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
@@ -1637,7 +1958,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const loreFile = path.join(__dirname, '..', 'lore', '艾琳.md');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-nb-'));
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30 } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30 }, decide: { enabled: false }, festivals: { enabled: false } }));
   const Y = new Date().getFullYear();
   let t = new Date(`${Y}-10-06T10:00:00`).getTime();
   const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });

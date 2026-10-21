@@ -24,6 +24,9 @@
   const cloud = (fill = 'url(#emCream)', stroke = NAVY) => `<path d="M14 30 C7 30 3 26 3 21 C3 17 6 14 9.5 13.5 C10.5 8 15 4 20.5 4 C26 4 30 7.5 31 12.5 C35.5 13 39 16.5 39 21 C39 26 35 30 29 30 Z" fill="${fill}" stroke="${stroke}" stroke-width="3" ${S}/><path d="M9 18 C10 15 12.5 13.5 15 13" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" opacity=".9"/>`;
   const dots = (c = NAVY) => `<g fill="${c}"><circle cx="3" cy="3" r="2.6"/><circle cx="11" cy="3" r="2.6"/><circle cx="19" cy="3" r="2.6"/></g>`;
   const wisp = () => `<path d="M6 30 C2 24 10 20 6 12" fill="none" stroke="${NAVY}" stroke-width="6" stroke-linecap="round" opacity=".32"/><path d="M6 30 C2 24 10 20 6 12" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`;
+  // 抖一下的線（耳朵、尾巴被碰到）：三條往外的短線；flip＝往左
+  const flick = (flip = false) => `<g fill="none" stroke="${NAVY}" stroke-width="3.4" stroke-linecap="round"${flip ? ' transform="translate(26 0) scale(-1 1)"' : ''}><path d="M12 5 L20 0"/><path d="M10 13 L22 13"/><path d="M12 21 L20 26"/></g>`;
+  const blush = () => `<g fill="none" stroke="${ROSE}" stroke-width="3" stroke-linecap="round"><path d="M3 14 L8 4"/><path d="M11 14 L16 4"/><path d="M19 14 L24 4"/></g>`;
   const scribble = () => `<g fill="none" stroke="${NAVY}" stroke-width="3" stroke-linecap="round" opacity=".8"><path d="M2 16 C6 12 8 18 12 14 C16 10 18 16 22 12"/><path d="M4 24 C8 20 10 26 14 22 C18 18 20 24 24 20"/></g>`;
 
   // 一個零件：放在 (x, y)、縮放 s、動畫 anim、第 i 個（延遲用）；cx/cy 是零件自己的中心（縮放的支點）
@@ -43,6 +46,12 @@
     twinkle: () => [piece(spark(), { x: 232, y: 18, s: .9, anim: 'twinkle', cx: 12, cy: 12 }), piece(spark(), { x: 258, y: 44, s: .55, anim: 'twinkle', i: 1, cx: 12, cy: 12 })],
     steam: () => [piece(wisp(), { x: 92, y: 138, s: 1, anim: 'rise', cx: 6, cy: 21 }), piece(wisp(), { x: 104, y: 142, s: 1, anim: 'rise', i: 1, cx: 6, cy: 21 }), piece(wisp(), { x: 116, y: 138, s: 1, anim: 'rise', i: 2, cx: 6, cy: 21 })], // 奶茶杯口在 (110, 182) 左右
     sweat: () => [piece(drop(), { x: 196, y: 40, s: 1, anim: 'slide', cx: 12, cy: 14 })],
+    // 🐾 摸不同的地方（位置照立繪原圖換算：頭頂約 (141, 27)、左耳尖約 (93, 11)、右耳尖約 (211, 33)、右臉頰約 (165, 123)、尾巴尖約 (247, 230)）
+    pat: () => [piece(heart(), { x: 150, y: 4, s: .8, cx: 16, cy: 15 }), piece(heart(), { x: 112, y: 14, s: .55, i: 1, cx: 16, cy: 15 }), piece(spark(), { x: 182, y: 22, s: .6, anim: 'twinkle', i: 2, cx: 12, cy: 12 })],
+    flickL: () => [piece(flick(true), { x: 60, y: 4, s: 1, anim: 'pop', cx: 13, cy: 13 })],
+    flickR: () => [piece(flick(), { x: 216, y: 20, s: 1, anim: 'pop', cx: 13, cy: 13 })],
+    cheek: () => [piece(blush(), { x: 170, y: 104, s: .9, anim: 'pop', cx: 13, cy: 9 }), piece(puff(4), { x: 196, y: 96, s: 1, anim: 'pop', i: 1, cx: 4, cy: 4 })],
+    flickTail: () => [piece(flick(), { x: 258, y: 206, s: 1, anim: 'pop', cx: 13, cy: 13 })],
     // 睡著時頭上的 z z Z（一直循環，到醒來為止）
     doze: () => [piece(zee('z'), { x: 0, y: 30, s: .7, anim: 'zz', cx: 8, cy: 14 }), piece(zee('z'), { x: 10, y: 18, s: .9, anim: 'zz', i: 1, cx: 8, cy: 14 }), piece(zee('Z'), { x: 22, y: 4, s: 1.1, anim: 'zz', i: 2, cx: 9, cy: 14 })],
   };
