@@ -349,9 +349,15 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const Cursors = require('../src/renderer/cursors');
   for (const z of ['head', 'earL', 'earR', 'face', 'tail']) assert.ok(Cursors.OF_ZONE[z] && Cursors.CURSORS[Cursors.OF_ZONE[z]], `部位 ${z} 有鼠標`);
   for (const [k, c] of Object.entries(Cursors.CURSORS)) {
-    assert.ok(/^<svg[^>]+width="32" height="32"/.test(c.svg) && c.x >= 0 && c.x < 32 && c.y >= 0 && c.y < 32, `鼠標 ${k}：32×32、熱點在圖裡`);
-    assert.ok(/^url\("data:image\/svg\+xml;charset=utf-8,[^"]+"\) \d+ \d+, pointer$/.test(Cursors.css(k)), `鼠標 ${k} 的 CSS`);
+    assert.ok(/^<svg[^>]+width="32" height="32"/.test(c.svg) && c.x >= 0 && c.x < 32 && c.y >= 0 && c.y < 32 && c.sx >= 0 && c.sx < 32 && c.sy >= 0 && c.sy < 32, `鼠標 ${k}：熱點在圖裡`);
+    for (const sz of [32, 48, 64]) {
+      const f = path.join(__dirname, '..', 'assets', 'ui', 'cursors', `${c.png}_${sz}.png`);
+      const buf = fs.readFileSync(f);
+      assert.ok(buf.readUInt32BE(16) === sz && buf.readUInt32BE(20) === sz, `${c.png}_${sz}.png 是 ${sz}×${sz}`);
+    }
+    assert.ok(new RegExp(`^image-set\\(url\\("\\.\\./\\.\\./assets/ui/cursors/${c.png}_32\\.png"\\) 1x, [^)]+_48\\.png"\\) 1\\.5x, [^)]+_64\\.png"\\) 2x\\) \\d+ \\d+, url\\("data:image/svg\\+xml;charset=utf-8,[^"]+"\\) \\d+ \\d+, pointer$`).test(Cursors.css(k)), `鼠標 ${k} 的 CSS：正式圖（高解析也有）→ 備援 SVG → 手指：` + Cursors.css(k).slice(0, 120));
   }
+  assert.ok(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).build.files.some((x) => /^assets\/ui\//.test(x)), '鼠標的圖會被打包');
   assert.strictEqual(Cursors.css('nope'), '');
   // 摸頭手勢：來回滑才算；一路滑過去、太慢、離開頭頂都不算
   const feed = (det, xs, step = 60, onHead = true) => xs.some((x, i) => det.feed(x, 1000 + i * step, onHead));

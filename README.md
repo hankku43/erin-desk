@@ -654,7 +654,7 @@ npm start
 | `src/main/decide.js` | 🤔 幫艾琳做決定：題庫、聊天裡的回答怎麼對到選項、之後提起與待機小字（純函式） |
 | `src/main/weather.js` | ☁ 天候水晶：網路位置、Open-Meteo 預報、天氣代碼與魔法說法、建議、聊天問天氣的判斷 |
 | `src/renderer/touch.js` | 🐾 立繪上的部位（頭、耳朵、尾巴、臉頰）、摸頭手勢 |
-| `src/renderer/cursors.js` | 🐾 摸的時候的鼠標：冒險者的手套（SVG，張開／左右擺／一根手指／捏） |
+| `src/renderer/cursors.js`、`assets/ui/cursors/` | 🐾 摸的時候的鼠標：冒險者的手套（張開／左右擺／一根手指／捏；32／48／64 px 的 PNG，程式畫的 SVG 當備援） |
 | `src/renderer/weather-art.js` | ☁ 天候水晶的小圖（SVG） |
 | `src/main/displays.js` | 多顯示器位置 |
 | `src/renderer/` | 介面：`index.html`、`style.css`、`renderer.js`（對話、面板、特效）、`onboard.js`（新手教學、新手任務、健康檢查）、`notebook.js`（📒 小本子面板）、`journal.js`（📖 冒險日誌面板）、`shop.js`（🛒 雜貨舖面板：禮物／裝飾／星座卡三個分頁、許願單、櫃台吊飾／擺設、主題配色）、`twins.js`（🐰 棉棉和朵朵：攤位招牌、抽卡演出、跑來櫃台）、`art.js`（吊飾、擺設、禮物、雙胞胎用 `assets/shop/` 的圖，沒有圖時退回 SVG；星座卡的 SVG）、`idle-brain.js`＋`idle.js`＋`emotes.js`（待機小動作：決定做什麼＋演出來＋飄在頭旁邊的 SVG 表情符號）、`coin.svg`（金幣圖示；不用金幣 emoji，因為 Windows 10 沒有這個字）、`update.js`（🔄 新版本的卡片：現在更新／下次再裝、免安裝版打開下載頁） |

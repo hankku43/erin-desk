@@ -1,7 +1,7 @@
 // 🐾 摸艾琳的時候換鼠標：冒險者的手套（跟開場序章那雙一樣：棕色皮手套＋白袖口、皮帶扣）
 // 頭和耳朵＝張開的手（摸頭時跟著滑鼠左右擺）、臉頰＝伸出一根手指（戳）、尾巴＝輕輕捏；身體其他地方照舊
-// 32×32 的 SVG（data: 網址，不用另外的檔案；每個鼠標是獨立的 SVG 文件，所以可以用漸層）
-// 畫法：光從左上來（左上亮、右下暗）、指縫和手背有縫線、深色描邊外面再包一圈白邊，深色、淺色的桌面都看得清楚
+// 正式的圖是使用者用生圖工具畫的手套（assets/ui/cursors/，32／48／64 px 的 PNG），這裡的 SVG 是圖讀不到時的備援
+// SVG 畫法：光從左上來（左上亮、右下暗）、指縫和手背有縫線、深色描邊外面再包一圈白邊，深色、淺色的桌面都看得清楚
 (function (root) {
   'use strict';
   const INK = '#2a170c';
@@ -80,21 +80,28 @@
   const hand = (inner, tf = '') => `<g${tf ? ` transform="${tf}"` : ''}><g class="w">${inner}${cuff()}</g><g>${inner}${cuff()}</g></g>`;
   const svg = (body) => `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">${DEFS}${body}</svg>`;
 
-  // 每種鼠標：圖、熱點（點下去算哪一個點：指尖）
+  // 每種鼠標：正式圖（assets/ui/cursors/*.png，使用者生的手套去背縮成 32／48／64）＋ 熱點（點下去算哪一個點：指尖，32px 的座標）；
+  // svg＝程式畫的備援（圖檔讀不到時用）
   const CURSORS = {
-    open: { svg: svg(hand(open())), x: 15, y: 2 },
-    patL: { svg: svg(hand(open(), 'rotate(-16 16 30)')), x: 10, y: 4 },
-    patR: { svg: svg(hand(open(), 'rotate(16 16 30)')), x: 20, y: 4 },
-    poke: { svg: svg(hand(poke())), x: 11, y: 1 },
-    pinch: { svg: svg(hand(pinch())), x: 6, y: 7 },
+    open: { png: 'open', x: 17, y: 0, svg: svg(hand(open())), sx: 15, sy: 2 },
+    patL: { png: 'pat_l', x: 12, y: 1, svg: svg(hand(open(), 'rotate(-16 16 30)')), sx: 10, sy: 4 },
+    patR: { png: 'pat_r', x: 20, y: 1, svg: svg(hand(open(), 'rotate(16 16 30)')), sx: 20, sy: 4 },
+    poke: { png: 'poke', x: 13, y: 0, svg: svg(hand(poke())), sx: 11, sy: 1 },
+    pinch: { png: 'pinch', x: 5, y: 3, svg: svg(hand(pinch())), sx: 6, sy: 7 },
   };
   // 部位 → 鼠標（身體其他地方 null＝照舊）
   const OF_ZONE = { head: 'open', earL: 'open', earR: 'open', face: 'poke', tail: 'pinch' };
+  const DIR = '../../assets/ui/cursors/'; // index.html 在 src/renderer/
   const url = (k) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(CURSORS[k].svg)}`;
-  // CSS 的 cursor 值：讀不到圖時退回手指形狀
-  const css = (k) => (CURSORS[k] ? `url("${url(k)}") ${CURSORS[k].x} ${CURSORS[k].y}, pointer` : '');
+  // CSS 的 cursor 值：高解析螢幕用 48／64 的圖（image-set 的熱點照 1x 的座標）；圖讀不到就退回程式畫的 SVG，再退回手指形狀
+  const css = (k) => {
+    const c = CURSORS[k];
+    if (!c) return '';
+    const set = `image-set(url("${DIR}${c.png}_32.png") 1x, url("${DIR}${c.png}_48.png") 1.5x, url("${DIR}${c.png}_64.png") 2x)`;
+    return `${set} ${c.x} ${c.y}, url("${url(k)}") ${c.sx} ${c.sy}, pointer`;
+  };
 
-  const Cursors = { CURSORS, OF_ZONE, url, css };
+  const Cursors = { CURSORS, OF_ZONE, DIR, url, css };
   if (typeof module === 'object' && module.exports) module.exports = Cursors;
   else root.Cursors = Cursors;
 })(typeof window !== 'undefined' ? window : globalThis);

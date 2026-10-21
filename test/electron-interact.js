@@ -71,18 +71,20 @@ module.exports = ({ win, engine, app, runWeather }) => {
       const cursorNow = () => js(`(()=>{const w=document.querySelector('#npcWrap');return {inline:decodeURIComponent(w.style.cursor||''),computed:getComputedStyle(w).cursor.slice(0,40)};})()`);
       await js(`document.querySelector('#npcWrap').dispatchEvent(new MouseEvent('mouseleave'))`);
       await moveAt(515, 150); let cs = await cursorNow();
-      assert(/data:image\/svg\+xml/.test(cs.inline) && /^url\(/.test(cs.computed) && !/rotate\(-?16 16 30\)/.test(cs.inline), '頭上：張開的手套、還沒擺（Chromium 認得）：' + JSON.stringify(cs));
+      assert(/cursors\/open_32\.png/.test(cs.inline) && /^(-webkit-)?image-set\(/.test(cs.computed), '頭上：張開的手套、還沒擺（Chromium 認得 image-set）：' + JSON.stringify(cs));
+      const probe = await js(`new Promise((r)=>{const i=new Image();i.onload=()=>r({ok:true,w:i.naturalWidth});i.onerror=()=>r({ok:false});i.src='../../assets/ui/cursors/open_32.png';})`);
+      assert(probe.ok && probe.w === 32, '鼠標的圖讀得到：' + JSON.stringify(probe));
       const headCur = cs.inline;
-      await moveAt(515, 400); cs = await cursorNow(); const faceCur = cs.inline; assert(/data:image\/svg\+xml/.test(faceCur) && faceCur !== headCur, '臉頰：另一種（伸出食指）');
-      await moveAt(900, 960); cs = await cursorNow(); assert(/data:image\/svg\+xml/.test(cs.inline) && cs.inline !== headCur && cs.inline !== faceCur, '尾巴：第三種（輕輕捏）');
+      await moveAt(515, 400); cs = await cursorNow(); const faceCur = cs.inline; assert(/cursors\/poke_32\.png/.test(faceCur), '臉頰：伸出食指');
+      await moveAt(900, 960); cs = await cursorNow(); assert(/cursors\/pinch_32\.png/.test(cs.inline) && headCur !== faceCur, '尾巴：輕輕捏');
       await moveAt(515, 800); cs = await cursorNow(); assert(cs.inline === '' && cs.computed === 'pointer', '身體：照舊');
       await js(`document.querySelector('#npcWrap').dispatchEvent(new MouseEvent('mouseleave'))`);
       // 摸頭：滑鼠在頭上左右來回
       engine.pokeTimes = [];
       await js(`state.lineDoneAt=0;state.clickedAt=0`);
       const tilts = new Set();
-      for (const x of [460, 520, 580, 520, 460, 520, 580, 520, 460, 520]) { await moveAt(x, 150); await wait(40); const c = (await cursorNow()).inline; const m = c.match(/rotate\((-?16) 16 30\)/); if (m) tilts.add(m[1]); }
-      assert(tilts.has('-16') && tilts.has('16'), '摸頭的時候手套左右擺：' + [...tilts]);
+      for (const x of [460, 520, 580, 520, 460, 520, 580, 520, 460, 520]) { await moveAt(x, 150); await wait(40); const c = (await cursorNow()).inline; const m = c.match(/cursors\/pat_([lr])_32/); if (m) tilts.add(m[1]); }
+      assert(tilts.has('l') && tilts.has('r'), '摸頭的時候手套左右擺：' + [...tilts]);
       await wait(300);
       const patEm = await js(`!!document.querySelector('#npcWrap > .emote')`);
       await wait(1200); await flush();
