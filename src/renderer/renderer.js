@@ -120,12 +120,29 @@ window.addEventListener('mouseleave', () => { lastIgnore = null; });
   });
   // 🐾 摸頭：沒按著滑鼠、在頭上左右來回滑（按著拖＝搬動視窗）
   const pat = typeof Touch !== 'undefined' ? Touch.PatDetector() : null;
+  // 鼠標換成冒險者的手套：頭和耳朵張開手（正在摸就跟著左右擺）、臉頰伸一根手指、尾巴輕輕捏；其他地方照舊
+  const cur = { kind: '', x: null, dir: 0, flipAt: 0 };
+  const setCursor = (kind) => {
+    if (kind === cur.kind) return;
+    cur.kind = kind;
+    wrap.style.cursor = kind && typeof Cursors !== 'undefined' ? Cursors.css(kind) : '';
+  };
   wrap.addEventListener('mousemove', (e) => {
-    if (down || !pat || state.mini) return;
+    if (down || state.mini) { if (state.mini) setCursor(''); return; }
     const z = zoneOf(e);
-    if (pat.feed(e.screenX, Date.now(), z === 'head' || z === 'earL' || z === 'earR')) onPat();
+    const onHead = z === 'head' || z === 'earL' || z === 'earR';
+    let kind = (typeof Cursors !== 'undefined' && Cursors.OF_ZONE[z]) || '';
+    if (onHead) {
+      const now = Date.now();
+      const dx = cur.x === null ? 0 : e.screenX - cur.x;
+      if (Math.abs(dx) >= 2) { const d = dx > 0 ? 1 : -1; if (cur.dir && d !== cur.dir) cur.flipAt = now; cur.dir = d; }
+      if (now - cur.flipAt < 600 && cur.dir) kind = cur.dir < 0 ? 'patL' : 'patR'; // 正在來回摸：手跟著擺
+    } else { cur.dir = 0; cur.flipAt = 0; }
+    cur.x = e.screenX;
+    setCursor(kind);
+    if (pat && pat.feed(e.screenX, Date.now(), onHead)) onPat();
   });
-  wrap.addEventListener('mouseleave', () => { if (pat) pat.reset(); });
+  wrap.addEventListener('mouseleave', () => { if (pat) pat.reset(); cur.x = null; cur.dir = 0; setCursor(''); });
   window.addEventListener('mousemove', (e) => {
     if (!down) return;
     const dx = e.screenX - down.x, dy = e.screenY - down.y;

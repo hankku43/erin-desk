@@ -345,6 +345,14 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.strictEqual(Touch.zoneAt(NaN, 1, 'normal'), null);
   for (const b of [...Touch.BASE, Touch.TAIL.low, Touch.TAIL.tall]) assert.ok(b.x0 >= 0 && b.x1 <= Touch.IMG_W && b.y0 >= 0 && b.y1 <= Touch.IMG_H, '框在立繪裡');
   for (const z of Object.values(Touch.EMOTE)) assert.ok(Emotes.KINDS.includes(z) && Emotes.svgOf(z).length > 200, `表情符號 ${z}`);
+  // 鼠標：冒險者的手套（頭、耳朵張開手、臉頰一根手指、尾巴捏），身體其他地方照舊
+  const Cursors = require('../src/renderer/cursors');
+  for (const z of ['head', 'earL', 'earR', 'face', 'tail']) assert.ok(Cursors.OF_ZONE[z] && Cursors.CURSORS[Cursors.OF_ZONE[z]], `部位 ${z} 有鼠標`);
+  for (const [k, c] of Object.entries(Cursors.CURSORS)) {
+    assert.ok(/^<svg[^>]+width="32" height="32"/.test(c.svg) && c.x >= 0 && c.x < 32 && c.y >= 0 && c.y < 32, `鼠標 ${k}：32×32、熱點在圖裡`);
+    assert.ok(/^url\("data:image\/svg\+xml;charset=utf-8,[^"]+"\) \d+ \d+, pointer$/.test(Cursors.css(k)), `鼠標 ${k} 的 CSS`);
+  }
+  assert.strictEqual(Cursors.css('nope'), '');
   // 摸頭手勢：來回滑才算；一路滑過去、太慢、離開頭頂都不算
   const feed = (det, xs, step = 60, onHead = true) => xs.some((x, i) => det.feed(x, 1000 + i * step, onHead));
   assert.ok(feed(Touch.PatDetector(), [0, 15, 30, 15, 0, 15, 30, 15, 0]), '左右來回＝摸頭');
@@ -628,6 +636,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const pre = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'preload.js'), 'utf8');
   const mainJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.js'), 'utf8');
   assert.ok(/id="hudWeather"/.test(html) && /id="pickRow"/.test(html) && /touch\.js/.test(html) && /weather-art\.js/.test(html));
+  assert.ok(html.indexOf('cursors.js') > 0 && html.indexOf('cursors.js') < html.indexOf('renderer.js') && /Cursors\.css\(kind\)/.test(rjs) && /Cursors\.OF_ZONE\[z\]/.test(rjs), '摸的時候換鼠標');
   assert.ok(html.indexOf('touch.js') < html.indexOf('renderer.js') && html.indexOf('weather-art.js') < html.indexOf('renderer.js'), '先載入再用');
   assert.ok(/api\.poke\(zone\)/.test(rjs) && /api\.poke\('head', 'pat'\)/.test(rjs) && /api\.decide\(/.test(rjs) && /api\.weatherSay\(/.test(rjs));
   assert.ok(/decide:/.test(pre) && /weatherSay:/.test(pre) && /weatherRefresh:/.test(pre));

@@ -67,10 +67,21 @@ module.exports = ({ win, engine, app, runWeather }) => {
       await clickAt(900, 960); await wait(1500); await flush();
       assert(pokes.some(([z]) => z === 'tail'), '點尾巴');
       console.log('尾巴：', await text());
+      // 鼠標：滑到頭上是張開的手套、臉頰一根手指、尾巴捏、身體照舊；來回摸的時候手跟著擺
+      const cursorNow = () => js(`(()=>{const w=document.querySelector('#npcWrap');return {inline:decodeURIComponent(w.style.cursor||''),computed:getComputedStyle(w).cursor.slice(0,40)};})()`);
+      await js(`document.querySelector('#npcWrap').dispatchEvent(new MouseEvent('mouseleave'))`);
+      await moveAt(515, 150); let cs = await cursorNow();
+      assert(/data:image\/svg\+xml/.test(cs.inline) && /^url\(/.test(cs.computed) && !/rotate/.test(cs.inline), '頭上：張開的手套（Chromium 認得）：' + JSON.stringify(cs));
+      await moveAt(515, 400); cs = await cursorNow(); assert(/M10 2\.4|x="10" y="2\.4"/.test(cs.inline), '臉頰：伸出食指');
+      await moveAt(900, 960); cs = await cursorNow(); assert(/C12\.6 12\.2 10\.8 8\.6/.test(cs.inline), '尾巴：輕輕捏');
+      await moveAt(515, 800); cs = await cursorNow(); assert(cs.inline === '' && cs.computed === 'pointer', '身體：照舊');
+      await js(`document.querySelector('#npcWrap').dispatchEvent(new MouseEvent('mouseleave'))`);
       // 摸頭：滑鼠在頭上左右來回
       engine.pokeTimes = [];
       await js(`state.lineDoneAt=0;state.clickedAt=0`);
-      for (const x of [460, 520, 580, 520, 460, 520, 580, 520, 460, 520]) { await moveAt(x, 150); await wait(40); }
+      const tilts = new Set();
+      for (const x of [460, 520, 580, 520, 460, 520, 580, 520, 460, 520]) { await moveAt(x, 150); await wait(40); const c = (await cursorNow()).inline; const m = c.match(/rotate\((-?\d+)/); if (m) tilts.add(m[1]); }
+      assert(tilts.has('-16') && tilts.has('16'), '摸頭的時候手套左右擺：' + [...tilts]);
       await wait(300);
       const patEm = await js(`!!document.querySelector('#npcWrap > .emote')`);
       await wait(1200); await flush();
