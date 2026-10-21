@@ -71,16 +71,17 @@ module.exports = ({ win, engine, app, runWeather }) => {
       const cursorNow = () => js(`(()=>{const w=document.querySelector('#npcWrap');return {inline:decodeURIComponent(w.style.cursor||''),computed:getComputedStyle(w).cursor.slice(0,40)};})()`);
       await js(`document.querySelector('#npcWrap').dispatchEvent(new MouseEvent('mouseleave'))`);
       await moveAt(515, 150); let cs = await cursorNow();
-      assert(/data:image\/svg\+xml/.test(cs.inline) && /^url\(/.test(cs.computed) && !/rotate/.test(cs.inline), '頭上：張開的手套（Chromium 認得）：' + JSON.stringify(cs));
-      await moveAt(515, 400); cs = await cursorNow(); assert(/M10 2\.4|x="10" y="2\.4"/.test(cs.inline), '臉頰：伸出食指');
-      await moveAt(900, 960); cs = await cursorNow(); assert(/C12\.6 12\.2 10\.8 8\.6/.test(cs.inline), '尾巴：輕輕捏');
+      assert(/data:image\/svg\+xml/.test(cs.inline) && /^url\(/.test(cs.computed) && !/rotate\(-?16 16 30\)/.test(cs.inline), '頭上：張開的手套、還沒擺（Chromium 認得）：' + JSON.stringify(cs));
+      const headCur = cs.inline;
+      await moveAt(515, 400); cs = await cursorNow(); const faceCur = cs.inline; assert(/data:image\/svg\+xml/.test(faceCur) && faceCur !== headCur, '臉頰：另一種（伸出食指）');
+      await moveAt(900, 960); cs = await cursorNow(); assert(/data:image\/svg\+xml/.test(cs.inline) && cs.inline !== headCur && cs.inline !== faceCur, '尾巴：第三種（輕輕捏）');
       await moveAt(515, 800); cs = await cursorNow(); assert(cs.inline === '' && cs.computed === 'pointer', '身體：照舊');
       await js(`document.querySelector('#npcWrap').dispatchEvent(new MouseEvent('mouseleave'))`);
       // 摸頭：滑鼠在頭上左右來回
       engine.pokeTimes = [];
       await js(`state.lineDoneAt=0;state.clickedAt=0`);
       const tilts = new Set();
-      for (const x of [460, 520, 580, 520, 460, 520, 580, 520, 460, 520]) { await moveAt(x, 150); await wait(40); const c = (await cursorNow()).inline; const m = c.match(/rotate\((-?\d+)/); if (m) tilts.add(m[1]); }
+      for (const x of [460, 520, 580, 520, 460, 520, 580, 520, 460, 520]) { await moveAt(x, 150); await wait(40); const c = (await cursorNow()).inline; const m = c.match(/rotate\((-?16) 16 30\)/); if (m) tilts.add(m[1]); }
       assert(tilts.has('-16') && tilts.has('16'), '摸頭的時候手套左右擺：' + [...tilts]);
       await wait(300);
       const patEm = await js(`!!document.querySelector('#npcWrap > .emote')`);
