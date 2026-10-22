@@ -790,12 +790,13 @@ function weatherNote(w) {
   return `${sky || ''}${rain ? `・降雨 ${rain[1]}%` : ''}`;
 }
 function weatherItem() {
+  // 不放 tip：滑過不跳提示（使用者 10/22 要求），日子、預報都在點開的面板裡
   const w = state.view && state.view.weather;
   if (!w) return null;
   // 還沒打開（預設）：淡淡的水晶，點了先看說明（會連到哪裡、送出什麼），按「打開」才連網
-  if (!w.on) return { act: 'weather', ico: typeof WxArt !== 'undefined' ? WxArt.svg('unknown', { size: 28 }) : '☁', html: true, label: '天候水晶', note: '還沒打開・點了先看說明', tip: `${w.tip || '天候水晶還沒打開'}\n（點一下：看它會連到哪裡，再決定要不要打開）`, kind: 'off', dim: true };
+  if (!w.on) return { act: 'weather', ico: typeof WxArt !== 'undefined' ? WxArt.svg('unknown', { size: 28 }) : '☁', html: true, label: '天候水晶', note: '還沒打開・點了先看說明', kind: 'off', dim: true };
   const kind = w.ok ? w.kind : 'unknown';
-  return { act: 'weather', ico: typeof WxArt !== 'undefined' ? `<span class="wx-live">${WxArt.svg(kind, { size: 28 })}</span>` : '☁', html: true, label: '天候水晶', note: weatherNote(w), tip: `${w.tip || '天候水晶'}\n（點一下：打開天候水晶，看接下來幾小時）`, kind, dim: !w.ok };
+  return { act: 'weather', ico: typeof WxArt !== 'undefined' ? `<span class="wx-live">${WxArt.svg(kind, { size: 28 })}</span>` : '☁', html: true, label: '天候水晶', note: weatherNote(w), kind, dim: !w.ok };
 }
 // 魔法那排開著的時候，天氣更新了就把水晶那顆換掉（其他兩顆不動）
 function renderWeather() {
@@ -806,7 +807,7 @@ function renderWeather() {
   if (!b) { toggleSub('magic', { refresh: true }); return; }
   if (b.dataset.kind !== it.kind) { b.querySelector('.sb-ico').innerHTML = it.ico; b.dataset.kind = it.kind; }
   b.querySelector('small').textContent = it.note;
-  b.dataset.tip = it.tip;
+  delete b.dataset.tip; // 水晶不要滑過的提示（點開面板就看得到）
   b.classList.toggle('dim', it.dim);
 }
 // 點魔法裡的水晶：水晶亮一下、她身邊閃星星，打開天候水晶的面板

@@ -45,7 +45,7 @@ module.exports = ({ win, engine, app, runWeather }) => {
       await runWeather(true); await wait(300);
       await js(`document.querySelector('#choices .more button[data-act="magic"]').click()`); await wait(400);
       const off = await js(`(()=>{const b=document.querySelector('#subRow .sub-btn[data-act="weather"]');return b?{dim:b.classList.contains('dim'),note:b.querySelector('small').textContent,tip:b.dataset.tip}:null;})()`);
-      assert(off && off.dim && /還沒打開/.test(off.note) && /農曆/.test(off.tip) && wxCalls.length === 0, '預設關著、沒連網：' + JSON.stringify(off) + wxCalls.join());
+      assert(off && off.dim && /還沒打開/.test(off.note) && !off.tip && wxCalls.length === 0, '預設關著、沒連網：' + JSON.stringify(off) + wxCalls.join());
       await shot('x00a_crystal_off');
       // 點水晶：先看說明（會連到哪裡、送出什麼）；位置先空著，不選不能打開；選縣市就不查 IP
       await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').click()`); await wait(400);
@@ -64,11 +64,11 @@ module.exports = ({ win, engine, app, runWeather }) => {
       if (!(await js('state.subRow === "magic"'))) await js(`toggleSub('magic')`);
       await wait(400);
       const wt = await js(`(()=>{const b=document.querySelector('#subRow .sub-btn[data-act="weather"]');const all=[...document.querySelectorAll('#subRow .sub-btn')].map(x=>x.dataset.act);if(!b)return {all};const g=b.querySelector('.wx-cloud,.wx-rays');return {all,dim:b.classList.contains('dim'),note:b.querySelector('small').textContent,svg:!!b.querySelector('svg'),tip:b.dataset.tip,anim:g?getComputedStyle(g).animationName:''};})()`);
-      assert(wt.all && wt.all.join() === 'fortune,divine,weather' && !wt.dim && /晴時多雲 26°/.test(wt.note) && /降雨 20%/.test(wt.note) && wt.svg && /台中/.test(wt.tip) && /^wx/.test(wt.anim), '魔法裡的天候水晶：' + JSON.stringify(wt));
+      assert(wt.all && wt.all.join() === 'fortune,divine,weather' && !wt.dim && /晴時多雲 26°/.test(wt.note) && /降雨 20%/.test(wt.note) && wt.svg && !wt.tip && /^wx/.test(wt.anim), '魔法裡的天候水晶：' + JSON.stringify(wt));
       assert(!(await js(`!!document.querySelector('#hudWeather')`)), '狀態欄不再放水晶');
       await shot('x01_magic_crystal');
       await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').dispatchEvent(new MouseEvent('mouseover',{bubbles:true}))`); await wait(400);
-      await shot('x02_crystal_tip');
+      assert(await js(`document.querySelector('#tip').classList.contains('hidden')`), '滑過水晶不跳提示');
       await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').dispatchEvent(new MouseEvent('mouseout',{bubbles:true}));hideTip()`);
       await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').click()`); await wait(250);
       const cast = await js(`(()=>{const b=document.querySelector('#subRow .sub-btn[data-act="weather"]');return {cast:!!b&&b.classList.contains('wx-cast'),rowOpen:!document.querySelector('#subRow').classList.contains('hidden'),emote:!!document.querySelector('#npcWrap > .emote')};})()`);
@@ -180,7 +180,7 @@ module.exports = ({ win, engine, app, runWeather }) => {
       await shot('x10_halloween');
       await js(`hideSub(); document.querySelector('#choices .more button[data-act="magic"]').click()`); await wait(300);
       const tip2 = await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').dataset.tip`);
-      assert(/萬聖節/.test(tip2) && /農曆/.test(tip2), '水晶滑過看得到今天是什麼日子：' + tip2);
+      assert(!tip2, '水晶沒有滑過的提示：' + tip2);
       console.log('DONE');
     } catch (e) { console.error('TEST FAIL', e); }
     app.quit();
