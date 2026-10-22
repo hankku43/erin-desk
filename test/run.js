@@ -607,6 +607,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const W = E.state.weather;
   assert.ok(W.loc.lat === 24.15 && W.loc.lon === 120.67 && W.data.temp === 26, '存檔裡的位置也只到小數點兩位');
   const v = E.weatherView();
+  assert.ok(v.detail && v.detail.hours.length === 5 && v.detail.hours[0].name && v.detail.today.name && v.detail.tomorrow && /精靈|羊群/.test(v.detail.now.magic) && v.day && /農曆/.test(v.day.lunar), '面板要的資料：現在、逐時、今天明天、日子：' + JSON.stringify(v.detail && v.detail.hours));
   assert.ok(v.ok && v.kind === 'partly' && v.temp === 26 && /台中/.test(v.tip) && /晴時多雲 26°/.test(v.tip) && /Open-Meteo/.test(v.tip) && /網路位置/.test(v.tip), v.tip);
   calls.length = 0;
   assert.strictEqual(await E.refreshWeather(fakeFetch()), false, '半小時內不重抓'); assert.strictEqual(calls.length, 0);
@@ -667,8 +668,9 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(html.indexOf('touch.js') < html.indexOf('renderer.js') && html.indexOf('weather-art.js') < html.indexOf('renderer.js'), '先載入再用');
   assert.ok(/api\.poke\(zone\)/.test(rjs) && /api\.poke\('head', 'pat'\)/.test(rjs) && /api\.decide\(/.test(rjs) && /api\.weatherSay\(/.test(rjs));
   assert.ok(/decide:/.test(pre) && /weatherSay:/.test(pre) && /weatherRefresh:/.test(pre) && /weatherSet:/.test(pre));
-  assert.ok(/ipcMain\.handle\('weather:set'/.test(mainJs) && /open\('weather'\)/.test(mainJs) && /function renderWeatherPanel/.test(rjs) && /if \(!w\.on\) \{ openPanel\('weather'\)/.test(rjs), '天候水晶：沒打開時點了先看說明');
+  assert.ok(/ipcMain\.handle\('weather:set'/.test(mainJs) && /open\('weatherSet'\)/.test(mainJs) && /function renderWeatherSetPanel/.test(rjs) && /if \(!w\.on\) \{ openPanel\('weatherSet'\)/.test(rjs), '天候水晶：沒打開時點了先看說明');
   assert.ok(/window\.hud === false\) engine\.setHud\(true\)/.test(mainJs), '狀態欄：每次打開程式都先顯示');
+  assert.ok(/function renderWeatherPanel/.test(rjs) && /state\.panel === 'weather'\) renderWeatherPanel/.test(rjs) && /openPanel\('weather'\)/.test(rjs) && /\.wx-orb\.scrying \.wx-mist/.test(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'style.css'), 'utf8')), '天候水晶有自己的面板和「霧散開」的動畫');
   assert.ok(/'npc:decide'/.test(mainJs) && /'weather:say'/.test(mainJs) && /'weather:refresh'/.test(mainJs) && /net\.fetch\(url/.test(mainJs), '天氣用 Chromium 的網路（走系統 proxy）');
   assert.ok(/QUEST_NPC_TEST \? null : wxFetchJson/.test(mainJs), '自動測試不連網路');
   fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(dir2, { recursive: true, force: true });

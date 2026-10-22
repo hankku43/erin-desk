@@ -94,6 +94,7 @@ function summarize(j, nowMs = Date.now()) {
   };
   // 接下來 3 小時：最高的降雨機率（Open-Meteo 的時間是當地時間、沒有時區字尾；用 utc_offset_seconds 換算）
   let soon = null;
+  const hours = [];
   const h = j.hourly || {};
   if (Array.isArray(h.time)) {
     const off = Number(j.utc_offset_seconds) || 0;
@@ -106,12 +107,19 @@ function summarize(j, nowMs = Date.now()) {
       if (p !== null && (!best || p > best.prob)) best = { prob: p, inHours: Math.max(0, Math.round((at - nowMs) / 3600000)) };
     });
     soon = best;
+    // 接下來幾個小時（水晶面板的時間軸）：從這個小時開始的 6 格
+    h.time.forEach((t, i) => {
+      const at = ms(t);
+      if (hours.length >= 6 || at < nowMs - 3600000 + 1) return;
+      const hr = Number(String(t).slice(11, 13));
+      hours.push({ hour: hr, kind: kindOf((h.weather_code || [])[i], hr >= 6 && hr < 18), temp: round((h.temperature_2m || [])[i]), rain: round((h.precipitation_probability || [])[i]) });
+    });
   }
   const kind = kindOf(c.weather_code, isDay);
   return {
     temp: round(c.temperature_2m), feels: round(c.apparent_temperature), humidity: round(c.relative_humidity_2m),
     code: c.weather_code, kind, isDay, wind: round(c.wind_speed_10m), precip: num(c.precipitation),
-    today: day(0), tomorrow: day(1), soon,
+    today: day(0), tomorrow: day(1), soon, hours,
   };
 }
 

@@ -662,7 +662,7 @@ function menuTemplate() {
       { label: '📊 狀態欄（等級、當前任務）', type: 'checkbox', checked: engine.config.window.hud !== false, click: (m) => { const r = engine.setHud(m.checked); push('view:update', { view: r.view }); } },
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
       { label: '🐰 棉棉和朵朵來櫃台串門子（下午茶外送、道賀、許願單）', type: 'checkbox', checked: engine.twCfg().enabled !== false, click: (m) => { const r = engine.setTwins(m.checked); push('view:update', { view: r.view }); } },
-      { label: `☁ 天候水晶…（${engine.weatherOn() ? '開著' : '關著'}；打開會連網看天氣）`, click: open('weather') }, // 說明會送出什麼、選位置、開關都在這個面板
+      { label: `☁ 天候水晶…（${engine.weatherOn() ? '開著' : '關著'}；打開會連網看天氣）`, click: open('weatherSet') }, // 說明會送出什麼、選位置、開關都在這個面板
       { label: `📒 讓${npcName}記小本子（記住你說過的事）`, type: 'checkbox', checked: engine.nbCfg().enabled !== false, click: (m) => { const r = engine.setNotebook(m.checked); push('npc:lines', r.lines); push('view:update', { view: r.view }); } },
       { label: '🖥 固定在顯示器', submenu: displayMenu() },
       { label: '縮到工作列', click: () => win.minimize() },

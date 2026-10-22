@@ -49,7 +49,7 @@ module.exports = ({ win, engine, app, runWeather }) => {
       await shot('x00a_crystal_off');
       // 點水晶：先看說明（會連到哪裡、送出什麼）；位置先空著，不選不能打開；選縣市就不查 IP
       await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').click()`); await wait(400);
-      assert(await js(`document.querySelector('#panel').dataset.kind === 'weather' && !document.querySelector('#panel').classList.contains('hidden') && document.querySelector('#wxWhere').value === ''`), '點了先看說明，位置先空著');
+      assert(await js(`document.querySelector('#panel').dataset.kind === 'weatherSet' && !document.querySelector('#panel').classList.contains('hidden') && document.querySelector('#wxWhere').value === ''`), '點了先看說明，位置先空著');
       await js(`document.querySelector('#wxOn').click()`); await wait(200);
       assert(/先選一個縣市/.test(await js(`document.querySelector('#wxSend').textContent`)) && !engine.weatherOn() && wxCalls.length === 0, '沒選位置不會打開');
       const pickWhere = (val) => js(`(()=>{const s=document.querySelector('#wxWhere');s.value=${JSON.stringify(val)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
@@ -72,12 +72,23 @@ module.exports = ({ win, engine, app, runWeather }) => {
       await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').dispatchEvent(new MouseEvent('mouseout',{bubbles:true}));hideTip()`);
       await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').click()`); await wait(250);
       const cast = await js(`(()=>{const b=document.querySelector('#subRow .sub-btn[data-act="weather"]');return {cast:!!b&&b.classList.contains('wx-cast'),rowOpen:!document.querySelector('#subRow').classList.contains('hidden'),emote:!!document.querySelector('#npcWrap > .emote')};})()`);
-      assert(cast.cast && cast.rowOpen && cast.emote, '點水晶：水晶亮一下、她身邊閃星星、魔法那排留著：' + JSON.stringify(cast));
+      assert(cast.cast && cast.emote, '點水晶：水晶亮一下、她身邊閃星星：' + JSON.stringify(cast));
       await shot('x03b_crystal_cast');
-      await wait(300); await flush();
-      const wl = await text();
-      assert(/26/.test(wl) && /晴時多雲/.test(wl), '點水晶：她看天空說一句：' + wl);
-      await shot('x03_crystal_line');
+      // 天候水晶的面板：霧濛濛的水晶 → 點一下 → 霧散開 → 天空
+      await wait(500);
+      const g0 = await js(`({panel:state.panel, step:state.wx&&state.wx.step, orb:!!document.querySelector('#wxOrb.misty'), mist:document.querySelectorAll('#wxOrb .wx-mist i').length})`);
+      assert(g0.panel === 'weather' && g0.step === 'gaze' && g0.orb && g0.mist === 3, '先是霧濛濛的水晶：' + JSON.stringify(g0));
+      await shot('x03_crystal_gaze');
+      await js(`document.querySelector('#wxOrb').click()`); await wait(700);
+      const g1 = await js(`(()=>{const m=document.querySelector('#wxOrb .wx-mist');return {step:state.wx.step, scry:!!document.querySelector('#wxOrb.scrying'), mist:m?getComputedStyle(m).opacity:''};})()`);
+      assert(g1.step === 'scry' && g1.scry && Number(g1.mist) < 1, '霧散開、符文轉快：' + JSON.stringify(g1));
+      await shot('x03b_crystal_scry');
+      await wait(1600);
+      for (let i = 0; i < 20 && !(await js(`!!(state.wx && state.wx.reading)`)); i++) await wait(150);
+      const sky = await js(`(()=>({step:state.wx.step, temp:(document.querySelector('.wx-temp')||{}).textContent, hours:document.querySelectorAll('.wx-hour').length, days:document.querySelectorAll('.wx-daycard').length, reading:(document.querySelector('#wxReading .dv-rt')||{}).textContent, anim:(()=>{const g=document.querySelector('.wx-now .wx-cloud,.wx-now .wx-rays');return g?getComputedStyle(g).animationName:''})()}))()`);
+      assert(sky.step === 'sky' && sky.temp === '26°' && sky.hours >= 1 && sky.days === 2 && /26/.test(sky.reading) && /^wx/.test(sky.anim), '天空：現在、接下來幾小時、今天明天、她看了水晶說的話：' + JSON.stringify(sky));
+      await wait(1200); await shot('x03c_crystal_sky');
+      await js(`document.querySelector('[data-close]').click()`); await wait(300);
       // ---- 🐾 摸不同的地方（第一下是打招呼）----
       await js(`closeDialog()`); await wait(200);
       await clickAt(515, 600); await wait(1500); await flush();

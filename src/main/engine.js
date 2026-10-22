@@ -2032,6 +2032,21 @@ class Engine {
     return {
       on: true, ok, ...pick, kind: ok ? W.data.kind : 'unknown', temp: ok ? W.data.temp : null, error: ok ? '' : (W.error || ''),
       tip: WX.tipText(ok ? W.data : null, { place: this.weatherPlace(), by: (W.loc && W.loc.by) || 'ip', at: W.at, dayInfo: day, error: W.error || '' }),
+      detail: ok ? this.weatherDetail() : null, // ☁ 天候水晶面板用
+      day,
+    };
+  }
+  // 天候水晶面板：現在、接下來幾個小時、今天、明天、她的建議（都是現成的資料，不問 AI）
+  weatherDetail() {
+    const W = this.wxState(); const w = W.data;
+    const nameOf = (k) => (WX.KINDS[k] || WX.KINDS.cloudy).name;
+    const dayOf = (d) => (d ? { kind: d.kind, name: nameOf(d.kind), hi: d.hi, lo: d.lo, rain: d.rain } : null);
+    return {
+      now: { kind: w.kind, name: nameOf(w.kind), magic: (WX.KINDS[w.kind] || WX.KINDS.cloudy).magic, temp: w.temp, feels: w.feels, humidity: w.humidity, wind: w.wind },
+      hours: (w.hours || []).map((x) => ({ ...x, name: nameOf(x.kind) })),
+      today: dayOf(w.today), tomorrow: dayOf(w.tomorrow),
+      advice: WX.advice(w), adviceTomorrow: WX.advice(w, { tomorrow: true }),
+      place: this.weatherPlace(), by: (W.loc && W.loc.by) || 'ip', at: W.at, source: WX.SOURCE,
     };
   }
   // 點水晶、或在聊天裡問天氣：一句內建台詞＋一句建議（帶傘、加衣服、喝水）
