@@ -94,7 +94,8 @@
     "idleAnim": true
   },
   "weather": {
-    "enabled": true,
+    "enabled": false,
+    "city": "",
     "place": "",
     "lat": null,
     "lon": null,

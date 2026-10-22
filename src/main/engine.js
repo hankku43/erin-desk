@@ -1588,7 +1588,7 @@ class Engine {
     if (wrapped) return wrapped;
     const decided = this.decideFromChat(text); // 🤔 她剛剛請你幫忙決定：說出選項（或取的名字）就算，不問 AI
     if (decided) return this.localChat(text, decided);
-    const wq = this.weatherCfg().enabled !== false ? WX.weatherQuestion(text) : null; // ☁ 問天氣：看天候水晶回答，不問 AI、不加提示
+    const wq = WX.weatherQuestion(text); // ☁ 問天氣：看天候水晶回答（還沒打開就說怎麼打開），不問 AI、不加提示
     if (wq) return this.localChat(text, this.weatherSay(wq));
     const stage = this.affStage();
     const hits = await this.lore.retrieve(text, (this.config.lore || {}).topK || 3, { stage }); // 跟這句話相關的角色設定（還沒解鎖的不算）
@@ -1966,22 +1966,46 @@ class Engine {
     return { proposal: null, noted: [], ...res };
   }
 
-  // ---- ☁ 天候水晶：網路位置（或設定裡填的）＋ Open-Meteo；只給畫面和內建台詞用，不加進 AI 提示 ----
-  weatherCfg() { return { enabled: true, refreshMinutes: 30, place: '', lat: null, lon: null, ...(this.config.weather || {}) }; }
+  // ---- ☁ 天候水晶：選的縣市（或設定裡填的、或網路位置猜）＋ Open-Meteo；只給畫面和內建台詞用，不加進 AI 提示 ----
+  // 預設關著：使用者看過說明、按了「打開」（enabled === true）才連網
+  weatherCfg() { return { enabled: false, refreshMinutes: 30, city: '', place: '', lat: null, lon: null, ...(this.config.weather || {}) }; }
+  weatherOn() { return this.weatherCfg().enabled === true; }
+  // 位置從哪裡來：設定檔填的經緯度 > 選的縣市 > 網路位置（IP）猜
+  weatherWhere(cfg = this.weatherCfg()) {
+    const lat = Number(cfg.lat), lon = Number(cfg.lon);
+    if (cfg.lat !== null && cfg.lat !== '' && cfg.lon !== null && cfg.lon !== '' && Number.isFinite(lat) && Number.isFinite(lon)) return { mode: 'custom', loc: { lat, lon, by: 'config' } };
+    const c = WX.cityLoc(cfg.city);
+    if (c) return { mode: 'city', loc: { lat: c.lat, lon: c.lon, place: c.name, by: 'city' } };
+    return { mode: 'ip', loc: null };
+  }
+  // 打開／關掉、選位置（where：'ip'＝網路位置猜、縣市名、'custom' 或空白＝位置不動）。關掉或換位置：存檔裡的位置和天氣清掉
+  setWeather({ enabled, where = '' } = {}) {
+    const on = enabled === true, w = String(where || '').trim();
+    const patch = { enabled: on };
+    if (w === 'ip') Object.assign(patch, { city: '', place: '', lat: null, lon: null });
+    else if (WX.cityLoc(w)) Object.assign(patch, { city: WX.cityLoc(w).name, place: '', lat: null, lon: null });
+    else if (w && w !== 'custom') throw new Error('不認得這個位置');
+    const before = this.weatherWhere();
+    this.saveConfigPatch({ weather: patch });
+    const after = this.weatherWhere();
+    const moved = before.mode !== after.mode || (before.loc || {}).place !== (after.loc || {}).place || (before.loc || {}).lat !== (after.loc || {}).lat;
+    if (!on || moved) { this.state.weather = {}; this.saveState(); }
+    return { view: this.view() };
+  }
   wxState() { return this.state.weather || (this.state.weather = {}); }
   // fetchJson(url) → JSON（main 用 Chromium 的網路，走系統 proxy）。回傳有沒有變（要不要推畫面）
   async refreshWeather(fetchJson, { force = false } = {}) {
     const cfg = this.weatherCfg();
-    if (cfg.enabled === false || typeof fetchJson !== 'function') return false;
+    if (cfg.enabled !== true || typeof fetchJson !== 'function') return false;
     const W = this.wxState();
-    const nowMs = Date.now();
+    const nowMs = +this.now(); // 引擎的時鐘（測試會固定時間；「等一下會下雨」要跟預報同一個時間比）
     const every = Math.max(10, Number(cfg.refreshMinutes) || 30) * 60000;
     if (!force && W.at && nowMs - W.at < every * 0.9) return false;
     if (!force && W.failAt && nowMs - W.failAt < Math.min(every, 10 * 60000)) return false; // 剛失敗過：等一下再試
     try {
       let loc;
-      const lat = Number(cfg.lat), lon = Number(cfg.lon);
-      if (cfg.lat !== null && cfg.lat !== '' && cfg.lon !== null && cfg.lon !== '' && Number.isFinite(lat) && Number.isFinite(lon)) loc = { lat, lon, by: 'config', at: nowMs };
+      const where = this.weatherWhere(cfg);
+      if (where.loc) loc = { ...where.loc, at: nowMs }; // 選的縣市、設定檔填的：不查 IP
       else if (W.loc && W.loc.by === 'ip' && nowMs - (W.loc.at || 0) < 12 * 3600000) loc = W.loc;
       else loc = { ...(await WX.locate(fetchJson)), at: nowMs };
       loc = { ...loc, lat: Math.round(loc.lat * 100) / 100, lon: Math.round(loc.lon * 100) / 100 };
@@ -1995,22 +2019,24 @@ class Engine {
     this.saveState();
     return true;
   }
-  weatherFresh() { const W = this.wxState(); return !!(W.data && W.at && Date.now() - W.at < 6 * 3600000); }
+  weatherFresh() { const W = this.wxState(); return !!(W.data && W.at && +this.now() - W.at < 6 * 3600000); }
   weatherPlace() { const W = this.wxState(); const cfg = this.weatherCfg(); return cfg.place || WX.placeName(W.loc) || ''; }
   weatherView() {
     const cfg = this.weatherCfg();
-    if (cfg.enabled === false) return { on: false };
+    const where = this.weatherWhere(cfg);
+    const day = this.dayInfoCached();
+    const pick = { mode: where.mode, city: where.mode === 'city' ? where.loc.place : '', cities: WX.CITIES_TW.map((c) => c[0]) }; // 說明面板選位置用
+    if (cfg.enabled !== true) return { on: false, ...pick, tip: WX.tipText(null, { dayInfo: day, off: true }) };
     const W = this.wxState();
     const ok = this.weatherFresh();
-    const day = this.dayInfoCached();
     return {
-      on: true, ok, kind: ok ? W.data.kind : 'unknown', temp: ok ? W.data.temp : null, error: ok ? '' : (W.error || ''),
+      on: true, ok, ...pick, kind: ok ? W.data.kind : 'unknown', temp: ok ? W.data.temp : null, error: ok ? '' : (W.error || ''),
       tip: WX.tipText(ok ? W.data : null, { place: this.weatherPlace(), by: (W.loc && W.loc.by) || 'ip', at: W.at, dayInfo: day, error: W.error || '' }),
     };
   }
   // 點水晶、或在聊天裡問天氣：一句內建台詞＋一句建議（帶傘、加衣服、喝水）
   weatherSay({ tomorrow = false } = {}) {
-    if (this.weatherCfg().enabled === false) return { lines: [{ ...this.quickLine('weather_disabled'), event: 'weather' }], view: this.view() };
+    if (!this.weatherOn()) return { lines: [{ ...this.quickLine('weather_disabled'), event: 'weather' }], view: this.view() };
     const W = this.wxState();
     if (!this.weatherFresh()) return { lines: [{ ...this.quickLine('weather_off'), event: 'weather' }], view: this.view() };
     const w = W.data;

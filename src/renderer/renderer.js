@@ -3,9 +3,9 @@
 const $ = (s) => document.querySelector(s);
 const GREET_COOLDOWN = 30 * 60000; // 半小時內再點她，就不重複報告任務，改成閒聊
 const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null, starSeen: {}, flMode: 'auto', flSlotId: null, flFlashUntil: 0, lastActive: null };
-const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename', 'raidForm', 'leave']);
+const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename', 'raidForm', 'leave', 'weather']);
 // 欄位少的表單：面板貼在上方、只佔需要的高度（標題列位置跟其他面板一樣），取消／儲存就在欄位下面（10/14 E）
-const FIT_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'raidForm', 'report', 'submit', 'rename', 'divine']);
+const FIT_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'raidForm', 'report', 'submit', 'rename', 'divine', 'weather']);
 // ✏️ 接待員改名：內建的句子（待機小字、面板台詞、說明小卡）是用「艾琳」寫的，顯示前換成現在的名字（rename.js）
 const npcNameR = () => (state.view && state.view.npc && state.view.npc.name) || '艾琳';
 const nmR = (t) => (typeof Rename !== 'undefined' ? Rename.rename(t, npcNameR()) : t);
@@ -791,7 +791,9 @@ function weatherNote(w) {
 }
 function weatherItem() {
   const w = state.view && state.view.weather;
-  if (!w || !w.on) return null;
+  if (!w) return null;
+  // 還沒打開（預設）：淡淡的水晶，點了先看說明（會連到哪裡、送出什麼），按「打開」才連網
+  if (!w.on) return { act: 'weather', ico: typeof WxArt !== 'undefined' ? WxArt.svg('unknown', { size: 28 }) : '☁', html: true, label: '天候水晶', note: '還沒打開・點了先看說明', tip: `${w.tip || '天候水晶還沒打開'}\n（點一下：看它會連到哪裡，再決定要不要打開）`, kind: 'off', dim: true };
   const kind = w.ok ? w.kind : 'unknown';
   return { act: 'weather', ico: typeof WxArt !== 'undefined' ? WxArt.svg(kind, { size: 28 }) : '☁', html: true, label: '天候水晶', note: weatherNote(w), tip: `${w.tip || '天候水晶'}\n（點一下：請${npcNameR()}看看天空）`, kind, dim: !w.ok };
 }
@@ -809,7 +811,8 @@ function renderWeather() {
 }
 async function weatherClick() {
   const w = state.view && state.view.weather;
-  if (!w || !w.on) return;
+  if (!w) return;
+  if (!w.on) { openPanel('weather'); return; } // 還沒打開：先看說明
   // 小動畫：水晶亮一下、她身邊閃星星
   const btn = document.querySelector('#subRow .sub-btn[data-act="weather"]');
   if (btn) { btn.classList.remove('wx-cast'); void btn.offsetWidth; btn.classList.add('wx-cast'); setTimeout(() => btn.classList.remove('wx-cast'), 1200); }
@@ -823,6 +826,47 @@ async function weatherClick() {
   }
   openDialog();
   await run(() => api.weatherSay(), { talk: true });
+}
+
+// ☁ 天候水晶的說明與開關（點還沒打開的水晶、或右鍵「⚙ 設定與資料」→「☁ 天候水晶…」）：先講清楚會連到哪裡、送出什麼，按了才連網
+function wxSendText(where) {
+  if (where === 'ip') return '會連到：get.geojs.io（不通再試 ipwho.is、ipapi.co），它們用你的 IP 猜在哪個城市（12 小時一次）；再把大概的經緯度（約 1 公里）送給 Open-Meteo 查天氣（30 分鐘一次）。公司網路可能猜成公司的位置，有些公司的資安軟體也會覺得「查 IP 位置」很可疑——在公司用的話，選縣市比較好。';
+  if (where === 'custom') return '會連到：Open-Meteo，送出設定檔裡填的經緯度（約 1 公里）查天氣，30 分鐘一次。不會去查 IP 位置。';
+  if (where) return `會連到：Open-Meteo，只送出「${where}」的經緯度查天氣，30 分鐘一次。不會去查 IP 位置。`;
+  return '先選一個縣市；或選最下面的「用網路位置猜」。';
+}
+function renderWeatherPanel(el, v) {
+  const w = v.weather || {};
+  // 開著：選目前的位置。還沒打開：選過縣市就選它，不然先空著（請使用者自己選，不預設用 IP 猜）
+  const cur = w.mode === 'city' ? w.city : w.mode === 'custom' ? 'custom' : w.on ? 'ip' : '';
+  const opt = (val, label) => `<option value="${esc(val)}"${val === cur ? ' selected' : ''}>${esc(label)}</option>`;
+  el.innerHTML = head('☁ 天候水晶', w.on ? '開著' : '還沒打開', '', '天氣資料來自 Open-Meteo.com（免費、不用金鑰）。天氣不會加進給 AI 的提示') + `<div class="panel-body form">
+    <p class="hint">打開後，${esc(npcNameR())}會連上網路看外面的天氣：水晶映出現在的天空，會下雨就提醒你帶傘。任務、計畫、聊天的內容都不會送出去。</p>
+    <div class="field">📍 在哪裡看天空<select id="wxWhere">${opt('', '選你所在的縣市…')}${(w.cities || []).map((c) => opt(c, c)).join('')}${w.mode === 'custom' ? opt('custom', '設定檔裡填的位置') : ''}${opt('ip', '用網路位置猜（會用到你的 IP）')}</select><small class="fnote" id="wxSend">${esc(wxSendText(cur))}</small></div>
+    <p class="hint">${w.on ? '按「關掉水晶」就不再連網，存檔裡的位置和天氣也會一起清掉。' : '之後想改位置或關掉：右鍵「⚙ 設定與資料」→「☁ 天候水晶…」。'}</p>
+  </div>
+  <div class="panel-foot">${w.on ? '<button class="btn ghost" id="wxOff">關掉水晶</button>' : ''}<span class="spacer"></span><button class="btn ghost" data-close>${w.on ? '取消' : '先不要'}</button><button class="btn gold" id="wxOn">${w.on ? '✔ 改好了' : '☁ 打開天候水晶'}</button></div>`;
+}
+function weatherPanelChange() { const s = $('#wxWhere'), n = $('#wxSend'); if (s && n) { n.textContent = wxSendText(s.value); n.classList.remove('bad'); } }
+async function weatherPanelClick(e) {
+  const t = e.target;
+  if (t.closest('#wxOn')) {
+    const where = ($('#wxWhere') || {}).value || '';
+    if (!where) { const n = $('#wxSend'); if (n) { n.textContent = `⚠ ${wxSendText('')}`; n.classList.add('bad'); } return true; }
+    closePanel();
+    const r = await run(() => api.weatherSet(true, where), { thinking: false });
+    if (!r || !r.ok) return true;
+    toast('☁ 天候水晶打開了，正在看天空…', 2600);
+    if (state.subRow !== 'magic') toggleSub('magic'); else renderWeather(); // 讓人看到水晶在哪裡
+    return true;
+  }
+  if (t.closest('#wxOff')) {
+    closePanel();
+    const r = await run(() => api.weatherSet(false, ''), { thinking: false });
+    if (r && r.ok) { toast('☁ 天候水晶收起來了：不再連網，存的位置也清掉了', 3200); renderWeather(); }
+    return true;
+  }
+  return false;
 }
 
 // ---------- 🤔 幫她做決定：選項按鈕 ----------
@@ -1467,6 +1511,7 @@ function renderPanelInner(el, v) {
   if (state.panel === 'memories') renderMemories(el, v);
   if (state.panel === 'ach') renderAch(el, v);
   if (state.panel === 'album') Story.renderAlbum(el, v); // 🎬 回憶相簿
+  if (state.panel === 'weather') renderWeatherPanel(el, v); // ☁ 天候水晶的說明與開關
 
   if (state.panel === 'report') {
     const t = v.today;
@@ -1618,6 +1663,7 @@ async function panelClick(e) {
   if (state.panel === 'health' && await healthClick(e)) return;
   if (state.panel === 'notebook' && await notebookClick(e)) return;
   if (state.panel === 'journal' && await journalClick(e)) return;
+  if (state.panel === 'weather' && await weatherPanelClick(e)) return;
   if (state.panel === 'shop' && await shopClick(e)) return;
   if (['raids', 'raidForm', 'daily'].includes(state.panel) && await raidsClick(e)) return;
   if (['leave', 'daily'].includes(state.panel) && await leaveClick(e)) return;
@@ -1724,6 +1770,7 @@ $('#panel').addEventListener('change', async (e) => {
   const t = e.target;
   if (state.panel === 'onboard' && onboardChange(e)) return;
   if (state.panel === 'raidForm' && raidsChange(e)) return;
+  if (state.panel === 'weather' && t.id === 'wxWhere') { weatherPanelChange(); return; }
   if (t.name === 'dvm' && state.dv) { state.dv.method = t.value; renderPanel(); return; }
   if (t.name === 'qfTier') { document.querySelectorAll('.tp').forEach((l) => l.classList.toggle('on', l.querySelector('input').checked)); return; }
   if (t.dataset.obj) {

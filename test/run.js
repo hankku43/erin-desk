@@ -586,9 +586,20 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   };
   assert.strictEqual((await WX.locate(fakeFetch({ geojs: true }))).via, 'ipwho', '第一個不通換下一個');
   await assert.rejects(WX.locate(async () => { throw new Error('blocked'); }), /猜不出位置/);
-  // 引擎：抓一次、半小時內不重抓、失敗會記原因；水晶、點她說的話、聊天問天氣都不問 AI
+  // 引擎：預設關著、不連網；使用者按了「打開」才抓。抓一次、半小時內不重抓、失敗會記原因；水晶、點她說的話、聊天問天氣都不問 AI
+  t = new Date('2026-10-21T13:00:00').getTime(); // 沒打開時問天氣：早一點問（不跟後面問天氣的算成洗版）
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.example.json'), 'utf8')).weather.enabled, false, '範例設定：天候水晶預設關著');
+  const wv0 = E.weatherView();
+  assert.ok(wv0.on === false && wv0.mode === 'ip' && wv0.cities.length === 22 && wv0.cities.includes('台中') && /還沒打開/.test(wv0.tip), '預設關著：' + JSON.stringify(wv0).slice(0, 200));
+  calls.length = 0;
+  assert.strictEqual(await E.refreshWeather(fakeFetch(), { force: true }), false); assert.strictEqual(calls.length, 0, '沒打開就不連網');
+  r = await E.chat('今天天氣如何？');
+  assert.ok(r.lines[0].event === 'weather' && fromTpl('weather_disabled', r.lines[0].text), '沒打開時問天氣：說怎麼打開（不問 AI）：' + r.lines[0].text);
+  assert.throws(() => E.setWeather({ enabled: true, where: '火星' }), /不認得/);
+  assert.strictEqual(E.weatherOn(), false, '不認得的位置：不會打開');
+  E.setWeather({ enabled: true, where: 'ip' });
+  assert.ok(E.weatherOn() && E.weatherView().on && !E.weatherView().ok, '打開了，還沒抓：水晶霧濛濛的');
   t = new Date('2026-10-21T14:30:00').getTime();
-  assert.ok(E.weatherView().on && !E.weatherView().ok, '還沒抓：水晶霧濛濛的');
   assert.ok(fromTpl('weather_off', E.weatherSay().lines[0].text));
   calls.length = 0;
   assert.strictEqual(await E.refreshWeather(fakeFetch()), true);
@@ -609,23 +620,27 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   r = await E.chat('今天天氣如何？');
   assert.ok(r.lines[0].event === 'weather' && /26/.test(r.lines[0].text) && E.state.chat.length === chatN + 2, '聊天問天氣：內建回答（不問 AI）');
   r = await E.chat('明天會下雨嗎');
-  assert.ok(/明天/.test(r.lines[0].text), '問明天');
+  assert.ok(/明天/.test(r.lines[0].text), '問明天：' + r.lines[0].text);
   // 失敗：記原因，10 分鐘內不再試；舊的天氣 6 小時內還看得到
-  W.at = Date.now() - 3600000;
+  W.at = t - 3600000;
   await E.refreshWeather(fakeFetch({ meteo: true }));
   assert.ok(W.error === '連不上天空' && W.failAt && E.weatherView().ok, '失敗了，但一小時前的還能用');
   calls.length = 0; await E.refreshWeather(fakeFetch()); assert.strictEqual(calls.length, 0, '剛失敗過：等一下再試');
-  W.at = Date.now() - 7 * 3600000; W.failAt = 0;
+  W.at = t - 7 * 3600000; W.failAt = 0;
   assert.ok(!E.weatherView().ok && fromTpl('weather_off', E.weatherSay().lines[0].text), '太舊（6 小時以上）就不用');
   // 設定裡填了位置：不猜（不連查位置的服務）
-  E.config.weather = { lat: 22.63, lon: 120.3, place: '高雄' };
+  E.config.weather = { enabled: true, lat: 22.63, lon: 120.3, place: '高雄' };
   calls.length = 0; await E.refreshWeather(fakeFetch(), { force: true });
   assert.ok(calls.length === 1 && /latitude=22\.63/.test(calls[0]) && E.state.weather.loc.by === 'config' && /高雄/.test(E.weatherView().tip) && /設定檔裡填的/.test(E.weatherView().tip));
-  E.config.weather = { enabled: false };
-  assert.strictEqual(E.weatherView().on, false, '關掉：水晶收起來');
-  calls.length = 0; assert.strictEqual(await E.refreshWeather(fakeFetch(), { force: true }), false); assert.strictEqual(calls.length, 0, '關掉就不連網');
-  r = await E.chat('今天天氣如何？'); assert.notStrictEqual(r.lines[0].event, 'weather', '關掉時問天氣照一般聊天');
+  // 選縣市：不查 IP，只問 Open-Meteo；換位置會把舊的位置和天氣清掉
   delete E.config.weather;
+  E.setWeather({ enabled: true, where: '台中' });
+  assert.ok(E.weatherView().mode === 'city' && E.weatherView().city === '台中' && !E.state.weather.data && !E.state.weather.loc, '換位置：舊的清掉');
+  calls.length = 0; await E.refreshWeather(fakeFetch(), { force: true });
+  assert.ok(calls.length === 1 && /open-meteo/.test(calls[0]) && /latitude=24\.16/.test(calls[0]) && E.state.weather.loc.by === 'city', '選縣市：只問天氣、不查 IP：' + calls.join());
+  assert.ok(/台中的天空/.test(E.weatherView().tip) && /你選的縣市/.test(E.weatherView().tip), E.weatherView().tip);
+  // 時間是引擎的時鐘（不是電腦現在的時間）：「等一下會下雨」跟著測試的 14:30 算
+  assert.ok(/帶傘/.test(E.weatherSay().lines[0].text) && E.state.weather.at === t, '用引擎的時鐘');
   // 天氣、節日、決定都不會加進給 AI 的提示
   let sent = null;
   t += 30 * 60000; E.aff().spam = []; E.aff().coldUntil = 0;
@@ -635,6 +650,11 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const prompt = JSON.stringify(sent && sent.messages);
   assert.ok(sent && !/天候水晶|晴時多雲|26°|萬聖節|阿福|幫艾琳決定/.test(prompt), '提示裡沒有天氣、節日、決定');
   E.config.llm.enabled = false; E.npc.llm.enabled = false;
+  // 關掉：不再連網，存檔裡的位置和天氣一起清掉（滑過水晶還是看得到今天是什麼日子）
+  E.setWeather({ enabled: false });
+  assert.ok(E.weatherOn() === false && E.weatherView().on === false && !E.state.weather.loc && !E.state.weather.data && E.weatherCfg().city === '台中', '關掉：位置清掉（選過的縣市留著，下次打開不用再選）');
+  calls.length = 0; assert.strictEqual(await E.refreshWeather(fakeFetch(), { force: true }), false); assert.strictEqual(calls.length, 0, '關掉就不連網');
+  { const sv = JSON.parse(fs.readFileSync(E.savePath, 'utf8')); assert.ok(!(sv.weather && (sv.weather.loc || sv.weather.data)), '存檔裡沒有位置'); }
 
   // ===== 畫面接好了 =====
   const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');
@@ -646,7 +666,8 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(html.indexOf('cursors.js') > 0 && html.indexOf('cursors.js') < html.indexOf('renderer.js') && /Cursors\.css\(kind\)/.test(rjs) && /Cursors\.OF_ZONE\[z\]/.test(rjs), '摸的時候換鼠標');
   assert.ok(html.indexOf('touch.js') < html.indexOf('renderer.js') && html.indexOf('weather-art.js') < html.indexOf('renderer.js'), '先載入再用');
   assert.ok(/api\.poke\(zone\)/.test(rjs) && /api\.poke\('head', 'pat'\)/.test(rjs) && /api\.decide\(/.test(rjs) && /api\.weatherSay\(/.test(rjs));
-  assert.ok(/decide:/.test(pre) && /weatherSay:/.test(pre) && /weatherRefresh:/.test(pre));
+  assert.ok(/decide:/.test(pre) && /weatherSay:/.test(pre) && /weatherRefresh:/.test(pre) && /weatherSet:/.test(pre));
+  assert.ok(/ipcMain\.handle\('weather:set'/.test(mainJs) && /open\('weather'\)/.test(mainJs) && /function renderWeatherPanel/.test(rjs) && /if \(!w\.on\) \{ openPanel\('weather'\)/.test(rjs), '天候水晶：沒打開時點了先看說明');
   assert.ok(/window\.hud === false\) engine\.setHud\(true\)/.test(mainJs), '狀態欄：每次打開程式都先顯示');
   assert.ok(/'npc:decide'/.test(mainJs) && /'weather:say'/.test(mainJs) && /'weather:refresh'/.test(mainJs) && /net\.fetch\(url/.test(mainJs), '天氣用 Chromium 的網路（走系統 proxy）');
   assert.ok(/QUEST_NPC_TEST \? null : wxFetchJson/.test(mainJs), '自動測試不連網路');

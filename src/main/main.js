@@ -662,7 +662,7 @@ function menuTemplate() {
       { label: '📊 狀態欄（等級、當前任務）', type: 'checkbox', checked: engine.config.window.hud !== false, click: (m) => { const r = engine.setHud(m.checked); push('view:update', { view: r.view }); } },
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
       { label: '🐰 棉棉和朵朵來櫃台串門子（下午茶外送、道賀、許願單）', type: 'checkbox', checked: engine.twCfg().enabled !== false, click: (m) => { const r = engine.setTwins(m.checked); push('view:update', { view: r.view }); } },
-      { label: '☁ 天候水晶（連網看天氣，用網路位置猜在哪裡）', type: 'checkbox', checked: engine.weatherCfg().enabled !== false, click: (m) => { engine.saveConfigPatch({ weather: { enabled: m.checked } }); push('view:update', { view: engine.view() }); if (m.checked) runWeather(true); } },
+      { label: `☁ 天候水晶…（${engine.weatherOn() ? '開著' : '關著'}；打開會連網看天氣）`, click: open('weather') }, // 說明會送出什麼、選位置、開關都在這個面板
       { label: `📒 讓${npcName}記小本子（記住你說過的事）`, type: 'checkbox', checked: engine.nbCfg().enabled !== false, click: (m) => { const r = engine.setNotebook(m.checked); push('npc:lines', r.lines); push('view:update', { view: r.view }); } },
       { label: '🖥 固定在顯示器', submenu: displayMenu() },
       { label: '縮到工作列', click: () => win.minimize() },
@@ -864,6 +864,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('npc:decide', wrap((id, opt) => engine.decide(String(id || ''), String(opt || '')))); // 🤔 幫她做決定
   ipcMain.handle('weather:say', wrap(() => engine.weatherSay())); // ☁ 點天候水晶
   ipcMain.handle('weather:refresh', wrap(async () => { await runWeather(true); return { view: engine.view() }; }));
+  // 打開／關掉天候水晶、選位置（使用者在說明面板按的）。打開了就馬上看一次天空（不等它，畫面先回來）
+  ipcMain.handle('weather:set', wrap((on, where) => { const r = engine.setWeather({ enabled: on === true, where: String(where || '').slice(0, 20) }); if (on === true) runWeather(true); return r; }));
   ipcMain.handle('npc:confirm', wrap((id, keep) => engine.confirmProposal(id, Array.isArray(keep) ? keep.map(Number) : null)));
   ipcMain.handle('npc:cancel', wrap(() => engine.cancelProposal()));
   ipcMain.handle('npc:status', wrap(async () => ({ status: await engine.npc.checkStatus() })));

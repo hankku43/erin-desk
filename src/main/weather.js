@@ -1,6 +1,7 @@
 // ☁ 天候水晶：用網路位置猜在哪裡 → 向 Open-Meteo（免金鑰）問現在的天氣和今明兩天的預報（純函式＋可注入的 fetch，方便測試）
 // 只給狀態欄的水晶、點水晶時她說的一句、聊天問天氣時的內建回答用；不會加進給 AI 的提示（不增加 token）
-// 送出去的只有：IP（查位置的服務本來就看得到）、四捨五入到小數點兩位的經緯度（約 1 公里）
+// 預設關著：使用者在水晶的說明裡按「打開」才連網。位置可以選縣市（只送那個縣市的經緯度，不查 IP），或用網路位置猜
+// 送出去的只有：IP（查位置的服務、Open-Meteo 本來就看得到）、四捨五入到小數點兩位的經緯度（約 1 公里）
 'use strict';
 
 const LOC_PROVIDERS = [
@@ -18,6 +19,17 @@ const PLACE_TW = {
   Pingtung: '屏東', Yilan: '宜蘭', Hualien: '花蓮', Taitung: '台東', Keelung: '基隆', Penghu: '澎湖', Kinmen: '金門', Lienchiang: '連江', Taiwan: '台灣',
 };
 const zhPlace = (s) => (s ? PLACE_TW[String(s).trim()] || String(s).trim() : '');
+// 不想用 IP 猜位置：自己選縣市（縣市政府附近，小數點兩位）
+const CITIES_TW = [
+  ['基隆', 25.13, 121.74], ['台北', 25.04, 121.56], ['新北', 25.01, 121.47], ['桃園', 24.99, 121.3], ['新竹市', 24.81, 120.97], ['新竹縣', 24.83, 121.01],
+  ['苗栗', 24.56, 120.82], ['台中', 24.16, 120.65], ['彰化', 24.08, 120.54], ['南投', 23.91, 120.68], ['雲林', 23.7, 120.53], ['嘉義市', 23.48, 120.45],
+  ['嘉義縣', 23.46, 120.33], ['台南', 22.99, 120.18], ['高雄', 22.62, 120.31], ['屏東', 22.68, 120.49], ['宜蘭', 24.73, 121.76], ['花蓮', 23.99, 121.61],
+  ['台東', 22.76, 121.14], ['澎湖', 23.57, 119.58], ['金門', 24.44, 118.32], ['連江', 26.16, 119.95],
+];
+function cityLoc(name) {
+  const c = CITIES_TW.find((x) => x[0] === String(name || '').trim());
+  return c ? { name: c[0], lat: c[1], lon: c[2] } : null;
+}
 function placeName(loc) {
   if (!loc) return '';
   if (loc.place) return String(loc.place);
@@ -131,7 +143,7 @@ function advice(w, { tomorrow = false } = {}) {
   return '';
 }
 // 滑過水晶的說明（多行）
-function tipText(w, { place = '', by = 'ip', at = 0, dayInfo = null, error = '' } = {}) {
+function tipText(w, { place = '', by = 'ip', at = 0, dayInfo = null, error = '', off = false } = {}) {
   const lines = [];
   if (w) {
     const k = KINDS[w.kind] || KINDS.cloudy;
@@ -139,12 +151,12 @@ function tipText(w, { place = '', by = 'ip', at = 0, dayInfo = null, error = '' 
     lines.push(`現在：${k.name} ${tempText(w.temp)}${w.feels !== null && w.feels !== w.temp ? `（體感 ${tempText(w.feels)}）` : ''}・${k.magic}`);
     if (w.today) lines.push(`今天：${dayText(w.today)}`);
     if (w.tomorrow) lines.push(`明天：${dayText(w.tomorrow)}`);
-  } else lines.push(error ? `天候水晶霧濛濛的（${error}）` : '天候水晶還在看天空…');
+  } else lines.push(off ? '天候水晶還沒打開（不會連網）' : error ? `天候水晶霧濛濛的（${error}）` : '天候水晶還在看天空…');
   if (dayInfo) {
     const parts = [dayInfo.lunar, dayInfo.term, ...(dayInfo.fests || []), dayInfo.days ? `認識第 ${dayInfo.days} 天` : ''].filter(Boolean);
     if (parts.length) lines.push(parts.join('・'));
   }
-  if (w) lines.push(by === 'ip' ? '位置是用網路位置猜的（不準的話，在設定檔 config.json 的 weather 填經緯度）' : '位置是設定檔裡填的');
+  if (w) lines.push(by === 'ip' ? '位置是用網路位置猜的（不準的話，右鍵「⚙ 設定與資料」→「☁ 天候水晶」改選縣市）' : by === 'city' ? '位置是你選的縣市' : '位置是設定檔裡填的');
   if (w) lines.push(`天氣資料：${SOURCE}${at ? `（${new Date(at).getHours()}:${String(new Date(at).getMinutes()).padStart(2, '0')} 更新）` : ''}`);
   return lines.join('\n');
 }
@@ -175,4 +187,4 @@ async function fetchWeather(fetchJson, loc, nowMs = Date.now()) {
   return summarize(j, nowMs);
 }
 
-module.exports = { LOC_PROVIDERS, SOURCE, KINDS, WET, kindOf, forecastUrl, summarize, advice, tipText, dayText, tempText, placeName, zhPlace, weatherQuestion, locate, fetchWeather };
+module.exports = { LOC_PROVIDERS, SOURCE, CITIES_TW, cityLoc, KINDS, WET, kindOf, forecastUrl, summarize, advice, tipText, dayText, tempText, placeName, zhPlace, weatherQuestion, locate, fetchWeather };

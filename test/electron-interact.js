@@ -27,7 +27,9 @@ module.exports = ({ win, engine, app, runWeather }) => {
       await js(`document.documentElement.style.background='linear-gradient(135deg,#5b7fa6,#9bb7cf)'`);
       await wait(2500); await flush();
       // ---- ☁ 天候水晶：假的位置與天氣 ----
+      const wxCalls = [];
       global.wxFetch = async (u) => {
+        wxCalls.push(u);
         if (/geojs/.test(u)) return { latitude: '24.14771', longitude: '120.67361', city: 'Taichung', region: 'Taichung City', country: 'Taiwan' };
         if (/open-meteo/.test(u)) {
           const now = new Date(); const pad = (n) => String(n).padStart(2, '0');
@@ -39,9 +41,28 @@ module.exports = ({ win, engine, app, runWeather }) => {
         }
         throw new Error('blocked ' + u);
       };
-      await runWeather(true); await wait(500);
-      // ✨ 魔法那排：第三顆是天候水晶（會動的小圖＋現在的天氣）
+      // 預設關著：魔法裡的水晶是淡的、寫「還沒打開」，也沒有連網
+      await runWeather(true); await wait(300);
       await js(`document.querySelector('#choices .more button[data-act="magic"]').click()`); await wait(400);
+      const off = await js(`(()=>{const b=document.querySelector('#subRow .sub-btn[data-act="weather"]');return b?{dim:b.classList.contains('dim'),note:b.querySelector('small').textContent,tip:b.dataset.tip}:null;})()`);
+      assert(off && off.dim && /還沒打開/.test(off.note) && /農曆/.test(off.tip) && wxCalls.length === 0, '預設關著、沒連網：' + JSON.stringify(off) + wxCalls.join());
+      await shot('x00a_crystal_off');
+      // 點水晶：先看說明（會連到哪裡、送出什麼）；位置先空著，不選不能打開；選縣市就不查 IP
+      await js(`document.querySelector('#subRow .sub-btn[data-act="weather"]').click()`); await wait(400);
+      assert(await js(`document.querySelector('#panel').dataset.kind === 'weather' && !document.querySelector('#panel').classList.contains('hidden') && document.querySelector('#wxWhere').value === ''`), '點了先看說明，位置先空著');
+      await js(`document.querySelector('#wxOn').click()`); await wait(200);
+      assert(/先選一個縣市/.test(await js(`document.querySelector('#wxSend').textContent`)) && !engine.weatherOn() && wxCalls.length === 0, '沒選位置不會打開');
+      const pickWhere = (val) => js(`(()=>{const s=document.querySelector('#wxWhere');s.value=${JSON.stringify(val)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      await pickWhere('ip'); await wait(150);
+      assert(/geojs/.test(await js(`document.querySelector('#wxSend').textContent`)), '選網路位置：寫出會連到查 IP 的服務');
+      await wait(400); await shot('x00_weather_ask');
+      await pickWhere('台中'); await wait(150);
+      assert(/只送出「台中」/.test(await js(`document.querySelector('#wxSend').textContent`)), '選縣市：只送那個縣市');
+      await js(`document.querySelector('#wxOn').click()`); await wait(1200);
+      assert(engine.weatherOn() && engine.weatherCfg().city === '台中' && wxCalls.length === 1 && /open-meteo/.test(wxCalls[0]) && /latitude=24\.16/.test(wxCalls[0]), '打開了：只問天氣、不查 IP：' + wxCalls.join());
+      // ✨ 魔法那排：第三顆是天候水晶（會動的小圖＋現在的天氣）
+      if (!(await js('state.subRow === "magic"'))) await js(`toggleSub('magic')`);
+      await wait(400);
       const wt = await js(`(()=>{const b=document.querySelector('#subRow .sub-btn[data-act="weather"]');const all=[...document.querySelectorAll('#subRow .sub-btn')].map(x=>x.dataset.act);if(!b)return {all};const g=b.querySelector('.wx-cloud,.wx-rays');return {all,dim:b.classList.contains('dim'),note:b.querySelector('small').textContent,svg:!!b.querySelector('svg'),tip:b.dataset.tip,anim:g?getComputedStyle(g).animationName:''};})()`);
       assert(wt.all && wt.all.join() === 'fortune,divine,weather' && !wt.dim && /晴時多雲 26°/.test(wt.note) && /降雨 20%/.test(wt.note) && wt.svg && /台中/.test(wt.tip) && /^wx/.test(wt.anim), '魔法裡的天候水晶：' + JSON.stringify(wt));
       assert(!(await js(`!!document.querySelector('#hudWeather')`)), '狀態欄不再放水晶');
