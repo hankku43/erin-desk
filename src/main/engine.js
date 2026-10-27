@@ -46,6 +46,9 @@ const PD = require('./plandraft'); // 📓 艾琳的筆記本（委託）
 const FE = require('./festivals'); // 📅 現實的節日、節氣、認識的紀念日
 const DC = require('./decide'); // 🤔 幫艾琳做決定
 const WX = require('./weather'); // ☁ 天候水晶
+// 🔁 AI 整句重複前面的話、再問一次時加在這一句指示的最後（10/27）
+const clipQ = (x, n = 40) => { const t = String(x || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
+const NO_REPEAT = (said, userText, call) => `【不要重複】你剛才想回「${clipQ(said)}」，這跟你前面說過的話一模一樣。這次不要再說這句、也不要換個說法重講同一件事；直接針對${call}剛才說的「${clipQ(userText, 60)}」回應。聽不太懂的話就老實說，請他多說一點。`;
 const pad2 = (n) => String(n).padStart(2, '0');
 const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建的「艾琳」換成現在的名字
 const OS = require('../renderer/opening-script'); // 🎬 開場：名字規則
@@ -1664,7 +1667,9 @@ class Engine {
     // 任務清單（10/14 B）：當前任務、說到的任務才列目標，其他一行標題；【狀態】就不再重複未完成目標
     const showDone = I.RE_UNDO.test(text);
     const catText = scope.need ? I.catalogText(cat, { showDone, expand: showDone ? null : I.focusQuests(text, cat, workItems) }) : '';
-    const line = await this.say('chat', scope.need ? { catalogShown: true } : {}, {
+    const chatFacts = scope.need ? { catalogShown: true } : {};
+    const onStream = this.onPartial ? (p) => { try { this.onPartial({ ...p, text: p.text ? I.decodeKeys(p.text, cat) : '' }); } catch (_) { /* 畫面關了 */ } } : null;
+    const sayOpts = {
       mood,
       userText: text,
       history: recent, // npc 會再濾掉備援台詞那幾輪，取最後 4 句
@@ -1674,8 +1679,25 @@ class Engine {
       extraUser: [catText, this.lore.contextText(loreHits, { clip: 120 }), nbCtx].filter(Boolean).join('\n\n'),
       maxTokens: 320,
       logNote: `${scope.need ? `附清單：${scope.why}` : '沒附清單（閒聊）'}${judge ? '；判斷態度' : ''}${nbAsk ? '；小本子' : ''}`,
-      onStream: this.onPartial ? (p) => { try { this.onPartial({ ...p, text: p.text ? I.decodeKeys(p.text, cat) : '' }); } catch (_) { /* 畫面關了 */ } } : null,
-    });
+      onStream,
+    };
+    let line = await this.say('chat', chatFacts, sayOpts);
+    // 🔁 整句都在重複前面說過的話（小模型接不下去時會把上一句原封不動吐回來，10/27）：
+    //   再問一次，明說不要重複；還是重複（或這次出錯）就改用內建台詞（下面 line.source !== 'llm' 那段挑：設定的預寫回覆、回話題、聽不太懂）
+    if (line.source === 'llm' && line.repeated) {
+      const first = line.text;
+      if (onStream) try { this.onPartial({ restart: true }); } catch (_) { /* 畫面關了 */ } // 畫面上已經串流出來的那句先收掉
+      const again = await this.say('chat', chatFacts, {
+        ...sayOpts,
+        extraTail: [sayOpts.extraTail, NO_REPEAT(first, text, call)].filter(Boolean).join('\n'),
+        logNote: `${sayOpts.logNote}；整句重複，再問一次`,
+      });
+      if (again.source === 'llm' && !again.repeated) line = again;
+      else {
+        line = { ...this.npc.template('chat_repeat', { mood }), event: 'chat' };
+        this.npc.logCall('chat', Date.now(), 'note', null, `聊天：再問一次${again.source === 'llm' ? '還是整句重複' : '也沒回好'}，改用內建台詞`);
+      }
+    }
     if (line.source === 'llm') line.text = I.decodeKeys(line.text, cat); // 台詞裡的 q4-0 換回名字
     const llmAtt = judge && line.source === 'llm' && line.data ? line.data.attitude : null;
     const aiNotes = line.source === 'llm' && line.data ? line.data.notes : null;
@@ -1684,7 +1706,6 @@ class Engine {
     // AI 給的動作；AI 離線時改用關鍵字解析。被騷擾、罵的那句不處理進度
     const raw = offenseKw ? [] : line.source === 'llm' ? ((line.data && line.data.actions) || []) : workItems;
     const items = I.validate(raw, cat);
-    const strong = hits.find((h) => h.strong);
     let proposal = null;
     if (items.length) {
       proposal = { id: `p${Date.now()}`, items, text };
@@ -1711,9 +1732,7 @@ class Engine {
         line.emotion = 'thinking';
       }
     }
-    // 模型整句都在重複前幾句（小模型的老毛病）：這個話題有預寫的台詞就改用它
-    if (line.repeated && !items.length && !mood && strong && strong.entry.reply) { line.text = strong.entry.reply; line.emotion = strong.entry.emotion || 'normal'; line.source = 'lore'; }
-    delete line.repeated;
+    delete line.repeated; // 整句重複的已經在上面處理（再問一次／內建台詞）
     delete line.data;
     // 💗 好感：失禮／騷擾扣分（AI 判斷的要再過一次關）；道歉、稱讚加分
     if (aOn) {

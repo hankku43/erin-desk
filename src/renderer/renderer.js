@@ -1868,6 +1868,11 @@ api.on('view:update', ({ view, reason }) => { applyView(view); if (reason) toast
 api.on('npc:partial', (p) => {
   if (!p || !state.talking || state.typing || state.queue.length || state.mini) return;
   const box = $('#dlgText');
+  if (p.restart) { // 🔁 剛才那句整句重複前面的話：收掉，等她重新想（10/27）
+    state.streamed = '';
+    box.innerHTML = `<span class="thinking-dots"><span></span><span></span><span></span></span><span class="writing">${esc(npcNameR())}換個說法，再想一下…</span>`;
+    return;
+  }
   if (!p.text) { if (!state.streamed) box.innerHTML = `<span class="thinking-dots"><span></span><span></span><span></span></span><span class="writing">${esc(npcNameR())}想好了，在寫…</span>`; return; }
   state.streamed = p.text;
   box.innerHTML = `<span class="typing">${esc(p.text.replace(/`/g, ''))}</span>`; // .typing 後面本來就有一根閃的筆

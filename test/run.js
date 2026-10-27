@@ -4316,3 +4316,111 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('串流與提示順序測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🔁 聊天整句重複（10/27）：AI 把前面說過的話原封不動吐回來 → 再問一次；還是重複就用內建台詞 ----------
+(async () => {
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const { TEMPLATES, dropRepeats } = require('../src/main/npc');
+  const { parseLog } = require('../src/main/health');
+  const loreFile = path.join(__dirname, '..', 'lore', '艾琳.md');
+  const tplOf = (k) => TEMPLATES[k].map(([x]) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者'));
+  // 內建台詞：夠多、不重複、口吻對
+  const cr = TEMPLATES.chat_repeat.map(([x]) => x);
+  assert.ok(cr.length >= 5 && new Set(cr).size === cr.length, 'chat_repeat 至少 5 句、不重複');
+  for (const x of cr) assert.ok(!/我(?!們)|您|玩家/.test(x) && /\{self\}/.test(x) && /\{call\}/.test(x), '口吻：' + x);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-repeat-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30 }, decide: { enabled: false }, festivals: { enabled: false } }));
+  const Y = new Date().getFullYear();
+  let t = new Date(`${Y}-10-03T10:00:00`).getTime(); // 週六：沒有行程
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  E.npc.llm.enabled = true; E.npc.status.online = true; E.rand = () => 0.99;
+  const min = (m) => { t += m * 60000; };
+  const logFile = E.npc.logFile;
+  assert.ok(logFile, '有 llm.log');
+  // 假的 Ollama：照順序回（字串＝台詞；Error＝這次出錯）；記下每次送出的提示
+  let queue = [];
+  const sent = [];
+  const answer = (body) => { sent.push(body); const x = queue.shift(); if (x instanceof Error) throw x; return { message: { content: JSON.stringify({ line: x, emotion: 'happy', actions: [], attitude: 'ok' }) }, prompt_eval_count: 900, eval_count: 40 }; };
+  E.npc.fetchJSON = async (_p, body) => answer(body);
+  const lastUser = (i = sent.length - 1) => sent[i].messages.at(-1).content;
+  const saved = () => E.state.chat[E.state.chat.length - 1];
+
+  // 1. 回她開的話題，AI 把她的開場原封不動吐回來 → 再問一次，第二次正常 → 用第二次的
+  min(25);
+  const tp = await E.proactive({});
+  assert.ok(tp && tp.kind === 'topic' && !sent.length, '話題用寫好的開場');
+  const opener = tp.lines[0].text;
+  assert.ok(dropRepeats(opener, [opener]).allRepeated, '跟開場一模一樣＝整句重複');
+  min(1);
+  queue = [opener, '每天準時吃早餐也很了不起呀！艾琳的尾巴都翹起來了～'];
+  let r = await E.chat('大概是每天都準時吃早餐吧');
+  assert.strictEqual(sent.length, 2, '再問了一次');
+  assert.strictEqual(r.lines[0].text, '每天準時吃早餐也很了不起呀！艾琳的尾巴都翹起來了～', '用第二次的回覆');
+  assert.ok(!/【不要重複】/.test(lastUser(0)) && /【不要重複】/.test(lastUser(1)), '第二次才加「不要重複」');
+  assert.ok(lastUser(1).includes(`「${opener.slice(0, 40)}`) && /直接針對冒險者剛才說的「大概是每天都準時吃早餐吧」回應/.test(lastUser(1)), '告訴它剛才那句和要回應的話：' + lastUser(1).split('【不要重複】')[1]);
+  assert.ok(/【話題】剛才是你主動找冒險者聊/.test(lastUser(1)), '其他指示照舊（還在回話題）');
+  assert.ok(saved().source === 'llm' && JSON.parse(saved().content).line === r.lines[0].text, '存的是第二次那句');
+  let log = fs.readFileSync(logFile, 'utf8');
+  assert.ok(/整句重複，再問一次/.test(log.trim().split('\n').pop()), 'llm.log 記得是再問一次');
+
+  // 2. 再問一次還是重複 → 回話題時用內建的反應；存成 template（不再給模型看）；llm.log 補一行備註（健康檢查不算失敗）
+  sent.length = 0;
+  E.touch(); min(25);
+  const tp2 = await E.proactive({});
+  const opener2 = tp2.lines[0].text;
+  min(1);
+  queue = [opener2, opener2];
+  r = await E.chat('嗯哼');
+  assert.strictEqual(sent.length, 2);
+  assert.ok(r.lines[0].text !== opener2 && (tplOf('topic_reply').includes(r.lines[0].text) || r.lines[0].source === 'lore'), '回話題：內建的反應 ' + r.lines[0].text);
+  assert.ok(['template', 'lore'].includes(saved().source), '存成內建台詞，不會再給模型當範例');
+  log = fs.readFileSync(logFile, 'utf8').trim().split('\n');
+  assert.ok(/^\S+ \S+\t備註\t0ms\t聊天：再問一次還是整句重複，改用內建台詞$/.test(log.at(-1)), '備註：' + log.at(-1));
+  const parsed = parseLog(log.join('\n'));
+  assert.ok(parsed.at(-1).event === '備註' && !parsed.at(-1).fail, '健康檢查：備註不算聊天、不算失敗');
+
+  // 3. 一般聊天（不是回話題）：兩次都重複 → 「聽不太懂」那種內建台詞
+  sent.length = 0;
+  min(30); E.touch();
+  const said = '艾琳剛才在櫃台後面整理了一整排的委託書，尾巴都累到垂下來了，冒險者今天也辛苦了喔。';
+  queue = [said];
+  await E.chat('今天好累');
+  min(1);
+  queue = [said, said];
+  r = await E.chat('嗯');
+  assert.strictEqual(sent.length, 3);
+  assert.ok(tplOf('chat_repeat').includes(r.lines[0].text), '聽不太懂：' + r.lines[0].text);
+  assert.strictEqual(saved().source, 'template');
+  // 4. 再問一次時出錯（不是逾時）→ 也用內建台詞，備註寫「也沒回好」
+  min(1);
+  queue = [said, new Error('HTTP 500: boom')];
+  r = await E.chat('喔');
+  assert.ok(tplOf('chat_repeat').includes(r.lines[0].text), '出錯：' + r.lines[0].text);
+  assert.ok(/再問一次也沒回好，改用內建台詞$/.test(fs.readFileSync(logFile, 'utf8').trim().split('\n').pop()));
+  // 5. 只有一部分重複：拿掉重複的那段就好，不用再問
+  min(1); sent.length = 0;
+  queue = [`${said}要不要先喝杯熱可可休息一下？`];
+  r = await E.chat('好');
+  assert.ok(sent.length === 1 && r.lines[0].text === '要不要先喝杯熱可可休息一下？', '部分重複：只留新的那段，不再問 ' + r.lines[0].text);
+  // 6. 串流時：重來前通知畫面收掉已經寫出來的字
+  const partials = [];
+  E.onPartial = (p) => partials.push(p);
+  E.npc.fetchStream = async (_p, body, _ms, onChunk) => { const x = answer(body); onChunk(x.message.content); return x; };
+  min(1); sent.length = 0;
+  queue = ['要不要先喝杯熱可可休息一下？', '那艾琳先去泡兩杯，等等端過來！'];
+  r = await E.chat('嗯嗯');
+  const iRestart = partials.findIndex((p) => p.restart);
+  assert.ok(iRestart > 0 && partials.slice(0, iRestart).some((p) => /熱可可/.test(p.text || '')) && partials.slice(iRestart + 1).some((p) => /泡兩杯/.test(p.text || '')), '串流：重複的那句 → restart → 新的那句');
+  assert.strictEqual(r.lines[0].text, '那艾琳先去泡兩杯，等等端過來！');
+  E.onPartial = null;
+  // 7. 畫面：收到 restart 會清掉串流的字、顯示在重新想
+  const rr = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'renderer.js'), 'utf8');
+  const rs = rr.slice(rr.indexOf('if (p.restart)'), rr.indexOf('if (p.restart)') + 400);
+  assert.ok(rr.includes('if (p.restart)') && rs.includes("state.streamed = '';") && rs.includes('換個說法，再想一下'), '畫面處理 restart');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('聊天整句重複測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

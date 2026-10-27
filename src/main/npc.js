@@ -251,6 +251,14 @@ const TEMPLATES = {
     ['下週也請多指教喔！', 'happy'],
     ['週末好好休息，下週見～', 'happy'],
   ],
+  // 🔁 AI 整句重複前面說過的話、再問一次還是一樣（10/27）：老實說沒接上，請冒險者多說一點
+  chat_repeat: [
+    ['嗯……{self}想了一下，好像沒完全聽懂。{call}可以多說一點嗎？', 'thinking'],
+    ['欸，{self}剛剛差點又把同一句話說一遍……{call}換個說法再告訴{self}一次好不好？', 'shy'],
+    ['（歪頭）{self}的腦袋打結了一下，{call}的意思是……？再說一次給{self}聽～', 'surprised'],
+    ['嗯嗯，{self}有在認真聽喔。只是這句{self}還沒想通，{call}可以說得再具體一點嗎？', 'thinking'],
+    ['唔，{self}好像接不上這句……{call}再多說一點，{self}會好好聽的！', 'normal'],
+  ],
   topic_reply: [
     ['嘿嘿，原來是這樣～{self}記住了，等一下寫進小本子！', 'happy'],
     ['真的嗎？{self}好像又更認識{call}一點了～', 'happy'],
@@ -959,9 +967,11 @@ class NPC {
     const ms = (ns) => (ns ? Math.round(ns / 1e6) : 0);
     const d = new Date();
     const stamp = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
-    const line = err
-      ? `${stamp}\t${event}\t${Date.now() - t0}ms\t失敗：${err}`
-      : `${stamp}\t${event}\t${Date.now() - t0}ms\t載入模型 ${ms(r.load_duration)}ms｜讀提示 ${r.prompt_eval_count || 0} tok ${ms(r.prompt_eval_duration)}ms｜產生 ${r.eval_count || 0} tok ${ms(r.eval_duration)}ms${note ? `｜${note}` : ''}`;
+    const line = r === 'note' // 不是一次呼叫，只是補一句說明（健康檢查不會算進速度和失敗次數）
+      ? `${stamp}\t備註\t0ms\t${note}`
+      : err
+        ? `${stamp}\t${event}\t${Date.now() - t0}ms\t失敗：${err}`
+        : `${stamp}\t${event}\t${Date.now() - t0}ms\t載入模型 ${ms(r.load_duration)}ms｜讀提示 ${r.prompt_eval_count || 0} tok ${ms(r.prompt_eval_duration)}ms｜產生 ${r.eval_count || 0} tok ${ms(r.eval_duration)}ms${note ? `｜${note}` : ''}`;
     try {
       let lines = [];
       try { lines = fs.readFileSync(this.logFile, 'utf8').split('\n').filter(Boolean); } catch (_) { /* 新檔 */ }
