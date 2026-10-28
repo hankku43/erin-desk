@@ -255,12 +255,13 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(said.length === 160 && said.length < pool3, `兩週 ${said.length} 句、第 3 階有 ${pool3} 句`);
   assert.strictEqual(new Set(said.map((x) => x.key)).size, said.length, '兩週內一句都沒重複');
   assert.ok(said.every((x, i) => i < 1 || x.title !== said[i - 1].title), '同一條設定不會連著來');
+  const find3 = (k) => E.lore.topicPool(3).find((y) => y.key === k) || E.lore.sharePool(3).find((y) => y.key === k); // 問的話題或分享（10/28）
   for (const x of said) {
-    const tp = E.lore.topicPool(3).find((y) => y.key === x.key);
+    const tp = find3(x.key);
     assert.ok(LR.topicFits(tp, new Date(x.t)), `時段／星期／季節要對：${x.text}（${new Date(x.t).toString().slice(0, 21)}）`);
     assert.ok(tp.stage <= 3, '沒到的好感階段不聊');
   }
-  assert.ok(said.filter((x) => E.lore.topicPool(3).find((y) => y.key === x.key).when).length >= 15, '時段、季節的話題有機會出來');
+  assert.ok(said.filter((x) => find3(x.key).when).length >= 15, '時段、季節的話題有機會出來');
   // 用完了（冷卻改 0.5 天）→ 挑最久沒說的
   E.config.window.topicCooldownDays = 0.5;
   t += 86400000;
@@ -314,6 +315,129 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const k of Object.keys(IL.ambient)) assert.ok(IL.ambient[k].length >= 8, `自言自語 ${k} 至少 8 句`);
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('主動話題擴增測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 💬 問一半、分享一半（10/28 使用者：她主動找人說話時太多問句）：主動開口約一半問問題、一半分享自己的小事；聊天回覆少反問 ----------
+(async () => {
+  const os = require('os');
+  const QA = require('../src/main/asks');
+  const LR = require('../src/main/lore');
+  const { Engine } = require('../src/main/engine');
+  const { TEMPLATES } = require('../src/main/npc');
+  // 問句判斷、拿掉最後的問句
+  assert.ok(QA.hasQuestion('冒險者呢？') && QA.hasQuestion('好喔。你呢?') && !QA.hasQuestion('欸？！已經這麼晚了') && !QA.hasQuestion('好喔～'), 'hasQuestion');
+  assert.strictEqual(QA.dropTrailingQuestion('艾琳把小本子收好了！你今天吃了什麼？'), '艾琳把小本子收好了！');
+  assert.strictEqual(QA.dropTrailingQuestion('想家就回家呀～可是霜月村的溫泉泡太久，尾巴會蓬起來，你有這種經驗嗎？'), '想家就回家呀～可是霜月村的溫泉泡太久，尾巴會蓬起來。', '整句拿掉剩太少：只拿掉最後那段問句');
+  assert.strictEqual(QA.dropTrailingQuestion('真的嗎？'), '真的嗎？', '整句都是問句：照舊');
+  assert.strictEqual(QA.dropTrailingQuestion('好。你呢？'), '好。你呢？', '剩太少：照舊');
+  assert.strictEqual(QA.dropTrailingQuestion('艾琳笑了，如果是你的話，會怎麼做呢？'), '艾琳笑了，如果是你的話，會怎麼做呢？', '前面是半句：照舊');
+  assert.strictEqual(QA.dropTrailingQuestion('「冒險者也喜歡嗎？」艾琳歪著頭。'), '「冒險者也喜歡嗎？」艾琳歪著頭。', '問句在中間：不動');
+  // 比例：一半一半、不連問三次、也不連續三次都只講自己的；1＝都問、0＝都不問
+  let sd = 5; const rnd = () => { sd = (sd * 1103515245 + 12345) % 2147483648; return sd / 2147483648; };
+  const run = (ratio, n = 400) => { const h = []; for (let i = 0; i < n; i++) h.push(QA.wantAsk(h, ratio, rnd)); return h; };
+  const maxRun = (h, v) => { let m = 0, c = 0; for (const x of h) { c = x === v ? c + 1 : 0; m = Math.max(m, c); } return m; };
+  const h5 = run(0.5); const f5 = h5.filter(Boolean).length / h5.length;
+  assert.ok(f5 > 0.42 && f5 < 0.58 && maxRun(h5, true) <= 2 && maxRun(h5, false) <= 2, `一半一半：${f5}`);
+  assert.ok(run(1, 30).every(Boolean) && run(0, 30).every((x) => !x), '1＝都問、0＝都不問');
+  const h3 = run(0.3); const f3 = h3.filter(Boolean).length / h3.length;
+  assert.ok(f3 > 0.2 && f3 < 0.4, `比例可以調：${f3}`);
+  assert.ok(!QA.chatMayAsk('冒險者今天吃了什麼？', 1, () => 0) && QA.chatMayAsk('好喔～', 1, () => 0) && !QA.chatMayAsk('好喔～', 0, () => 0), '聊天：她上一句問過就不再問');
+  // 角色設定檔的「分享：」
+  const lore = new LR.Lore({ file: path.join(__dirname, '..', 'lore', '艾琳.md'), dataDir: os.tmpdir(), llm: {}, embeddings: 'off' });
+  const sh = lore.sharePool(5), asks = lore.topicPool(5);
+  const by = (n) => sh.filter((x) => x.stage === n).length;
+  assert.ok(sh.length >= 150 && by(1) >= 90 && by(2) >= 35 && by(3) >= 12 && by(4) >= 5 && by(5) >= 3, `分享：${sh.length}（${[1, 2, 3, 4, 5].map(by).join('／')}）`);
+  assert.ok(sh.every((x) => x.kind === 'share' && /#s\d+$/.test(x.key)) && asks.every((x) => x.kind === 'ask' && /#\d+$/.test(x.key)), '分享跟話題分開記（話題的 key 不變）');
+  assert.strictEqual(new Set(sh.map((x) => x.text)).size, sh.length, '分享沒有重複');
+  const askTexts = new Set(asks.map((x) => x.text));
+  for (const x of sh) {
+    assert.ok(!/[？?]/.test(x.text), '分享不問問題：' + x.text);
+    assert.ok(!/(^|[^我])我(?!們)|您|玩家/.test(x.text), '口吻：' + x.text);
+    if (x.stage <= 3) assert.ok(!/任務|進度/.test(x.text), '不提任務：' + x.text);
+    assert.ok(!askTexts.has(x.text) && x.text.length >= 15 && x.text.length <= 80, '長度、不跟話題一樣：' + x.text);
+  }
+  for (const k of ['morning', 'noon', 'afternoon', 'evening', 'night']) assert.ok(sh.filter((x) => x.times.includes(k)).length >= 5, '時段分享：' + k);
+  assert.ok(sh.filter((x) => x.seasons.includes('autumn')).length >= 4 && sh.filter((x) => x.seasons.includes('winter')).length >= 4 && sh.filter((x) => x.fests.length).length >= 5, '季節、節日的分享');
+  // 引擎：兩週平日 9～17 點每 30 分鐘一句 → 問的、分享的各一半；不連問三次；分享的不帶問句；兩週不重複
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-share-'));
+  fs.writeFileSync(path.join(dir, 'plan.md'), '# 2026 分享測試 10/12–10/16\n\n## 寫完週報 🔧 📅 10/16\n- [ ] 收資料\n');
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, achievements: { enabled: false }, streak: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] }, window: { idleChatterMinutes: 10 }, decide: { enabled: false }, festivals: { enabled: false } }));
+  let t = new Date('2026-10-12T09:00:00').getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  E.aff().points = 117; E.aff().stage = 3; E.aff().maxStage = 3;
+  let s2 = 21; E.rand = () => { s2 = (s2 * 1103515245 + 12345) % 2147483648; return s2 / 2147483648; };
+  const said = [];
+  for (let d = 0; d < 14; d++) {
+    const base = new Date('2026-10-12T00:00:00').getTime() + d * 86400000;
+    if ([0, 6].includes(new Date(base).getDay())) continue;
+    for (let m = 9 * 60; m < 17 * 60; m += 30) { t = base + m * 60000; const r = await E.topic(); said.push({ text: r.lines[0].text, kind: E.state.proactive.topic.kind, key: E.state.proactive.topic.key }); }
+  }
+  const askN = said.filter((x) => x.kind === 'ask').length;
+  assert.ok(askN / said.length > 0.4 && askN / said.length < 0.6, `兩週 ${said.length} 句，問的 ${askN} 句`);
+  assert.ok(said.every((x) => (x.kind === 'ask') === QA.hasQuestion(x.text)), '問的有問句、分享的沒有');
+  assert.ok(maxRun(said.map((x) => x.kind === 'ask'), true) <= 2, '不會連問三次');
+  assert.strictEqual(new Set(said.map((x) => x.key)).size, said.length, '兩週內一句都沒重複');
+  assert.strictEqual(E.state.proactive.asks.length, 10, '記最近 10 次有沒有問');
+  // window.topicAskRatio＝1：跟以前一樣都問
+  E.config.window.topicAskRatio = 1;
+  for (let i = 0; i < 5; i++) { t += 3600000; await E.topic(); assert.strictEqual(E.state.proactive.topic.kind, 'ask', 'topicAskRatio 1：都問'); }
+  delete E.config.window.topicAskRatio;
+  // 其他主動說的話（行程、決定…）也算進比例：剛問過兩次 → 這次分享
+  E.noteAsked([{ text: '要不要先休息一下？' }]); E.noteAsked([{ text: '今天先做哪一件呢？' }]);
+  t += 3600000; await E.topic();
+  assert.strictEqual(E.state.proactive.topic.kind, 'share', '連問兩次之後分享');
+  // AI 改寫分享的那句：還是問了 → 拿掉最後的問句；拿不掉 → 說寫好的
+  E.config.llm.enabled = true; E.npc.status = { online: true }; E.config.llm.rewriteTopics = true;
+  let aiLine = '';
+  E.npc.say = async (event, f) => ({ text: aiLine || f.opener, emotion: 'happy', source: 'llm', event });
+  E.state.proactive.asks = [true, true]; aiLine = '艾琳今天把蠟封章重新排了一次，金星那顆在正中間。冒險者會排東西嗎？';
+  t += 3600000; let r = await E.topic();
+  assert.ok(E.state.proactive.topic.kind === 'share' && r.lines[0].text === '艾琳今天把蠟封章重新排了一次，金星那顆在正中間。' && r.lines[0].source === 'llm', 'AI 改寫的分享：拿掉問句 ' + r.lines[0].text);
+  E.state.proactive.asks = [true, true]; aiLine = '冒險者呢？';
+  t += 3600000; r = await E.topic();
+  assert.ok(r.lines[0].source === 'lore' && !QA.hasQuestion(r.lines[0].text), '拿不掉：說寫好的那句');
+  delete E.npc.say;
+  const npcSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'npc.js'), 'utf8');
+  assert.ok(/\n  share: '[^'\n]*不要問冒險者問題/.test(npcSrc) && TEMPLATES.share, '分享的 AI 指示：不要問問題；離線說寫好的那句');
+  // 聊天：回她分享的事 → 告訴 AI 剛剛分享了什麼；這次沒輪到問 → 請 AI 用陳述句結束，還是問了就拿掉
+  E.config.llm.rewriteTopics = false; E.npc.llm.enabled = true; E.npc.status.online = true;
+  const sent = []; let reply = '';
+  E.npc.fetchJSON = async (_p, body) => { sent.push(body); return { message: { content: JSON.stringify({ line: reply, emotion: 'happy', actions: [], attitude: 'ok' }) } }; };
+  const lastUser = () => sent[sent.length - 1].messages.at(-1).content;
+  E.rand = () => 0.99; // 沒輪到反問
+  E.state.proactive.asks = [true, true];
+  t += 3600000; const sh1 = await E.topic();
+  assert.strictEqual(E.state.proactive.topic.kind, 'share');
+  t += 60000; reply = '真的嗎～艾琳也覺得那樣很可愛！冒險者家附近也有嗎？';
+  r = await E.chat('哈哈好可愛');
+  assert.ok(lastUser().includes(`【話題】剛才是你主動跟冒險者分享「${sh1.lines[0].topic}」的事`) && !/接著問/.test(lastUser()), '回分享：告訴 AI 剛剛分享了什麼');
+  assert.ok(/【這次】回應完就好，用陳述句結束，不要再問冒險者問題。/.test(lastUser()), '這次不反問');
+  assert.strictEqual(r.lines[0].text, '真的嗎～艾琳也覺得那樣很可愛！', 'AI 還是問了：拿掉最後的問句');
+  assert.strictEqual(JSON.parse(E.state.chat[E.state.chat.length - 1].content).line, '真的嗎～艾琳也覺得那樣很可愛！', '存的也是拿掉後的');
+  // 輪到可以問、她上一句也沒問 → 不限制
+  E.rand = () => 0; t += 30 * 60000; reply = '嘿嘿，艾琳也想去看看。冒險者常去嗎？';
+  r = await E.chat('晨風鎮的書攤好有趣');
+  assert.ok(!/【這次】/.test(lastUser()) && r.lines[0].text === '嘿嘿，艾琳也想去看看。冒險者常去嗎？', '輪到可以問：照 AI 說的');
+  // 她上一句已經在問 → 這次一定不再問（就算輪到）
+  t += 60000; reply = '原來如此，艾琳記住了。那下次一起去？';
+  r = await E.chat('偶爾會去');
+  assert.ok(/【這次】/.test(lastUser()) && r.lines[0].text === '原來如此，艾琳記住了。', '上一句問過：這次不問 ' + r.lines[0].text);
+  // 說自己很痛苦：不限制（可以溫柔地問要不要說說看）
+  E.rand = () => 0.99; t += 60000; reply = '艾琳在這裡陪你。想說說看發生什麼事嗎？';
+  r = await E.chat('我覺得好痛苦，不想活了');
+  assert.ok(!/【這次】/.test(lastUser()) && r.lines[0].text === reply, '說自己很痛苦：不限制');
+  // 離線回她分享的事：用不反問的內建反應
+  E.config.llm.enabled = false; E.npc.llm.enabled = false;
+  E.state.proactive.asks = [true, true];
+  t += 3600000; await E.topic();
+  assert.strictEqual(E.state.proactive.topic.kind, 'share');
+  t += 60000; r = await E.chat('好可愛喔');
+  const shareReply = TEMPLATES.share_reply.map(([x]) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者'));
+  assert.ok(shareReply.includes(r.lines[0].text) || r.lines[0].source === 'lore', '離線：' + r.lines[0].text);
+  assert.ok(shareReply.length >= 10 && shareReply.every((x) => !QA.hasQuestion(x) && !/我(?!們)|您|玩家/.test(x)), 'share_reply 不問問題、口吻對');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('問一半分享一半測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
 
 // ---------- 🐾 互動擴充（10/21）：摸不同的地方、幫艾琳做決定、現實的節日與紀念日、天候水晶（都不問 AI、不加提示長度）----------
@@ -1734,7 +1858,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-topic-'));
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30 }, decide: { enabled: false }, festivals: { enabled: false } })); // 做決定、節日另外測
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30, topicAskRatio: 1 }, decide: { enabled: false }, festivals: { enabled: false } })); // 做決定、節日另外測；這組只測問句的話題（分享在「問一半、分享一半」測）
   const Y = new Date().getFullYear();
   let t = new Date(`${Y}-10-03T10:00:00`).getTime(); // 週六：計畫裡沒有這天的行程
   const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
@@ -3073,6 +3197,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(room, '標題也換了');
   assert.ok((await lore.retrieve('小雪的房間長什麼樣子')).some((h) => h.entry === room) && (await lore.retrieve('艾琳的房間長什麼樣子')).some((h) => h.entry === room), '新舊名字都找得到');
   assert.ok(lore.topicPool().every((t) => !leftover(t.text)), '話題');
+  assert.ok(lore.sharePool().length > 100 && lore.sharePool().every((t) => !leftover(t.text)), '分享（10/28）');
   // 5. 引擎：⚙ 改名、雜貨舖、成就、星座卡、運勢、新手任務、AI 的系統提示
   const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-rn-app-'));
   const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-rn-user-'));
@@ -4332,7 +4457,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-repeat-'));
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30 }, decide: { enabled: false }, festivals: { enabled: false } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, lore: { path: loreFile, embeddings: false }, window: { idleChatterMinutes: 30, topicAskRatio: 1 }, decide: { enabled: false }, festivals: { enabled: false } })); // 這組用問句的話題測（分享另外測）
   const Y = new Date().getFullYear();
   let t = new Date(`${Y}-10-03T10:00:00`).getTime(); // 週六：沒有行程
   const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });

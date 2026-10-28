@@ -37,7 +37,7 @@ const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
 //   config.json 的 llm.quickLines 設成 false 就照舊全部問 AI
 const QUICK_EVENTS = new Set(['greet', 'daily', 'objective', 'assign', 'poke', 'poke_annoyed', 'poke_meow', 'registered', 'reminder_set', 'imported']);
 // 艾琳自己開口的話（整點、逾期、換到下一格、話題、關心後續）：筆電用電池時一律內建台詞，不讓 CPU 全速跑 10 秒（10/14 J；llm.batterySaver 設 false 就照問 AI）
-const AMBIENT_EVENTS = new Set(['daily', 'morning', 'lunch', 'afternoon', 'wrapup', 'custom', 'reminder', 'overdue', 'topic', 'note', 'journal_ready']);
+const AMBIENT_EVENTS = new Set(['daily', 'morning', 'lunch', 'afternoon', 'wrapup', 'custom', 'reminder', 'overdue', 'topic', 'share', 'note', 'journal_ready']);
 
 const F = require('./fortune'); // 🔮 今日運勢的文案
 const R = require('./raids'); // 📯 團戰（會議）：提醒、自動專注
@@ -45,6 +45,7 @@ const CAL = require('./calendar'); // 📆 週末、台灣國定假日、請假
 const PD = require('./plandraft'); // 📓 艾琳的筆記本（委託）
 const FE = require('./festivals'); // 📅 現實的節日、節氣、認識的紀念日
 const DC = require('./decide'); // 🤔 幫艾琳做決定
+const QA = require('./asks'); // 💬 問句的比例：主動開口問一半、分享一半；聊天回覆少反問
 const WX = require('./weather'); // ☁ 天候水晶
 // 🔁 AI 整句重複前面的話、再問一次時加在這一句指示的最後（10/27）
 const clipQ = (x, n = 40) => { const t = String(x || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
@@ -1443,6 +1444,7 @@ class Engine {
     else if (kind === 'decide') res = this.decideAsk();
     else res = await this.topic();
     if (!res || !res.lines || !res.lines.length) return null;
+    if (kind !== 'topic') this.noteAsked(res.lines); // 話題、關心後續在 topic() 裡自己記
     p.lastAt = now;
     this.saveState();
     return { ...res, kind, lines: res.lines.map((l) => ({ ...l, ambient: true })) };
@@ -1472,31 +1474,52 @@ class Engine {
     for (const x of cand) { roll -= w(x); if (roll < 0) return x; }
     return cand[cand.length - 1];
   }
+  // 💬 主動說的話有沒有在問冒險者（最近 10 次，舊→新）：決定下一次要問還是分享
+  noteAsked(lines) {
+    const p = this.proState();
+    p.asks = [...(Array.isArray(p.asks) ? p.asks : []), (lines || []).some((l) => l && QA.hasQuestion(l.text))].slice(-10);
+  }
+  // 這次主動開口要不要問問題：window.topicAskRatio（預設 0.5＝問一半、分享一半；1＝以前那樣都問）
+  wantAsk() {
+    const r = (this.config.window || {}).topicAskRatio;
+    return QA.wantAsk(this.proState().asks, r === undefined ? 0.5 : r, () => this.rnd());
+  }
   async topic() {
     if (this.isCold()) return null;
     const stage = this.affStage();
-    // 📒 小本子上有「最近的事」還沒問後續：多半先關心那件事（第 1 階只記、不追問）
+    const ask = this.wantAsk();
+    // 📒 小本子上有「最近的事」還沒問後續：多半先關心那件事（第 1 階只記、不追問）。關心也是問句，這次輪到分享就先不問
     const ncfg = this.nbCfg();
     const fu = ncfg.enabled !== false && (this.affOn() ? stage : 2) >= ncfg.followStage ? M.dueFollowUp(this.nb(), this.now(), ncfg) : null;
-    if (fu && this.rnd() < 0.7) return this.followUp(fu);
+    if (fu && ask && this.rnd() < 0.7) return this.followUp(fu);
     const nowD = this.now();
-    const pool = this.lore.topicPool(stage).filter((x) => topicFits(x, nowD)); // 標了時段／星期／季節的，只在那時候聊
+    // 問的是「話題：」、分享的是「分享：」（10/28）；標了時段／星期／季節的，只在那時候說；這種沒有了就用另一種
+    const fits = (x) => topicFits(x, nowD);
+    const asks = this.lore.topicPool(stage).filter(fits);
+    const shares = this.lore.sharePool(stage).filter(fits);
+    const pool = ask ? (asks.length ? asks : shares) : (shares.length ? shares : asks);
     if (!pool.length) return null;
     const p = this.proState();
     const t = this.pickTopic(pool, stage, nowD.getTime());
+    const share = t.kind === 'share';
     const mood = t.entry.emotion === 'shy' && this.rnd() < this.emotionChance() ? 'shy' : null;
     const info = t.entry.text.replace(/\n+/g, ' ');
     // 開場是角色設定檔裡人寫好的，大多直接說（每次請 AI 改寫一次約 10 秒，10/14 J）；偶爾（預設四次一次）請 AI 用自己的話說，聽起來才不會每次一模一樣
     //   config.json 的 llm.rewriteTopics：true＝每次、false＝不要、0～1 的數字＝機率（沒填＝0.25）；用電池時不改寫
     const rw = (this.config.llm || {}).rewriteTopics;
     const chance = rw === true ? 1 : rw === false ? 0 : Number.isFinite(Number(rw)) && rw !== null && rw !== '' ? Math.max(0, Math.min(1, Number(rw))) : 0.25;
-    const rewrite = chance > 0 && this.aiOn() && !this.saveBattery('topic') && this.rnd() < chance;
-    const line = rewrite ? await this.say('topic', {
+    const ev = share ? 'share' : 'topic';
+    const rewrite = chance > 0 && this.aiOn() && !this.saveBattery(ev) && this.rnd() < chance;
+    const line = rewrite ? await this.say(ev, {
       quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [], noPlayer: true, // 聊天就聊天，不提任務
-      topic: `「${t.entry.title}」。開場可以參考（用自己的話說，不要照抄）：${t.text}`,
+      topic: share ? `「${t.entry.title}」。想分享的事（用自己的話說，不要照抄）：${t.text}` : `「${t.entry.title}」。開場可以參考（用自己的話說，不要照抄）：${t.text}`,
       topicInfo: info.length > 220 ? `${info.slice(0, 220)}…` : info,
       opener: t.text,
     }, { mood, maxTokens: 220, ai: true }) : { source: 'lore' };
+    if (share && line.source === 'llm' && QA.hasQuestion(line.text)) { // 分享的那句 AI 還是問了：拿掉最後的問句；拿不掉就說寫好的
+      line.text = QA.dropTrailingQuestion(line.text);
+      if (QA.hasQuestion(line.text)) line.source = 'lore';
+    }
     if (line.source !== 'llm') { line.text = t.text; line.emotion = mood ? 'shy' : (t.entry.emotion || 'normal'); line.source = 'lore'; }
     delete line.repeated; delete line.data; delete line.tpl;
     const now = this.now().getTime();
@@ -1504,7 +1527,8 @@ class Engine {
     p.recent = [...(p.recent || []), t.key].slice(-8);
     p.lastTitle = t.entry.title;
     p.lastTitles = [...(p.lastTitles || []), t.entry.title].slice(-3);
-    p.topic = { key: t.key, title: t.entry.title, text: line.text, at: now, replied: false };
+    p.topic = { key: t.key, kind: share ? 'share' : 'ask', title: t.entry.title, text: line.text, at: now, replied: false };
+    this.noteAsked([line]);
     // 放進聊天紀錄：冒險者回話時，AI 才知道剛剛在聊什麼
     this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest: this.ps.activeQuestId || null, at: now, topic: t.entry.title });
     this.state.chat = this.state.chat.slice(-20);
@@ -1646,7 +1670,13 @@ class Engine {
     if (relationQ) tail.push(`【關係問題】${call}在問你們現在是什麼關係：照【關係】的親近程度，用角色口吻回答一兩句。`);
     if (kw === 'care') tail.push(`${call}現在很痛苦：先溫柔地關心他，建議他找信任的人或專業的人聊聊，這句不要提任務。`);
     if (replyTopic && tp.noteId) tail.push(`【話題】剛才是你主動關心${call}之前說的「${tp.note}」（你說：「${tp.text}」），他現在在回你近況：先具體回應他說的內容，開心就替他高興、不順就安慰他；不要把話題轉回任務。`);
-    else if (replyTopic) tail.push(`【話題】剛才是你主動找${call}聊「${tp.title}」（你說：「${tp.text}」），他現在在回你：先具體回應他說的內容，可以再分享一點你自己的事或接著問一句；不要把話題轉回任務。`);
+    else if (replyTopic && tp.kind === 'share') tail.push(`【話題】剛才是你主動跟${call}分享「${tp.title}」的事（你說：「${tp.text}」），他現在在回你：先具體回應他說的內容，可以再多說一點那件事；不要把話題轉回任務。`);
+    else if (replyTopic) tail.push(`【話題】剛才是你主動找${call}聊「${tp.title}」（你說：「${tp.text}」），他現在在回你：先具體回應他說的內容，可以再分享一點你自己的事；不要把話題轉回任務。`);
+    // 💬 少反問（10/28）：她上一句已經在問、或這次沒輪到，就請 AI 用陳述句結束；跟工作有關（可能要問是哪一項）、說自己很痛苦的時候不限制
+    const lastLine = (() => { try { return lastSaid ? JSON.parse(lastSaid.content).line || '' : ''; } catch (_) { return lastSaid ? String(lastSaid.content || '') : ''; } })();
+    const chatAsk = (this.config.llm || {}).chatAskRatio;
+    const mayAsk = scope.need || kw === 'care' || QA.chatMayAsk(lastLine, chatAsk === undefined ? 0.3 : chatAsk, () => this.rnd());
+    if (!mayAsk) tail.push(`【這次】回應完就好，用陳述句結束，不要再問${call}問題。`);
     // 📒 小本子：跟這句話有關的筆記給 AI 看；這句像在講自己的事（或規則有記到）才請 AI 記新的（10/14 K）
     const nbOn = this.nbCfg().enabled !== false;
     const nbCtx = nbOn ? M.contextText(M.relevant(this.nb(), text, now), now, call, self) : '';
@@ -1699,6 +1729,10 @@ class Engine {
       }
     }
     if (line.source === 'llm') line.text = I.decodeKeys(line.text, cat); // 台詞裡的 q4-0 換回名字
+    if (!mayAsk && line.source === 'llm' && QA.hasQuestion(line.text)) { // 說了不要問還是問了：拿掉最後的問句（剩下太少就照舊）
+      const cut = QA.dropTrailingQuestion(line.text);
+      if (cut !== line.text) { this.npc.logCall('chat', Date.now(), 'note', null, '聊天：這次不反問，拿掉最後的問句'); line.text = cut; }
+    }
     const llmAtt = judge && line.source === 'llm' && line.data ? line.data.attitude : null;
     const aiNotes = line.source === 'llm' && line.data ? line.data.notes : null;
     // 📒 記下冒險者說的自己的事（罵人、說自己很痛苦的那句不記）
@@ -1725,7 +1759,7 @@ class Engine {
       else if (noop) { line.text = noop; line.emotion = 'happy'; }
       else if (noted.some((x) => x.kind === 'date' || x.kind === 'work')) tpl('note_taken', { note: M.label(noted.find((x) => x.kind === 'date' || x.kind === 'work')) }); // 「我的生日」「最近在忙…」：先說記下了，不要接成艾琳自己的生日、閒聊開場
       else if (lore) { line.text = lore.entry.reply; line.emotion = lore.entry.emotion || 'normal'; line.source = 'lore'; }
-      else if (replyTopic) tpl('topic_reply');
+      else if (replyTopic) tpl(tp.kind === 'share' ? 'share_reply' : 'topic_reply');
       else if (noted.length) tpl('note_taken', { note: M.label(noted[0]) }); // 離線也看得出她有在聽
       else if (/(完|好了|搞定|取消|交付|提交|勾)/.test(text)) {
         line.text = `嗯……${self}找不到你說的是哪一項。可以說得更具體一點，或直接到週任務板勾選喔。`;
@@ -1814,7 +1848,8 @@ class Engine {
     item.followed = at;
     const p = this.proState();
     p.lastTitle = '小本子';
-    p.topic = { key: `note:${item.id}`, title: '小本子', noteId: item.id, note: item.text, text: line.text, at, replied: false };
+    p.topic = { key: `note:${item.id}`, kind: 'ask', title: '小本子', noteId: item.id, note: item.text, text: line.text, at, replied: false };
+    this.noteAsked([line]);
     this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: line.source, quest: this.ps.activeQuestId || null, at, topic: '小本子' });
     this.state.chat = this.state.chat.slice(-20);
     this.saveState();

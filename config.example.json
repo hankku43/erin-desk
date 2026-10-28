@@ -29,6 +29,7 @@
     "keepAlive": "30m",
     "quickLines": true,
     "rewriteTopics": 0.25,
+    "chatAskRatio": 0.3,
     "batterySaver": true
   },
   "rewards": {
@@ -91,6 +92,7 @@
     "alwaysOnTop": true,
     "idleChatterMinutes": 30,
     "topicCooldownDays": 14,
+    "topicAskRatio": 0.5,
     "idleAnim": true
   },
   "weather": {

@@ -87,7 +87,7 @@ function parseLore(md) {
     const h2 = line.match(/^##\s+(.+)/);
     if (h1 && !cur) { name = h1[1].trim(); continue; }
     if (h2) {
-      cur = { id: `l${entries.length + 1}`, title: h2[1].trim(), keywords: [], text: [], reply: '', emotion: 'normal', minStage: 0, topics: [] };
+      cur = { id: `l${entries.length + 1}`, title: h2[1].trim(), keywords: [], text: [], reply: '', emotion: 'normal', minStage: 0, topics: [], shares: [] };
       entries.push(cur);
       continue;
     }
@@ -97,11 +97,13 @@ function parseLore(md) {
     const em = line.match(/^表情[:：]\s*(\w+)/);
     const st = line.match(/^好感[:：]\s*(\d+)/); // 好感到第幾階才會出現（隱藏好感度）
     const tp = line.match(/^話題\s*(?:[（(]([^）)]*)[）)])?\s*[:：]\s*(.+)/); // 艾琳主動找冒險者聊天的開場；括號裡可以標好感階段、時段、星期、季節
+    const sh = line.match(/^分享\s*(?:[（(]([^）)]*)[）)])?\s*[:：]\s*(.+)/); // 💬 艾琳主動跟冒險者分享自己的小事（不問問題；標籤跟「話題」一樣，10/28）
     if (kw) cur.keywords = kw[1].split(/[、,，\s]+/).map((x) => x.trim()).filter(Boolean);
     else if (rp) cur.reply = rp[1].trim();
     else if (em) cur.emotion = EMOTIONS.includes(em[1]) ? em[1] : 'normal';
     else if (st) cur.minStage = Number(st[1]);
     else if (tp) cur.topics.push({ text: tp[2].trim(), ...topicTags(tp[1]) });
+    else if (sh) cur.shares.push({ text: sh[2].trim(), ...topicTags(sh[1]) });
     else if (line.trim()) cur.text.push(line.trim());
   }
   for (const e of entries) e.text = e.text.join('\n');
@@ -182,6 +184,7 @@ class Lore {
     for (const e of this.entries) {
       e.title = r(e.title); e.text = r(e.text); e.reply = r(e.reply);
       e.topics = e.topics.map((t) => ({ ...t, text: r(t.text) }));
+      e.shares = (e.shares || []).map((t) => ({ ...t, text: r(t.text) }));
       e.keywords = [...new Set([...e.keywords.map(r), ...e.keywords])];
     }
   }
@@ -316,12 +319,16 @@ class Lore {
   // 給 AI 看的參考段落
   // 主動聊天的話題：每條設定的「話題：」都是一個；階段＝設定的好感和那一行標的好感取大的（至少 1）
   // when＝有標時段／日子／季節（只有那時候聊、聊的機會比較大）
-  topicPool(stage = 99) {
+  topicPool(stage = 99) { return this.linePool('topics', stage); }
+  // 💬 分享：她自己的小事、說完就好（不問問題）。key 是「條目#s序號」，跟話題分開記（10/28）
+  sharePool(stage = 99) { return this.linePool('shares', stage); }
+  linePool(field, stage = 99) {
     const out = [];
+    const share = field === 'shares';
     for (const e of this.entries) {
-      (e.topics || []).forEach((t, i) => {
+      (e[field] || []).forEach((t, i) => {
         const st = Math.max(1, e.minStage || 0, t.stage || 0);
-        if (st <= stage) out.push({ key: `${e.title}#${i}`, entry: e, text: t.text, stage: st, times: t.times || [], days: t.days || [], seasons: t.seasons || [], fests: t.fests || [], when: hasWhen(t) });
+        if (st <= stage) out.push({ key: `${e.title}#${share ? 's' : ''}${i}`, kind: share ? 'share' : 'ask', entry: e, text: t.text, stage: st, times: t.times || [], days: t.days || [], seasons: t.seasons || [], fests: t.fests || [], when: hasWhen(t) });
       });
     }
     return out;
