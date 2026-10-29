@@ -1348,9 +1348,11 @@ class Engine {
     const today = G.todayISO(this.now());
     const had = this.fortuneToday();
     if (had) return { again: true, fortune: had, lines: [{ ...this.npc.template('fortune_again', had), event: 'fortune' }], view: this.view() };
-    const { rank, opener, advice, item } = F.draw(this.rand || Math.random);
-    const fortune = { date: today, rank: rank.name, opener, advice, item, xp: rank.xp, gold: rank.gold, tier: rank.tier };
+    const d = F.draw(this.rand || Math.random, this.state.fortuneRecent || {}); // 最近抽過的句子、幸運物盡量不重複
+    const { rank, opener, advice, item, color, time, stars } = d;
+    const fortune = { date: today, rank: rank.name, opener, advice, item, color, time, stars, xp: rank.xp, gold: rank.gold, tier: rank.tier };
     this.state.fortune = fortune;
+    this.state.fortuneRecent = F.remember(this.state.fortuneRecent, d);
     const reward = G.grant(this.state, { xp: rank.xp, gold: rank.gold }, `今日運勢：${rank.name}`, this.config.rewards, this.now());
     this.saveState();
     const lines = [{ ...this.npc.template('fortune', fortune), event: 'fortune' }];

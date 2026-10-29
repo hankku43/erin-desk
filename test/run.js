@@ -1218,13 +1218,15 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const mk = () => new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
   let E = mk();
   // 運勢：一天一次，第一次有獎勵
-  E.rand = () => 0.01; // 大吉、第一句建議、第一個幸運物
+  E.rand = () => 0.01; // 大吉、各清單靠前面的那一個
   assert.strictEqual(E.view().fortune, null);
   const xp0 = E.state.player.xp, g0 = E.state.player.gold;
+  const LUCKY1 = require('../src/main/fortune').ITEMS[Math.floor(0.01 * require('../src/main/fortune').ITEMS.length)]; // rand 固定 0.01 會抽到的幸運物
   const f1 = E.drawFortune();
-  assert.deepStrictEqual([f1.again, f1.fortune.rank, f1.fortune.item, E.state.player.xp - xp0, E.state.player.gold - g0], [false, '大吉', '溫奶茶', 10, 12]);
-  assert.ok(/「大吉」/.test(f1.lines[0].text) && /溫奶茶/.test(f1.lines[0].text) && /12 金幣/.test(f1.lines[0].text), f1.lines[0].text);
+  assert.deepStrictEqual([f1.again, f1.fortune.rank, f1.fortune.item, E.state.player.xp - xp0, E.state.player.gold - g0], [false, '大吉', LUCKY1, 10, 12]);
+  assert.ok(/「大吉」/.test(f1.lines[0].text) && f1.lines[0].text.includes(LUCKY1) && /12 金幣/.test(f1.lines[0].text), f1.lines[0].text);
   assert.strictEqual(E.state.history[0].reason, '今日運勢：大吉');
+  assert.ok(f1.fortune.color && f1.fortune.time && f1.fortune.stars && E.state.fortuneRecent.item[0] === LUCKY1, '運勢多了幸運色、時段、分項，也記住抽過的：' + JSON.stringify(f1.fortune));
   const f2 = E.drawFortune();
   assert.ok(f2.again && /已經抽過/.test(f2.lines[0].text) && E.state.player.gold - g0 === 12, '同一天再抽只是再看一次');
   assert.strictEqual(E.view().fortune.rank, '大吉');
@@ -2681,8 +2683,16 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
 (() => {
   const F = require('../src/main/fortune');
   const { TEMPLATES } = require('../src/main/npc');
-  for (const r of F.RANKS) assert.ok(F.OPENERS[r.tier].length >= 5 && F.ADVICE[r.tier].length >= 8, r.name);
-  assert.ok(F.ADVICE.common.length >= 20 && F.ITEMS.length >= 30);
+  for (const r of F.RANKS) assert.ok(F.OPENERS[r.tier].length >= 20 && F.ADVICE[r.tier].length >= 30, r.name);
+  assert.ok(F.ADVICE.common.length >= 100 && F.ITEMS.length >= 100 && F.COLORS.length >= 40 && F.TIMES.length >= 20);
+  assert.strictEqual(new Set(F.COLORS).size, F.COLORS.length); assert.strictEqual(new Set(F.TIMES).size, F.TIMES.length);
+  for (const t of [...F.COLORS, ...F.TIMES]) assert.ok(!/玩家|您/.test(t) && !/(^|[^我])我(?!們)/.test(t), '口吻：' + t);
+  // 連抽 30 天：記住最近抽過的，建議、幸運物都不重複；分項 2～5 顆星
+  { let rec = {}; const adv = new Set(), it = new Set();
+    for (let i = 0; i < 30; i++) { const d = F.draw(Math.random, rec); rec = F.remember(rec, d); adv.add(d.advice); it.add(d.item);
+      for (const a of F.ASPECTS) assert.ok(d.stars[a] >= 2 && d.stars[a] <= 5, JSON.stringify(d.stars)); }
+    assert.ok(adv.size >= 28 && it.size >= 28, `30 天裡重複太多：建議 ${adv.size}、幸運物 ${it.size}`);
+    assert.ok(rec.advice.length === 20 && !rec.opener.some((x) => !x.includes('{rank}')), '記的是原句（含 {rank}）、最多 20 個'); }
   const all = [...Object.values(F.OPENERS).flat(), ...Object.values(F.ADVICE).flat(), ...F.ITEMS];
   assert.strictEqual(new Set(all).size, all.length, '文案不重複');
   for (const t of all) assert.ok(!/玩家|您/.test(t) && !/(^|[^我])我(?!們)/.test(t), '口吻：' + t);

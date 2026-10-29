@@ -544,7 +544,7 @@ button.fl-ico[disabled] { cursor: pointer; }
 #hudPeek code { background: rgba(255, 255, 255, .14); padding: 0 4px; border-radius: 4px; font-size: .88em; }
 
 /* ---------- 🔮 今日運勢卡 ---------- */
-#fortuneCard { position: absolute; left: 44px; width: 220px; height: 236px; z-index: 6; perspective: 900px; cursor: pointer; opacity: 0; transform: translateY(24px) scale(.55); transition: opacity .3s, transform .5s cubic-bezier(.2, 1.4, .4, 1); }
+#fortuneCard { position: absolute; left: 44px; width: 220px; height: 304px; z-index: 6; perspective: 900px; cursor: pointer; opacity: 0; transform: translateY(24px) scale(.55); transition: opacity .3s, transform .5s cubic-bezier(.2, 1.4, .4, 1); }
 #fortuneCard.show { opacity: 1; transform: none; }
 #fortuneCard.bye { opacity: 0; transform: translateY(-16px) scale(.92); }
 .fc-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .75s cubic-bezier(.3, 1.3, .5, 1); }
@@ -552,14 +552,18 @@ button.fl-ico[disabled] { cursor: pointer; }
 .fc-back, .fc-front { position: absolute; inset: 0; backface-visibility: hidden; border-radius: var(--r-l); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 14px 16px; box-sizing: border-box; box-shadow: var(--shadow); border: 2px solid var(--gold); }
 .fc-back { background: radial-gradient(circle at 50% 38%, #7466c4, #2b2f5c 72%); color: #ffe7a8; font-weight: 800; font-size: var(--fs-m); gap: 10px; letter-spacing: 1px; }
 .fc-emblem { font-size: 48px; filter: drop-shadow(0 0 12px rgba(182, 156, 255, .95)); animation: bob 1.4s ease-in-out infinite; }
-.fc-front { transform: rotateY(180deg); background: linear-gradient(180deg, var(--card), var(--paper)); color: var(--ink); gap: 6px; }
+.fc-front { transform: rotateY(180deg); background: linear-gradient(180deg, var(--card), var(--paper)); color: var(--ink); gap: 5px; }
 .fc-date { font-size: var(--fs-xs); color: var(--ink-soft); letter-spacing: 1px; }
-.fc-rank { font-size: 42px; font-weight: 900; letter-spacing: 4px; line-height: 1.1; }
+.fc-rank { font-size: 40px; font-weight: 900; letter-spacing: 4px; line-height: 1.1; }
 .t5 .fc-rank { color: #d98a12; text-shadow: 0 2px 0 #ffe7a8, 0 0 14px rgba(255, 200, 80, .6); } .t4 .fc-rank { color: #e0567e; } .t3 .fc-rank { color: #2f86d6; } .t2 .fc-rank { color: #2e9d6a; } .t1 .fc-rank { color: #7b6cc4; }
 #fortuneCard.t5 .fc-front { border-color: #f0b23a; box-shadow: 0 0 26px rgba(255, 214, 107, .85), var(--shadow); }
 .fc-advice { font-size: var(--fs-m); font-weight: 700; line-height: 1.55; }
 .fc-item { font-size: var(--fs-s); color: var(--ink-soft); }
 .fc-item b { color: var(--ink); }
+.fc-stars { display: flex; gap: 8px; font-size: var(--fs-xs); color: var(--ink-soft); }
+.fc-stars span { display: flex; flex-direction: column; align-items: center; line-height: 1.25; }
+.fc-stars i { font-style: normal; color: var(--gold-deep); letter-spacing: -1px; }
+.fc-stars s { text-decoration: none; opacity: .25; }
 .fc-reward { font-size: var(--fs-s); font-weight: 800; color: var(--gold-deep); margin-top: 2px; }
 
 /* ---------- 🍅 專注：貓咪模式的倒數與 zzz ---------- */

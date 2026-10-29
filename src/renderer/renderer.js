@@ -989,7 +989,7 @@ function showFortuneCard(f, reward) {
   c.className = `t${f.tier}`;
   c.innerHTML = `<div class="fc-inner"><div class="fc-back"><div class="fc-emblem">🔮</div><div>星盾公會・今日運勢</div></div>
     <div class="fc-front"><div class="fc-date">${+f.date.slice(5, 7)}/${+f.date.slice(8, 10)} 的運勢</div><div class="fc-rank">${esc(f.rank)}</div>
-      <div class="fc-advice">${esc(f.advice)}</div><div class="fc-item">幸運物：<b>${esc(f.item)}</b></div>
+      <div class="fc-advice">${esc(f.advice)}</div><div class="fc-item">幸運物：<b>${esc(f.item)}</b></div>${f.color ? `<div class="fc-item">幸運色：<b>${esc(f.color)}</b></div>` : ''}${f.time ? `<div class="fc-item">好運時段：<b>${esc(f.time)}</b></div>` : ''}${f.stars ? `<div class="fc-stars">${Object.entries(f.stars).map(([k, n]) => `<span>${esc(k)}<i>${'★'.repeat(n)}<s>${'★'.repeat(5 - n)}</s></i></span>`).join('')}</div>` : ''}
       <div class="fc-reward">${reward ? `✨ +${reward.xp} XP　${COIN}+${reward.gold}` : '今天已經抽過囉'}</div></div></div>`;
   c.style.bottom = document.body.classList.contains('no-hud') ? '24px' : '10px'; // 蓋在狀態欄上，不擋對話框和面板的按鈕
   void c.offsetWidth;

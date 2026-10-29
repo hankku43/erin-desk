@@ -540,6 +540,8 @@ const TEMPLATES = {
     ['{opener}{advice}。幸運物是「{item}」，公會送你 {gold} 金幣～', 'cheer'],
     ['{opener}{advice}。今天的幸運物是「{item}」！{gold} 金幣收好喔～', 'cheer'],
     ['{opener}{advice}。幸運物「{item}」，還有公會的 {gold} 金幣～', 'happy'],
+    ['{opener}{advice}。幸運色是{color}，幸運物是「{item}」，{gold} 金幣收好喔～', 'cheer'],
+    ['{opener}{advice}。好運會在{time}出現，幸運物是「{item}」～公會送你 {gold} 金幣！', 'happy'],
   ],
   fortune_again: [
     ['今天已經抽過囉，是「{rank}」。記得：{advice}～', 'happy'],
