@@ -83,6 +83,21 @@ function obChoices(p) {
 }
 const obChoice = (p) => { const ob = obState(); return ob.choice ? obChoices(p).find((c) => c.name === ob.choice) || { name: ob.choice, size: '', installed: obHas(p.models, ob.choice) } : null; };
 
+// 🔒 Ollama 只在這台電腦工作：三個開關（預設都勾；之前選過就照之前的）
+function obLockHtml(p) {
+  const ob = obState(), name = npcName();
+  const w = p.lock && p.lock.want;
+  if (!ob.lock) ob.lock = w ? { cloud: !!w.cloud, autoUpdate: !!w.autoUpdate, expose: !!w.expose } : { cloud: true, autoUpdate: true, expose: true };
+  const st = (p.lock && p.lock.state) || {};
+  const already = { cloud: !!st.cloudOff, autoUpdate: st.autoUpdate === false, expose: st.expose === false && st.browser !== true };
+  const row = (k, t, d) => `<label class="ob-lock-row"><input type="checkbox" data-ob-lock="${k}" ${ob.lock[k] ? 'checked' : ''}><span><b>${t}</b>${already[k] ? '<span class="chip ok">已經關著</span>' : ''}<small>${d}</small></span></label>`;
+  return `<div class="ob-lock"><div class="ob-lock-h">🔒 讓 Ollama 只在這台電腦工作</div>`
+    + row('cloud', '關掉雲端模型和網路搜尋', '對話不會經過 Ollama 送到雲端')
+    + row('autoUpdate', '關掉自動下載更新', '新版改成自己到官網下載（Ollama 還是會偶爾問一下有沒有新版，只是不會自己下載、安裝）')
+    + row('expose', '不讓別的裝置、網頁連進來', `只有這台電腦上的程式（例如${esc(name)}）能用它`)
+    + `<small class="ob-note">${esc(name)}聊天只用你電腦裡的模型，關掉這些沒有影響，下載模型也照常。改的是 Ollama 自己的設定：${p.ollama === 'running' ? '按「下一步」時套用，需要的話會幫你重開一次 Ollama' : 'Ollama 裝好、打開過之後套用'}。之後在右鍵「⚙ 設定與資料」也能改。</small></div>`;
+}
+
 function renderOnboard(el, v) {
   const ob = obState();
   const name = npcName();
@@ -148,6 +163,7 @@ function renderOnboard(el, v) {
         + tiers.map(card).join('')
         + `<label class="ob-card ${ob.choice === null ? 'on' : ''}"><input type="radio" name="obModel" value="" ${ob.choice === null ? 'checked' : ''}><div><b>先不用 AI</b>${p.recommend ? '' : '<span class="chip rec">推薦</span>'}<small>${esc(name)}用內建台詞說話，之後隨時可以在右鍵選單打開</small></div></label>`
         + moreHtml
+        + obLockHtml(p)
         + (ob.choice && p.ollama === 'running' ? `<label class="ob-opt"><input type="checkbox" id="obEmbed" ${ob.embed || p.embed.installed ? 'checked' : ''} ${p.embed.installed ? 'disabled' : ''}> 也準備「聰明${esc(name)}」（約 ${esc(p.embed.size)}）：換個說法問，她也聽得懂${p.embed.installed ? '（已經下載好了）' : ''}</label>${ob.embed && !p.embed.installed ? `<div class="ob-embed">${pullHtml(p.embed.name, p.embed.size)}</div>` : ''}` : '');
     }
     const downloading = Object.values(state.pulls || {}).some((x) => x && !x.done) || oiBusy();
@@ -271,6 +287,13 @@ async function onboardClick(e) {
     if (ob.step === 'ai' && ob.probe) {
       const r = await api.setupSetModel(ob.choice || null);
       if (r && r.view) applyView(r.view);
+      if (ob.lock) { // 🔒 先套用 Ollama 的設定（可能要重開 Ollama），再開始下載模型
+        const running = ob.probe.ollama === 'running';
+        const btn = t.closest('[data-ob-next]');
+        if (running && btn) { btn.disabled = true; btn.textContent = '套用中…'; }
+        const lr = await api.ollamaLock(ob.lock, { restart: running });
+        if (lr && lr.reason && ((lr.changed || []).length || (lr.skipped || []).length || lr.needRestart)) toast(lr.reason, 6000);
+      }
       const c = obChoice(ob.probe);
       if (c && !c.installed && ob.probe.ollama === 'running' && !(state.pulls || {})[c.name]) api.setupPull(c.name); // 還沒下載：按下一步就開始下載
     }
@@ -331,6 +354,7 @@ function onboardChange(e) {
   const t = e.target, ob = obState();
   if (t.name === 'obModel') { ob.choice = t.value || null; renderPanel(); return true; }
   if (t.id === 'obCustom') { ob.customDraft = t.value; return true; }
+  if (t.dataset && t.dataset.obLock) { if (!ob.lock) ob.lock = { cloud: true, autoUpdate: true, expose: true }; ob.lock[t.dataset.obLock] = t.checked; return true; }
   if (t.id === 'obEmbed') {
     ob.embed = t.checked;
     if (t.checked && ob.probe && !ob.probe.embed.installed) { api.setSmart(true); api.setupPull(ob.probe.embed.name); }

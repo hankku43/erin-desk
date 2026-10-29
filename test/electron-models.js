@@ -91,8 +91,25 @@ module.exports = ({ win, engine }) => {
       assert(await js(`state.ob.choice === 'gemma3:12b' && !!document.querySelector('input[name=obModel][value="gemma3:12b"]:checked')`), 'Enter：用自己填的');
       assert(/還沒用這個模型測試過/.test(await text('.ob-row.on')) && /⬇ 下載/.test(await text('.ob-row.on')), '自己填的：提醒＋可以下載');
       await shot('m06_custom');
-      // 按下一步：存設定、開始下載
-      await click('[data-ob-next]'); await wait(600);
+      // 🔒 Ollama 只在本機：三個開關預設都勾；按下一步會改 server.json、Ollama 的設定資料庫（測試用 userDir/_ollama_test，不碰真的）
+      const olDir = path.join(engine.userDir, '_ollama_test');
+      fs.mkdirSync(olDir, { recursive: true });
+      { const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(path.join(olDir, 'db.sqlite'));
+        db.exec('CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), expose BOOLEAN NOT NULL DEFAULT 0, browser BOOLEAN NOT NULL DEFAULT 0, auto_update_enabled BOOLEAN NOT NULL DEFAULT 1); INSERT INTO settings (id, expose) VALUES (1, 1);'); db.close(); }
+      fs.writeFileSync(path.join(olDir, 'server.json'), '{"other": 1}');
+      const lk = await js(`[...document.querySelectorAll('[data-ob-lock]')].map((x) => x.dataset.obLock + ':' + x.checked).join(',')`);
+      assert(lk === 'cloud:true,autoUpdate:true,expose:true', '三個開關預設都勾：' + lk);
+      assert(/Ollama 只在這台電腦/.test(await text('.ob-lock')) && /按「下一步」時套用/.test(await text('.ob-lock')), '說明');
+      await shot('m06b_lock', '.ob-lock');
+      // 按下一步：存設定、套用 Ollama 的設定（要重開 Ollama）、開始下載
+      global.olRestarts = 0;
+      await click('[data-ob-next]'); await wait(900);
+      { const sj = JSON.parse(fs.readFileSync(path.join(olDir, 'server.json'), 'utf8'));
+        assert(sj.disable_ollama_cloud === true && sj.other === 1, '雲端關掉、原本的設定留著：' + JSON.stringify(sj));
+        const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(path.join(olDir, 'db.sqlite'));
+        const row = db.prepare('SELECT * FROM settings').get(); db.close();
+        assert(row.auto_update_enabled === 0 && row.expose === 0 && row.browser === 0, '自動下載更新、對外開放關掉：' + JSON.stringify(row));
+        assert(JSON.stringify(engine.config.ollamaLock) === '{"cloud":true,"autoUpdate":true,"expose":true}' && global.olRestarts === 1, '記住選擇、重開一次 Ollama：' + global.olRestarts); }
       assert(engine.config.llm.model === 'gemma3:12b' && engine.config.llm.enabled, '設定成自己填的：' + engine.config.llm.model);
       assert(pulled.includes('gemma3:12b'), '還沒下載：自動開始下載');
       // 5. 收起自選：選回推薦的
@@ -100,6 +117,12 @@ module.exports = ({ win, engine }) => {
       assert(await js(`state.ob.choice === 'gemma3:12b' && !!document.querySelector('.ob-more-list')`), '目前用的是清單外的：自動展開');
       await click('[data-ob-more]'); await wait(200);
       assert(await js(`state.ob.choice === 'qwen3:8b' && !document.querySelector('.ob-more-list')`), '收起：回到推薦的');
+      // 6. 再進來：都標「已經關著」；取消勾選＝不幫忙關（不會改回去）
+      assert((await js(`document.querySelectorAll('.ob-lock .chip.ok').length`)) === 3, '已經關著的標出來');
+      await js(`(() => { const el = document.querySelector('[data-ob-lock=autoUpdate]'); el.checked = false; el.dispatchEvent(new Event('change', { bubbles: true })); })(); 0`);
+      global.olRestarts = 0;
+      await click('[data-ob-next]'); await wait(600);
+      assert(engine.config.ollamaLock.autoUpdate === false && engine.config.ollamaLock.cloud === true && global.olRestarts === 0, '取消一個：記住、本來就關著不用重開');
       console.log('MODELS OK');
       setTimeout(() => process.exit(0), 300);
     } catch (e) { console.error(e); await shot('m_fail').catch(() => {}); process.exit(1); }

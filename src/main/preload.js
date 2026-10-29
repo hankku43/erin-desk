@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('api', {
   setupPull: (model, opts) => ipcRenderer.invoke('setup:pull', model, opts), // opts.force：不做下載前檢查（「仍然下載」）
   setupCancelPull: (model) => ipcRenderer.invoke('setup:cancelPull', model),
   setupOpenOllama: () => ipcRenderer.invoke('setup:openOllama'),
+  ollamaLock: (want, opts) => ipcRenderer.invoke('ollama:lock', want, opts),
   setupInstallOllama: () => ipcRenderer.invoke('setup:installOllama'),
   updateGet: () => ipcRenderer.invoke('update:get'),
   updateCheck: () => ipcRenderer.invoke('update:check'),

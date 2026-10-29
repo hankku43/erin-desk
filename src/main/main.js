@@ -5,13 +5,14 @@ const { app, BrowserWindow, ipcMain, Menu, screen, dialog, shell, powerMonitor, 
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const { Engine } = require('./engine');
 const { EMOTIONS, fillEmotionImages } = require('./npc');
 const SETUP = require('./setup');
 const OI = require('./ollamaInstall');
 const PG = require('./pullGuard');
 const UPD = require('./updater');
+const OL = require('./ollamaLock');
 const { buildHealth, parseLog } = require('./health');
 
 const APP_DIR = path.join(__dirname, '..', '..'); // 程式本身（打包後在 app.asar 裡，唯讀）
@@ -454,6 +455,7 @@ function startOllamaInstall() {
   })
     .then(async (r) => {
       send({ phase: 'done', done: true, version: r.version });
+      if (lockWanted()) setTimeout(() => lockOllama(null, { restart: true }).catch(() => {}), 5000); // 剛裝好：照新手教學選的關掉雲端、自動更新…
       const st = await engine.npc.checkStatus();
       if (st && st.online) engine.npc.warmUp();
       push('view:update', { view: engine.view() }); // 「裝好了」的提示由畫面那邊說（才不會跳兩次）
@@ -466,7 +468,66 @@ async function probeForSetup() {
   const pr = await SETUP.probe({ baseUrl: engine.config.llm.baseUrl });
   if (pr.canInstall && pr.ollama === 'missing') pr.installSize = await OI.installerSize({ fetchImpl: netFetch });
   pr.installing = ollamaJob ? ollamaJob.last || { phase: 'download', percent: 0 } : null;
+  pr.lock = await lockState(pr.ollama === 'running');
   return pr;
+}
+
+// ---- 🔒 讓 Ollama 只在這台電腦工作（ollamaLock.js）：關雲端、關自動下載更新、不對外開放 ----
+//   config.ollamaLock {cloud, autoUpdate, expose}：true＝要關；沒有這個欄位＝冒險者還沒決定
+const olOpts = () => (process.env.QUEST_NPC_TEST ? { paths: { serverJson: path.join(USER_DIR, '_ollama_test', 'server.json'), db: path.join(USER_DIR, '_ollama_test', 'db.sqlite') }, env: {} } : {}); // 測試不碰這台電腦真的 Ollama
+const lockWant = () => { const w = engine.config.ollamaLock; return w && typeof w === 'object' ? w : null; };
+const lockWanted = () => { const w = lockWant(); return !!w && OL.KEYS.some((k) => w[k] === true); };
+async function serverCloudOff() { // Ollama 現在跑著的那個是不是已經關掉雲端（/api/status）；問不到＝null
+  if (process.env.QUEST_NPC_TEST) return global.olServerCloudOff === undefined ? null : global.olServerCloudOff;
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 2000);
+  try { const r = await fetch(`${engine.config.llm.baseUrl}/api/status`, { signal: ctl.signal }); if (!r.ok) return null; const j = await r.json(); return j && j.cloud && typeof j.cloud.disabled === 'boolean' ? j.cloud.disabled : null; } catch (_) { return null; } finally { clearTimeout(t); }
+}
+async function lockState(running = true) {
+  let st;
+  try { st = OL.read(olOpts()); } catch (e) { st = { cloudOff: false, db: 'error', error: e.message }; }
+  const want = lockWant();
+  const pend = OL.pending(want, st);
+  const srv = running ? await serverCloudOff() : null;
+  return { want, state: st, pending: pend, pendingText: OL.summary(pend), restartNeeded: !!(want && want.cloud && st.cloudOff && srv === false) };
+}
+const ollamaBusy = () => pulls.size > 0 || !!ollamaJob;
+const runCmd = (cmd, args) => new Promise((res) => execFile(cmd, args, { windowsHide: true, timeout: 15000 }, () => res()));
+async function restartOllama() {
+  if (process.env.QUEST_NPC_TEST) { global.olRestarts = (global.olRestarts || 0) + 1; return { restarted: true }; }
+  if (ollamaBusy()) return { restarted: false, why: 'busy' };
+  const exe = SETUP.findOllamaApp();
+  if ((process.platform === 'win32' && exe) || process.platform === 'darwin') push('view:update', { view: engine.view(), reason: '🔄 正在重開 Ollama，讓設定生效…' });
+  if (process.platform === 'win32' && exe) { await runCmd('taskkill', ['/F', '/IM', 'ollama app.exe']); await runCmd('taskkill', ['/F', '/IM', 'ollama.exe']); }
+  else if (process.platform === 'darwin') { await runCmd('pkill', ['-x', 'Ollama']); await runCmd('pkill', ['-x', 'ollama']); }
+  else return { restarted: false, why: 'manual' };
+  await new Promise((r) => setTimeout(r, 1500));
+  const launch = (x) => { try { spawn(x, [], { detached: true, stdio: 'ignore' }).unref(); } catch (_) { /* 略 */ } };
+  if (process.platform === 'darwin') await runCmd('open', ['-a', 'Ollama']); else launch(exe);
+  try {
+    await OI.waitForOllama({ baseUrl: engine.config.llm.baseUrl, versionImpl: (u) => OI.ollamaVersion(u), findApp: () => SETUP.findOllamaApp(), launch, timeout: 60000, kickAfter: 15000 });
+  } catch (_) { return { restarted: false, why: 'start' }; }
+  const st = await engine.npc.checkStatus();
+  if (st && st.online) engine.npc.warmUp();
+  return { restarted: true };
+}
+// want＝null 用設定檔的；有給就先存起來（全部 false＝艾琳不管）
+async function lockOllama(want, { restart = true } = {}) {
+  if (want) engine.saveConfigPatch({ ollamaLock: { cloud: !!want.cloud, autoUpdate: !!want.autoUpdate, expose: !!want.expose } });
+  const w = lockWant() || {};
+  const r = OL.apply(w, olOpts());
+  const srv = await serverCloudOff();
+  const needRestart = r.needRestart || !!(w.cloud && r.state.cloudOff && srv === false);
+  let rr = null;
+  if (needRestart && restart) rr = await restartOllama();
+  return { changed: r.changed, skipped: r.skipped, needRestart, restarted: !!(rr && rr.restarted), why: rr ? rr.why : (needRestart ? 'later' : null) };
+}
+function lockReason(r) {
+  const parts = [];
+  if (r.changed.length) parts.push(`🔒 已關掉 Ollama 的${OL.summary(r.changed)}`);
+  if (r.restarted) parts.push('Ollama 重開好了');
+  else if (r.needRestart) parts.push(r.why === 'busy' ? '模型下載完、重開 Ollama 後才會生效' : r.why === 'start' ? 'Ollama 沒有自己開起來，請從開始選單打開 Ollama' : '重開 Ollama 後才會生效');
+  if (r.skipped.length) parts.push(`⚠ ${r.skipped.map((x) => `${OL.LABEL[x.key]}沒改到（${x.why}）`).join('；')}`);
+  return parts.join('，') || '🔒 Ollama 的雲端、自動下載更新、對外開放本來就都關著';
 }
 // ---- 🔄 自動更新（updater.js）：安裝版先問再下載、關掉時換上（update.ask＝false 改回自動）；免安裝版提醒；開發版不檢查 ----
 let updater = null;
@@ -533,6 +594,7 @@ async function healthCheck() {
     probe, ramGB: probe.ramGB, log,
     smart: { on: engine.lore.smartOn(), status: engine.lore.embedStatus, explicit: (engine.config.lore || {}).embeddings === true },
     charOK: !!findImage('normal'), saveOK, userDir: USER_DIR,
+    lock: probe.lock,
   });
   return { items, probe, view: engine.view() };
 }
@@ -550,6 +612,8 @@ async function healthFix(action) {
   if (a === 'openChar') { fs.mkdirSync(userCharDir(), { recursive: true }); shell.openPath(userCharDir()); return {}; }
   if (a === 'choosePlan') return choosePlan({ greet: false });
   if (a === 'installOllama') return startOllamaInstall();
+  if (a === 'ollamaLock') { const r = await lockOllama(lockWanted() ? null : OL.DEFAULT_WANT, { restart: true }); return { reason: lockReason(r) }; }
+  if (a === 'ollamaRestart') { const r = await restartOllama(); return { reason: r.restarted ? '🔄 Ollama 重開好了' : r.why === 'busy' ? '模型還在下載，下載完再重開' : '沒辦法幫你重開，請從工作列關掉 Ollama 再打開' }; }
   if (a === 'updateOllama') { shell.openExternal(SETUP.OLLAMA_DOWNLOAD); return { reason: '已打開 Ollama 下載頁：安裝新版會直接蓋過舊版，已經下載的模型會留著。裝好後回來按「再檢查一次」' }; }
   if (a === 'openOllama') return { ...openOllama(), reason: SETUP.findOllamaApp() ? '正在打開 Ollama…' : '已打開 Ollama 下載頁，裝好後回來按「再檢查一次」' };
   if (a === 'enableAI') { await setAI(true); return {}; }
@@ -663,6 +727,11 @@ function menuTemplate() {
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
       { label: '🐰 棉棉和朵朵來櫃台串門子（下午茶外送、道賀、許願單）', type: 'checkbox', checked: engine.twCfg().enabled !== false, click: (m) => { const r = engine.setTwins(m.checked); push('view:update', { view: r.view }); } },
       { label: `☁ 天候水晶…（${engine.weatherOn() ? '開著' : '關著'}；打開會連網看天氣）`, click: open('weatherSet') }, // 說明會送出什麼、選位置、開關都在這個面板
+      { label: '🔒 Ollama 只在這台電腦（關掉雲端、自動下載更新、對外開放）', type: 'checkbox', checked: lockWanted(), click: (m) => menuSafe(async () => {
+        if (m.checked) { const r = await lockOllama(OL.DEFAULT_WANT, { restart: true }); push('view:update', { view: engine.view(), reason: lockReason(r) }); return; }
+        engine.saveConfigPatch({ ollamaLock: { cloud: false, autoUpdate: false, expose: false } });
+        push('view:update', { view: engine.view(), reason: `🔓 ${npcName}不再幫忙關；要打開的話到 Ollama 的設定頁` });
+      })() },
       { label: `📒 讓${npcName}記小本子（記住你說過的事）`, type: 'checkbox', checked: engine.nbCfg().enabled !== false, click: (m) => { const r = engine.setNotebook(m.checked); push('npc:lines', r.lines); push('view:update', { view: r.view }); } },
       { label: '🖥 固定在顯示器', submenu: displayMenu() },
       { label: '縮到工作列', click: () => win.minimize() },
@@ -989,6 +1058,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('setup:pull', wrap((model, opts) => startPull(String(model), { force: !!(opts && opts.force) })));
   ipcMain.handle('setup:cancelPull', wrap((model) => { const c = pulls.get(String(model)); if (c) c.abort(); return {}; }));
   ipcMain.handle('setup:openOllama', wrap(() => openOllama()));
+  ipcMain.handle('ollama:lock', wrap(async (want, opts) => { const r = await lockOllama(want && typeof want === 'object' ? want : null, { restart: !!(opts && opts.restart) }); return { ...r, reason: lockReason(r) }; }));
   ipcMain.handle('setup:setModel', wrap(async (model) => { const r = engine.setModel(model || null); const st = await engine.npc.setEnabled(!!model); if (st && st.online) engine.npc.warmUp(); return { ...r, view: engine.view() }; }));
   ipcMain.handle('setup:createPlan', wrap(async (f) => { const r = await engine.createPlan(f || {}); watchPlan(); return r; }));
   ipcMain.handle('setup:samplePlan', wrap(() => { const r = engine.useSamplePlan(); watchPlan(); return r; }));
@@ -1026,6 +1096,8 @@ app.whenReady().then(async () => {
   createWindow({ hidden: opening });
   if (opening) startOpening();
   setupUpdater();
+  // 🔒 每次開：照設定再確認一次（Ollama 更新或在設定頁改回來時）；不重開 Ollama，要重開的話健康檢查會提醒
+  setTimeout(() => { if (!lockWanted()) return; try { const r = OL.apply(lockWant(), olOpts()); if (r.changed.length) updLog(`ollamaLock 關掉：${r.changed.join(',')}`); } catch (_) { /* 改不了就算了 */ } }, 15000);
   watchPlan();
   if (!engine.state.onboarding || !engine.state.onboarding.done) require('./hardware').detect().catch(() => {}); // 第一次開：先看好顯示卡，新手教學的「大腦」那步就不用等
   engine.npc.checkStatus().then((st) => { push('view:update', { view: engine.view() }); if (st.online) engine.npc.warmUp(); });

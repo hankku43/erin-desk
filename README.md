@@ -54,6 +54,14 @@
 
 新手教學的「大腦」那一步會自動看電腦的記憶體和顯示卡（NVIDIA 用 `nvidia-smi`，問不到再看 Windows 登錄檔；Apple Silicon 看共用記憶體），列出三張卡片：**推薦**、**⬆ 上一階（更聰明）**、**⬇ 下一階（更快）**，下面的「🔧 自選其他模型」可以選清單上任何一個、電腦裡已經有的其他模型，或自己填 Ollama 的模型名稱。每個模型旁邊會標速度：⚡ 很快、🙂 順、🐢 會等比較久、⛔ 跑不太動。
 
+同一步下面還有「🔒 讓 Ollama 只在這台電腦工作」，三個開關預設都勾：
+
+- **關掉雲端模型和網路搜尋**：在 `~/.ollama/server.json` 寫 `disable_ollama_cloud`（跟 Ollama 設定頁的「Cloud」同一個開關）。
+- **關掉自動下載更新**：Ollama 設定頁的「Auto-download updates」。關掉後新版要自己到官網下載；Ollama 還是會大約每小時問一次 ollama.com 有沒有新版，只是不會自己下載、安裝。要完全不連網只能靠防火牆。
+- **不讓別的裝置、網頁連進來**：Ollama 設定頁的「Expose Ollama to the network」，以及讓網頁連進來的設定。
+
+後兩個存在 Ollama 桌面版的設定檔裡（Windows `%LOCALAPPDATA%\Ollama\db.sqlite`、macOS `~/Library/Application Support/Ollama/db.sqlite`），Ollama 要先開過一次才有。按「下一步」時套用；雲端和對外開放要重開 Ollama 才生效，艾琳會幫你重開一次（正在下載模型時不重開）。艾琳只會「關」，不會把你自己在 Ollama 設定頁打開的改回去；取消勾選就是不幫忙關。之後可以在右鍵「⚙ 設定與資料 →🔒 Ollama 只在這台電腦」改，每次打開艾琳也會再確認一次。🩺 健康檢查會列出「Ollama 只在本機」：Ollama 更新後或你在設定頁改回來時亮黃燈，可以「再關一次」，要重開才生效時有「幫我重開 Ollama」。下載模型不受影響。
+
 | 階 | 模型 | 大小 | 放得進顯示卡（約） | 沒有顯示卡 |
 |---|---|---|---|---|
 | 輕量 | `qwen3:1.7b` | 1.4GB | 2.5GB | 8GB 記憶體就很快 |
@@ -578,7 +586,7 @@ Intel 內顯和比較舊的 AMD 顯示卡目前 Ollama 用不到，會照沒有�
 - `data/llm.log`：每次呼叫 AI 的耗時紀錄（除錯用，可以隨時刪）。
 - `data/setup.log`：下載模型的紀錄：下載前檢查的結果、每次失敗的原因（除錯用，可以隨時刪）。
 - 所有資料都在這台電腦上，AI 也在本機執行，**任務內容、計畫、聊天都不會傳到網路上**。
-- 會連網的只有這幾件事：檢查有沒有新版本（GitHub）、下載 Ollama 和 AI 模型（ollama.com），以及你自己打開的「☁ 天候水晶」（預設關著；會連到哪裡見上面「☁ 天候水晶」的說明）。
+- 會連網的只有這幾件事：檢查有沒有新版本（GitHub）、下載 Ollama 和 AI 模型（ollama.com），以及你自己打開的「☁ 天候水晶」（預設關著；會連到哪裡見上面「☁ 天候水晶」的說明）。Ollama 自己的雲端、自動下載更新，新手教學預設會幫你關掉（見上面「依電腦配備選模型」那段的 🔒）。
 
 ## 常見問題
 
@@ -650,6 +658,7 @@ npm start
 | `src/main/journal.js` | 📖 冒險日誌＋週報：每週快照、數字、稱號、依專案分類的週報草稿、匯出 Markdown（純函式） |
 | `src/main/memory.js` | 📒 小本子：從聊天記下冒險者的事（規則＋檢查 AI 寫的）、去重、追問時機、重要的日子（純函式） |
 | `src/main/setup.js` | 新手教學用：偵測 Ollama、模型階梯（依記憶體＋顯示卡估速度，推薦／上一階／下一階）、下載模型（進度）、下載錯誤分類與中文說明 |
+| `src/main/ollamaLock.js` | 🔒 讓 Ollama 只在這台電腦工作：讀／改 `~/.ollama/server.json` 的雲端開關、Ollama 桌面版設定檔裡的自動下載更新與對外開放（只關不開） |
 | `src/main/pullGuard.js` | 🛡 下載模型的防呆：下載前檢查（硬碟空間、連不連得到模型網站和 Cloudflare 下載伺服器、Ollama 有沒有走 proxy）、斷線自動接著下載；紀錄在 `data/setup.log` |
 | `src/main/hardware.js` | 偵測顯示卡：nvidia-smi → Windows 登錄檔；Apple Silicon 共用記憶體（一次開機只問一次） |
 | `src/main/updater.js` | 🔄 自動更新：安裝版用 electron-updater（GitHub Releases 的 latest.yml；預設先問再下載、答應了才在關掉時換上，`update.ask: false` 改回背景下載），免安裝版只問最新版本＋提醒，開發版不檢查；紀錄在 `data/update.log` |

@@ -723,6 +723,12 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .chip.bad { background: var(--rose-soft); color: var(--red); white-space: normal; }
 .ob-opt { display: flex; gap: 6px; align-items: flex-start; font-size: var(--fs-s); margin: 8px 2px; line-height: 1.5; cursor: pointer; }
 .ob-embed { margin: 0 0 6px 22px; }
+.ob-lock { margin: 10px 0 6px; padding: 8px 10px; border: 1.5px dashed var(--line, rgba(52, 67, 122, .3)); border-radius: var(--r-m); background: rgba(255, 255, 255, .45); }
+.ob-lock-h { font-weight: 800; font-size: var(--fs-s); margin-bottom: 4px; }
+.ob-lock-row { display: flex; gap: 6px; align-items: flex-start; font-size: var(--fs-s); margin: 5px 0; line-height: 1.45; cursor: pointer; }
+.ob-lock-row input { margin-top: 3px; }
+.ob-lock-row b { margin-right: 6px; }
+.ob-lock-row small { display: block; font-size: var(--fs-xs); color: var(--ink-soft); }
 .ob-pull { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .ob-bar { flex: 1; height: 10px; border-radius: var(--r-s); background: var(--track); overflow: hidden; border: 1px solid var(--line); }
 .ob-bar > div { height: 100%; background: linear-gradient(90deg, var(--sky), var(--blue)); transition: width .3s; }

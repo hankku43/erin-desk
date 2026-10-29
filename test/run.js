@@ -4648,3 +4648,88 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('聊天整句重複測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🔒 Ollama 只在這台電腦工作：雲端、自動下載更新、對外開放（ollamaLock.js＋健康檢查＋新手教學） ----------
+(() => {
+  const OL = require('../src/main/ollamaLock');
+  const os = require('os');
+  const { buildHealth } = require('../src/main/health');
+  let sqlite = null;
+  try { sqlite = require('node:sqlite'); } catch (_) { /* 舊的 Node 沒有：只測 server.json */ }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-ollock-'));
+  const paths = { serverJson: path.join(dir, '.ollama', 'server.json'), db: path.join(dir, 'Ollama', 'db.sqlite') };
+  const opts = { paths, env: {}, sqlite };
+  // 路徑：Windows 在 LOCALAPPDATA、macOS 在 Application Support、Linux 沒有設定頁
+  assert.strictEqual(OL.paths({ home: 'H', env: { LOCALAPPDATA: 'L' }, platform: 'win32' }).db, path.join('L', 'Ollama', 'db.sqlite'));
+  assert.ok(/Application Support/.test(OL.paths({ home: 'H', platform: 'darwin' }).db) && OL.paths({ home: 'H', platform: 'linux' }).db === null);
+  assert.strictEqual(OL.paths({ home: 'H', platform: 'linux' }).serverJson, path.join('H', '.ollama', 'server.json'));
+  assert.ok(OL.envTrue('1') && OL.envTrue('TRUE') && !OL.envTrue('0') && !OL.envTrue(''));
+  // 1. 什麼都沒有：雲端開著、還沒開過 Ollama
+  let st = OL.read(opts);
+  assert.ok(!st.cloudOff && st.db === 'missing' && st.autoUpdate === null, JSON.stringify(st));
+  assert.ok(OL.read({ ...opts, env: { OLLAMA_NO_CLOUD: '1' } }).cloudBy === 'env', '環境變數也算');
+  // 2. 還沒開過 Ollama：雲端照樣關（寫 server.json），設定頁的兩個先跳過、不用重開
+  let r = OL.apply(OL.DEFAULT_WANT, opts);
+  assert.deepStrictEqual(r.changed, ['cloud']);
+  assert.ok(r.needRestart && r.skipped.map((x) => x.key).join() === 'autoUpdate,expose' && /還沒開過/.test(r.skipped[0].why), JSON.stringify(r));
+  assert.strictEqual(JSON.parse(fs.readFileSync(paths.serverJson, 'utf8')).disable_ollama_cloud, true);
+  r = OL.apply(OL.DEFAULT_WANT, opts);
+  assert.ok(!r.changed.length && !r.needRestart, '已經關了：不再改、不用重開');
+  // 原本 server.json 的其他設定留著；壞掉的檔案重寫
+  fs.writeFileSync(paths.serverJson, '{"disable_ollama_cloud": false, "keep": "x"}');
+  OL.apply({ cloud: true }, opts);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(paths.serverJson, 'utf8')), { disable_ollama_cloud: true, keep: 'x' });
+  fs.writeFileSync(paths.serverJson, '{壞掉');
+  assert.ok(!OL.read(opts).cloudOff && OL.apply({ cloud: true }, opts).changed[0] === 'cloud' && OL.read(opts).cloudOff);
+  if (sqlite) {
+    // 3. Ollama 的設定資料庫（只有一列）：自動下載更新、對外開放、讓網頁連進來
+    fs.mkdirSync(path.dirname(paths.db), { recursive: true });
+    let db = new sqlite.DatabaseSync(paths.db);
+    db.exec('CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), expose BOOLEAN NOT NULL DEFAULT 0, browser BOOLEAN NOT NULL DEFAULT 0, auto_update_enabled BOOLEAN NOT NULL DEFAULT 1, schema_version INTEGER NOT NULL DEFAULT 18); INSERT INTO settings (id, browser) VALUES (1, 1);');
+    db.close();
+    st = OL.read(opts);
+    assert.ok(st.db === 'ok' && st.autoUpdate === true && st.expose === false && st.browser === true, JSON.stringify(st));
+    assert.deepStrictEqual(OL.pending(OL.DEFAULT_WANT, st), ['autoUpdate', 'expose']);
+    assert.strictEqual(OL.summary(['autoUpdate', 'expose']), '自動下載更新、讓別的裝置、網頁連進來');
+    // 只關自動更新：馬上生效、不用重開
+    r = OL.apply({ autoUpdate: true }, opts);
+    assert.ok(r.changed.join() === 'autoUpdate' && !r.needRestart && r.state.autoUpdate === false && r.state.browser === true, JSON.stringify(r));
+    // 對外開放（網頁）開著 → 關掉要重開
+    r = OL.apply(OL.DEFAULT_WANT, opts);
+    assert.ok(r.changed.join() === 'expose' && r.needRestart && r.state.browser === false && r.state.expose === false, JSON.stringify(r));
+    assert.deepStrictEqual(OL.pending(OL.DEFAULT_WANT, r.state), []);
+    // 只關不開：沒勾的不碰（冒險者自己在設定頁打開的，不改回去）
+    db = new sqlite.DatabaseSync(paths.db); db.exec('UPDATE settings SET auto_update_enabled = 1, expose = 1'); db.close();
+    r = OL.apply({ cloud: true, autoUpdate: false, expose: false }, opts);
+    assert.ok(!r.changed.length && r.state.autoUpdate === true && r.state.expose === true, '沒勾的不改');
+    // 4. 舊版 Ollama：沒有自動更新的開關 → 跳過、說原因
+    fs.rmSync(paths.db);
+    db = new sqlite.DatabaseSync(paths.db); db.exec('CREATE TABLE settings (id INTEGER PRIMARY KEY, expose BOOLEAN NOT NULL DEFAULT 0); INSERT INTO settings (id) VALUES (1);'); db.close();
+    r = OL.apply(OL.DEFAULT_WANT, opts);
+    assert.ok(OL.read(opts).db === 'old' && r.skipped.some((x) => x.key === 'autoUpdate' && /沒有自動更新/.test(x.why)) && !r.changed.includes('autoUpdate'), JSON.stringify(r));
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+  // 5. 健康檢查：還沒決定＝提議；還開著＝黃燈再關一次；雲端關了但還沒重開＝黃燈重開；都關著＝綠燈；Ollama 沒裝＝不列
+  const base = { name: '艾琳', plan: { exists: true, quests: 1 }, llm: { enabled: true, model: 'qwen3:4b' }, probe: { ollama: 'running', models: ['qwen3:4b'], embed: { installed: true } }, smart: {}, charOK: true, saveOK: true };
+  const lockItem = (lock, probe) => buildHealth({ ...base, ...(probe ? { probe } : {}), lock }).find((i) => i.id === 'lock');
+  let it = lockItem({ want: null, state: {}, pending: [] });
+  assert.ok(it.status === 'info' && it.fixes[0].action === 'ollamaLock', JSON.stringify(it));
+  it = lockItem({ want: OL.DEFAULT_WANT, state: { cloudOff: true, autoUpdate: true }, pending: ['autoUpdate'], pendingText: '自動下載更新' });
+  assert.ok(it.status === 'warn' && /還開著：自動下載更新/.test(it.detail) && it.fixes[0].label === '再關一次');
+  it = lockItem({ want: OL.DEFAULT_WANT, state: { cloudOff: true }, pending: [], restartNeeded: true });
+  assert.ok(it.status === 'warn' && it.fixes[0].action === 'ollamaRestart');
+  it = lockItem({ want: OL.DEFAULT_WANT, state: { cloudOff: true, autoUpdate: false, expose: false, db: 'ok' }, pending: [] });
+  assert.ok(it.status === 'ok' && /雲端、自動下載更新、對外開放都關著/.test(it.detail), it.detail);
+  it = lockItem({ want: { cloud: true }, state: { cloudOff: true, db: 'missing' }, pending: [] });
+  assert.ok(it.status === 'ok' && /^雲端都關著$/.test(it.detail), it.detail);
+  assert.ok(!lockItem({ want: null, state: {}, pending: [] }, { ollama: 'missing', models: [], embed: {} }), 'Ollama 沒裝：不列');
+  // 6. 主程式、新手教學、選單都接好了；測試時不碰這台電腦真的 Ollama
+  const mainSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.js'), 'utf8');
+  const obSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'onboard.js'), 'utf8');
+  assert.ok(/QUEST_NPC_TEST \? \{ paths: \{ serverJson: path\.join\(USER_DIR, '_ollama_test'/.test(mainSrc) && /if \(process\.env\.QUEST_NPC_TEST\) \{ global\.olRestarts/.test(mainSrc), '測試不碰真的 Ollama');
+  assert.ok(/ipcMain\.handle\('ollama:lock'/.test(mainSrc) && /'🔒 Ollama 只在這台電腦/.test(mainSrc) && /a === 'ollamaLock'/.test(mainSrc) && /a === 'ollamaRestart'/.test(mainSrc) && /pr\.lock = await lockState/.test(mainSrc));
+  assert.ok(/obLockHtml\(p\)/.test(obSrc) && /api\.ollamaLock\(ob\.lock, \{ restart: running \}\)/.test(obSrc) && /\{ cloud: true, autoUpdate: true, expose: true \}/.test(obSrc), '新手教學預設都勾、按下一步套用');
+  // 重開 Ollama 前先看有沒有在下載模型
+  assert.ok(/if \(ollamaBusy\(\)\) return \{ restarted: false, why: 'busy' \}/.test(mainSrc));
+  console.log('Ollama 只在本機測試通過 ✔');
+})();

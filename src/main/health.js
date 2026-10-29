@@ -47,6 +47,18 @@ function buildHealth(x) {
   // 3b. Ollama 太舊：0.9 以前沒辦法關掉模型的「思考」
   if (pr && pr.ollama === 'running' && pr.outdated) add('ollamaVer', '🧩', 'Ollama 版本', 'warn', `你的 Ollama 是 ${pr.version}，太舊了（需要 ${pr.minVersion} 以上）：${name}會回得很慢、常常回不好，新的模型也可能下載不了。下載新版直接安裝就好，已經下載的模型會留著。`, pr.canInstall ? [{ action: 'installOllama', label: '幫我更新 Ollama' }, { action: 'updateOllama', label: '自己去官網下載' }] : [{ action: 'updateOllama', label: '下載新版 Ollama' }]);
 
+  // 3c. 🔒 Ollama 只在這台電腦工作（ollamaLock.js）：雲端、自動下載更新、對外開放
+  const lk = x.lock;
+  if (lk && pr && pr.ollama !== 'missing') {
+    const LOCK = ['lock', '🔒', 'Ollama 只在本機'];
+    const want = lk.want, on = want && (want.cloud || want.autoUpdate || want.expose);
+    if (!want) add(...LOCK, 'info', `Ollama 可能會用雲端模型、自己下載更新。${name}聊天用不到這些，可以幫你關掉，讓它只在這台電腦工作。`, [{ action: 'ollamaLock', label: '幫我關掉' }]);
+    else if (!on) add(...LOCK, 'info', `你選了不用${name}幫忙關（Ollama 的設定頁可以自己改）。`, [{ action: 'ollamaLock', label: '幫我關掉' }]);
+    else if (lk.pending && lk.pending.length) add(...LOCK, 'warn', `還開著：${lk.pendingText}（可能是 Ollama 更新後或在設定頁改回來了）。`, [{ action: 'ollamaLock', label: '再關一次' }]);
+    else if (lk.restartNeeded) add(...LOCK, 'warn', '雲端已經關了，但 Ollama 要重開才會生效。', [{ action: 'ollamaRestart', label: '幫我重開 Ollama' }]);
+    else add(...LOCK, 'ok', `${[want.cloud && '雲端', want.autoUpdate && '自動下載更新', want.expose && '對外開放'].filter(Boolean).join('、')}都關著${lk.state && lk.state.db === 'missing' && (want.autoUpdate || want.expose) ? '（Ollama 設定頁的部分，等 Ollama 開過一次再幫你關）' : ''}`);
+  }
+
   // 4. 這台電腦（記憶體＋顯示卡）跑得動現在的模型嗎：太吃力的話，建議換推薦的
   const hw = (pr && pr.hw && pr.hw.ramGB ? pr.hw : null) || (x.ramGB ? { ramGB: x.ramGB, gpu: null } : null);
   if (hw) {
