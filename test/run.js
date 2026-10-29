@@ -440,6 +440,95 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   console.log('問一半分享一半測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
 
+// ---------- 👋 道別（10/29 使用者：說「掰掰明天見」她卻不知道怎麼回）：認得出來就不問 AI、馬上道別、結束話題、今天不再搭話 ----------
+(async () => {
+  const os = require('os');
+  const FW = require('../src/main/farewell');
+  const QA = require('../src/main/asks');
+  const { Engine } = require('../src/main/engine');
+  const { TEMPLATES } = require('../src/main/npc');
+  const det = (s) => FW.detect(s);
+  const pure = { '掰掰明天見': 'day', '我要下班啦，明天見~': 'day', '終於下班了～': 'day', '收工！': 'day', '謝謝艾琳，明天見！': 'day', '晚安': 'night', '我要去睡了': 'night', '先去吃飯囉': 'later', '我要去開會了，待會見': 'later', 'bye': 'bye', '88': 'bye', '拜拜～': 'bye', '好，掰掰': 'bye', '我先走了': 'bye', '那我先下線囉': 'bye', '再見': 'bye' };
+  for (const [s, k] of Object.entries(pure)) assert.deepStrictEqual(det(s), { kind: k, pure: true }, '道別：' + s);
+  for (const s of ['下班前要把報告寄出去', '明天見客戶', '你幾點下班？', '下班了嗎', '走路好累', '閃電', '今天要開三個會', '晚安排一下明天的事']) assert.strictEqual(det(s), null, '不是道別：' + s);
+  assert.deepStrictEqual(det('報告交了，下班囉'), { kind: 'day', pure: false }, '夾著別的事');
+  const at = (s) => new Date(s);
+  const K = (s, when, o = {}) => FW.templateKey(det(s), at(when), { wrap: '16:50', ...o });
+  assert.deepStrictEqual([K('掰掰', '2026-10-28T10:00:00'), K('掰掰', '2026-10-28T12:10:00'), K('掰掰', '2026-10-28T16:30:00'), K('明天見', '2026-10-28T14:00:00'), K('掰掰', '2026-10-30T17:40:00', { offNext: true }), K('掰', '2026-10-28T22:30:00'), K('晚安', '2026-10-28T17:00:00'), K('先去吃飯囉', '2026-10-28T12:00:00'), K('掰掰', '2026-10-28T17:40:00', { cold: true })],
+    ['farewell_later', 'farewell_lunch', 'farewell_day', 'farewell_day', 'farewell_weekend', 'farewell_night', 'farewell_night', 'farewell_lunch', 'farewell_cold'], '依時候挑哪一種道別');
+  for (const k of ['farewell_day', 'farewell_weekend', 'farewell_night', 'farewell_later', 'farewell_lunch', 'farewell_cold']) {
+    const arr = TEMPLATES[k].map(([x]) => x);
+    assert.ok(arr.length >= 3 && new Set(arr).size === arr.length, `${k} 至少 3 句、不重複`);
+    for (const x of arr) assert.ok(!QA.hasQuestion(x) && !/我(?!們)|您|玩家/.test(x), `${k} 不問問題、口吻對：${x}`);
+  }
+  // 引擎：照使用者 10/28 的情況重演——她 17:32 開了話題，17:37「我要下班啦，明天見~」、17:38「掰掰明天見」
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-bye-'));
+  fs.writeFileSync(path.join(dir, 'plan.md'), '# 2026 道別測試 10/26–10/30\n\n## 寫完週報 🔧 📅 10/30\n- [ ] 收資料\n');
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: true, baseUrl: 'http://x' }, achievements: { enabled: false }, streak: { enabled: false }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [{ time: '16:50', event: 'wrapup' }] }, window: { idleChatterMinutes: 10, topicAskRatio: 1 }, decide: { enabled: false }, festivals: { enabled: false } }));
+  let t = new Date('2026-10-28T17:32:00').getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  E.state.onboarding = { done: true };
+  E.npc.llm.enabled = true; E.npc.status.online = true; E.rand = () => 0.99; E.config.llm.rewriteTopics = false;
+  const sent = []; let reply = '好的～';
+  E.npc.fetchJSON = async (_p, body) => { sent.push(body); return { message: { content: JSON.stringify({ line: reply, emotion: 'happy', actions: [], attitude: 'ok' }) } }; };
+  const tplOf = (k) => TEMPLATES[k].map(([x]) => x.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者'));
+  await E.topic();
+  assert.ok(E.state.proactive.topic && !E.state.proactive.topic.replied, '她剛開了話題');
+  t += 5 * 60000;
+  let r = await E.chat('我要下班啦，明天見~');
+  assert.strictEqual(sent.length, 0, '道別：不問 AI（不用等）');
+  assert.ok(tplOf('farewell_day').includes(r.lines[0].text) && r.lines[0].farewell === 'day', '下班的道別：' + r.lines[0].text);
+  assert.ok(E.state.proactive.topic.replied, '話題結束了');
+  assert.strictEqual(E.state.proactive.byeUntil, new Date('2026-10-29T05:00:00').getTime(), '到明天早上都不主動搭話');
+  const last2 = E.state.chat.slice(-2);
+  assert.ok(last2[0].role === 'user' && last2[0].content === '我要下班啦，明天見~' && last2[1].role === 'assistant', '對話紀錄有記');
+  t += 60000;
+  r = await E.chat('掰掰明天見');
+  assert.ok(sent.length === 0 && tplOf('farewell_day').includes(r.lines[0].text) && !tplOf('chat_repeat').includes(r.lines[0].text), '再說一次掰掰：一樣好好道別，不會「沒聽懂」');
+  t = new Date('2026-10-28T19:30:00').getTime();
+  assert.strictEqual(E.proactiveDue({ idleSec: 0 }), null, '說完明天見：晚上不主動搭話');
+  t = new Date('2026-10-29T09:30:00').getTime();
+  assert.strictEqual(E.proactiveDue({ idleSec: 0 }), 'topic', '隔天照常');
+  // 說了別的＝回來了；點她打招呼也是
+  E.state.proactive.byeUntil = t + 3600000;
+  await E.chat('其實我還在');
+  assert.ok(!E.state.proactive.byeUntil, '說了別的：不再安靜');
+  // 暫時離開：半小時不搭話
+  t = new Date('2026-10-29T10:00:00').getTime();
+  r = await E.chat('我要去開會了，待會見');
+  assert.ok(tplOf('farewell_later').includes(r.lines[0].text) && E.state.proactive.byeUntil === t + 30 * 60000, '待會見：半小時');
+  E.state.proactive.byeUntil = t + 3600000; await E.greet();
+  assert.ok(!E.state.proactive.byeUntil, '點她打招呼：回來了');
+  // 週五下班 → 週末見；晚上 → 晚安
+  t = new Date('2026-10-30T17:40:00').getTime();
+  r = await E.chat('掰掰');
+  assert.ok(tplOf('farewell_weekend').includes(r.lines[0].text), '週五：' + r.lines[0].text);
+  t = new Date('2026-10-28T22:40:00').getTime();
+  r = await E.chat('晚安');
+  assert.ok(tplOf('farewell_night').includes(r.lines[0].text), '晚安：' + r.lines[0].text);
+  // 夾著別的事：照樣問 AI，請它最後道別、不開新話題、不問問題（還是問了就拿掉）；不當成在回話題
+  t = new Date('2026-11-02T17:30:00').getTime(); // 時間往後走（往回調會被洗版判斷擋下）
+  E.state.proactive.byeUntil = 0; await E.topic(); t += 60000;
+  reply = '週報交出去了呀，辛苦啦！明天見～下次要不要一起喝奶茶？';
+  r = await E.chat('週報交了，下班囉');
+  const tail = sent[sent.length - 1].messages.at(-1).content;
+  assert.ok(/【道別】冒險者說完這句就要下班離開了：先回應他說的事，最後跟他道別（辛苦了、明天見），不要開新話題，不要問他問題。/.test(tail), '請 AI 最後道別：' + tail.slice(-400) + JSON.stringify(r.lines));
+  assert.ok(!/【話題】剛才/.test(tail) && !/【這次】/.test(tail), '不當成在回話題');
+  assert.strictEqual(r.lines[0].text, '週報交出去了呀，辛苦啦！明天見～', '還是問了：拿掉最後的問句');
+  // 🌙 收工時問了「今天有卡住的嗎」，回「掰掰明天見」：不會記成「卡點：掰掰；明天：見」
+  sent.length = 0;
+  t = new Date('2026-11-03T16:55:00').getTime();
+  E.state.wrapAsk = { date: '2026-11-03', at: t - 60000, answered: false };
+  const before = E.plan.progressLog.length;
+  r = await E.chat('掰掰明天見');
+  assert.ok(E.plan.progressLog.length === before && !E.state.wrapAsk.answered && tplOf('farewell_day').includes(r.lines[0].text), '只是掰掰：不記成今天的進度');
+  r = await E.chat('沒有，明天見');
+  const rep = E.plan.progressLog.find((p) => p.date === '2026-11-03');
+  assert.ok(rep && !rep.blocker && !rep.next, '「沒有，明天見」：沒有卡點，也不會把「見」當成明天要做的事 ' + JSON.stringify(rep));
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('道別測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
 // ---------- 🐾 互動擴充（10/21）：摸不同的地方、幫艾琳做決定、現實的節日與紀念日、天候水晶（都不問 AI、不加提示長度）----------
 (async () => {
   const os = require('os');

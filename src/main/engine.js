@@ -46,6 +46,7 @@ const PD = require('./plandraft'); // 📓 艾琳的筆記本（委託）
 const FE = require('./festivals'); // 📅 現實的節日、節氣、認識的紀念日
 const DC = require('./decide'); // 🤔 幫艾琳做決定
 const QA = require('./asks'); // 💬 問句的比例：主動開口問一半、分享一半；聊天回覆少反問
+const FW = require('./farewell'); // 👋 冒險者跟她道別：認得出來就不問 AI
 const WX = require('./weather'); // ☁ 天候水晶
 // 🔁 AI 整句重複前面的話、再問一次時加在這一句指示的最後（10/27）
 const clipQ = (x, n = 40) => { const t = String(x || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
@@ -618,6 +619,7 @@ class Engine {
   }
 
   async greet() {
+    if (this.state.proactive && this.state.proactive.byeUntil) delete this.state.proactive.byeUntil; // 👋 點她打招呼＝回來了
     const lines = [];
     const now = this.now();
     const today = G.todayISO(now);
@@ -1416,6 +1418,7 @@ class Engine {
     if (this.state.focus || !(this.state.onboarding && this.state.onboarding.done) || this.isCold()) return null;
     const now = this.now().getTime();
     const p = this.proState();
+    if (p.byeUntil && now < p.byeUntil) return null; // 👋 剛跟她道別：今天（暫時離開＝半小時）不主動搭話
     if (this.nbCfg().enabled !== false && M.dueDates(this.nb(), this.now()).length && now - (p.lastAt || 0) > 60000) return 'note'; // 📒 重要的日子：當天一定說（不用等間隔）
     if (this.festDue() && now - (p.lastAt || 0) > 60000) return 'fest'; // 📅 節日、節氣、紀念日：當天一定說（沒點她打招呼也會說）
     const stage = this.affOn() ? this.affStage() : 1;
@@ -1547,13 +1550,15 @@ class Engine {
     const today = G.todayISO(now);
     if (!w || w.date !== today || w.answered || now.getTime() - w.at > 90 * 60000) return null;
     if (/[?？]/.test(text) || this.plan.progressLog.some((p) => p.date === today)) return null;
+    const bye = FW.detect(text);
+    if (bye && bye.pure) return null; // 👋 只是說掰掰：不是在回答卡點（以前「掰掰明天見」會被記成「卡點：掰掰；明天：見」）
     let acts = [];
     try { acts = I.validate(I.ruleParse(text, cat), cat); } catch (_) { /* 看不出來 */ }
     if (acts.length) return null; // 在說做完了什麼：照一般聊天處理
     w.answered = true;
     const t = String(text).trim();
     const none = /^(?:沒有|沒|還好|都還好|順利|很順|ok|okay|沒什麼|不會|沒卡)/i.test(t);
-    const nx = t.match(/明天(?:要|會|再|先)?\s*(.+)$/);
+    const nx = t.match(/明天(?!見)(?:要|會|再|先)?\s*(.+)$/);
     const blocker = none ? '' : (nx ? t.slice(0, nx.index) : t).replace(/^(?:卡在|卡住|有，?|嗯，?)/, '').replace(/[，,。\s]+$/, '').slice(0, 120);
     this.state.chat.push({ role: 'user', content: text, quest: this.ps.activeQuestId || null, at: now.getTime() });
     return this.dailyReport({ done: this.todayDone(today), blocker, next: nx ? nx[1].replace(/[。\s]+$/, '').slice(0, 120) : '' });
@@ -1617,12 +1622,18 @@ class Engine {
     if (decided) return this.localChat(text, decided);
     const wq = WX.weatherQuestion(text); // ☁ 問天氣：看天候水晶回答（還沒打開就說怎麼打開），不問 AI、不加提示
     if (wq) return this.localChat(text, this.weatherSay(wq));
+    // 👋 道別（10/29）：整句就是「掰掰／明天見／下班囉／晚安／待會見」→ 不問 AI，馬上用內建台詞回、結束話題、今天不再主動搭話
+    //   夾著別的事（「報告交了，下班囉」）→ 照樣問 AI，但請它最後道別、不開新話題、不問問題
+    const bye = FW.detect(bText);
+    if (bye && bye.pure) return this.farewell(text, bye);
+    if (this.proState().byeUntil) delete this.proState().byeUntil; // 說了別的：回來了
     const stage = this.affStage();
     const hits = await this.lore.retrieve(text, (this.config.lore || {}).topK || 3, { stage }); // 跟這句話相關的角色設定（還沒解鎖的不算）
     // 是不是在回她剛剛主動開的話題（20 分鐘內、中間沒有聊別的）
     const tp = this.proState().topic;
     const lastSaid = [...this.state.chat].reverse().find((h) => h.role === 'assistant');
-    const replyTopic = !!(tp && !tp.replied && at - tp.at < 20 * 60000 && lastSaid && lastSaid.topic === tp.title);
+    const replyTopic = !bye && !!(tp && !tp.replied && at - tp.at < 20 * 60000 && lastSaid && lastSaid.topic === tp.title);
+    if (bye && tp) tp.replied = true; // 要走了：不是在回她的話題
     if (replyTopic) {
       tp.replied = true;
       const e = this.lore.entries.find((x) => x.title === tp.title);
@@ -1675,8 +1686,9 @@ class Engine {
     // 💬 少反問（10/28）：她上一句已經在問、或這次沒輪到，就請 AI 用陳述句結束；跟工作有關（可能要問是哪一項）、說自己很痛苦的時候不限制
     const lastLine = (() => { try { return lastSaid ? JSON.parse(lastSaid.content).line || '' : ''; } catch (_) { return lastSaid ? String(lastSaid.content || '') : ''; } })();
     const chatAsk = (this.config.llm || {}).chatAskRatio;
-    const mayAsk = scope.need || kw === 'care' || QA.chatMayAsk(lastLine, chatAsk === undefined ? 0.3 : chatAsk, () => this.rnd());
-    if (!mayAsk) tail.push(`【這次】回應完就好，用陳述句結束，不要再問${call}問題。`);
+    const mayAsk = !bye && (scope.need || kw === 'care' || QA.chatMayAsk(lastLine, chatAsk === undefined ? 0.3 : chatAsk, () => this.rnd()));
+    if (bye) tail.push(`【道別】${call}說完這句就要${bye.kind === 'night' ? '去睡了' : bye.kind === 'later' ? '暫時離開' : '下班離開了'}：先回應他說的事，最後跟他道別（${bye.kind === 'night' ? '晚安' : bye.kind === 'later' ? '待會見' : '辛苦了、明天見'}），不要開新話題，不要問他問題。`);
+    else if (!mayAsk) tail.push(`【這次】回應完就好，用陳述句結束，不要再問${call}問題。`);
     // 📒 小本子：跟這句話有關的筆記給 AI 看；這句像在講自己的事（或規則有記到）才請 AI 記新的（10/14 K）
     const nbOn = this.nbCfg().enabled !== false;
     const nbCtx = nbOn ? M.contextText(M.relevant(this.nb(), text, now), now, call, self) : '';
@@ -2008,6 +2020,18 @@ class Engine {
     return null;
   }
   // 沒問 AI 就回答的聊天（做決定、問天氣）：照樣記進對話紀錄
+  // 👋 冒險者跟她道別：照時候挑內建台詞（不問 AI、不用等）；結束正在聊的話題；之後一陣子不主動搭話（明天早上或半小時後）
+  farewell(text, bye) {
+    const now = this.now();
+    const p = this.proState();
+    if (p.topic) p.topic.replied = true;
+    const tomorrow = G.todayISO(new Date(now.getTime() + 86400000));
+    const key = FW.templateKey(bye, now, { wrap: this.scheduleInfo().wrap, offNext: this.dayOff(tomorrow).off, cold: this.isCold() });
+    p.byeUntil = FW.quietUntil(key, now);
+    const line = { ...this.quickLine(key, {}), event: 'chat', farewell: key.replace(/^farewell_/, '') };
+    delete line.tpl;
+    return this.settle(this.localChat(text, { lines: [line], view: this.view() }));
+  }
   localChat(text, res) {
     const quest = this.ps.activeQuestId || null;
     const at = this.now().getTime();
