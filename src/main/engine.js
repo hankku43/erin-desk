@@ -133,6 +133,13 @@ class Engine {
       if (fs.existsSync(p)) this.configError = `config.json 格式錯誤：${e.message}`;
     }
     this.config = deepMerge(defaults, user);
+    // ✏️ 只改了 name（例如直接改 config.json）、selfName 還是範例寫的「艾琳」：自稱和口頭禪跟著新名字（設定檔不動）
+    //   （10/30：朋友只改了名字，名牌是新名字，AI 卻被告知「自稱艾琳」，台詞裡一直說艾琳；自己另外取的自稱照舊）
+    const npc = this.config.npc;
+    if (RN.isRenamed(npc.name)) {
+      if (npc.selfName === RN.BASE) npc.selfName = npc.name;
+      if (Array.isArray(npc.catchphrases)) npc.catchphrases = npc.catchphrases.map((c) => RN.rename(String(c), npc.name));
+    }
     if (this.lore) this.loadLore();
     if (this.npc) this.npc.setConfig(this.config);
   }
@@ -478,7 +485,7 @@ class Engine {
       rev: ++this.viewRev, // 畫面用：比較新舊，舊的回應不會蓋掉新的
       now: this.now().toISOString(),
       player: { ...this.state.player, ...lv },
-      planTitle: this.plan.title, planPath: this.planFile(), planError: this.planError || this.configError || null,
+      planTitle: this.plan.title, planPath: this.planFile(), planError: RN.rename(this.planError || this.configError || null, this.config.npc.name, { protect: [this.planFile()] }), // 「用筆記本跟艾琳說…」換成現在的名字（檔名不動）
       quests, active: quests.find((q) => q.active) || null,
       today: this.todayInfo(), progressToday: progress,
       decisions: this.plan.decisions.map((d) => ({ ...d, shown: !!this.ps.decisionsShown[d.id] })),
@@ -1552,7 +1559,7 @@ class Engine {
     const today = G.todayISO(now);
     if (!w || w.date !== today || w.answered || now.getTime() - w.at > 90 * 60000) return null;
     if (/[?？]/.test(text) || this.plan.progressLog.some((p) => p.date === today)) return null;
-    const bye = FW.detect(text);
+    const bye = FW.detect(RN.toBase(text, this.config.npc.name)); // 「掰掰，小雪」：新名字也算客套話
     if (bye && bye.pure) return null; // 👋 只是說掰掰：不是在回答卡點（以前「掰掰明天見」會被記成「卡點：掰掰；明天：見」）
     let acts = [];
     try { acts = I.validate(I.ruleParse(text, cat), cat); } catch (_) { /* 看不出來 */ }
@@ -2016,7 +2023,7 @@ class Engine {
     }
     if (fresh && q.free) {
       const named = /^(就)?(叫|取名叫|取叫)|^[「『"']/.test(t);
-      const name = DC.cleanFree(t, q.free.max);
+      const name = DC.cleanFree(RN.toBase(t, this.config.npc.name), q.free.max); // 取她自己的名字不算（新名字也一樣）
       if (name && (named || (t.length <= q.free.max && !DC.NOT_NAME.test(t)))) return this.decide(q.id, null, name);
     }
     return null;
@@ -2703,7 +2710,7 @@ class Engine {
     const t = this.npc.template(key, { gift: g.name, seals: sh.seals });
     const line = await this.say('gift', {
       quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [], noPlayer: true,
-      gift: `${g.name}（${g.desc}）${first ? '，這是第一次收到' : ''}${again ? '，今天已經收過一份了' : ''}${id === 'seal' ? `，收藏變成第 ${sh.seals} 個` : ''}`, opener: t.text,
+      gift: `${g.name}（${RN.rename(g.desc, this.config.npc.name)}）${first ? '，這是第一次收到' : ''}${again ? '，今天已經收過一份了' : ''}${id === 'seal' ? `，收藏變成第 ${sh.seals} 個` : ''}`, opener: t.text,
     }, { maxTokens: 180 });
     if (line.source !== 'llm') { line.text = t.text; line.emotion = t.emotion; line.source = 'template'; }
     delete line.repeated; delete line.data; delete line.tpl;

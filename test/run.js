@@ -4733,3 +4733,94 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(/if \(ollamaBusy\(\)\) return \{ restarted: false, why: 'busy' \}/.test(mainSrc));
   console.log('Ollama 只在本機測試通過 ✔');
 })();
+
+// ---------- ✏️ 改名的漏網之魚（10/30）：只改 name 時自稱還是艾琳、計畫空白的提示、送禮給 AI 的說明、收工時說掰掰、取名、計畫範本 ----------
+(async () => {
+  const os = require('os');
+  const root = path.join(__dirname, '..');
+  const { Engine } = require('../src/main/engine');
+  const I = require('../src/main/intent');
+  const leftover = (s) => String(s).split('艾琳的任務櫃台').join('').includes('艾琳');
+  const cfg0 = JSON.parse(fs.readFileSync(path.join(root, 'config.example.json'), 'utf8'));
+  assert.ok(cfg0.npc.selfName === '艾琳', '範例設定把自稱寫成艾琳（所以只改 name 會出事）');
+  const mk = (npc, { plan = true } = {}) => {
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-nm-app-'));
+    const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-nm-user-'));
+    fs.mkdirSync(path.join(appDir, 'plans')); fs.mkdirSync(path.join(appDir, 'lore'));
+    fs.copyFileSync(path.join(root, 'lore', '艾琳.md'), path.join(appDir, 'lore', '艾琳.md'));
+    if (plan) fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(appDir, 'plans', 'week_sample.md'));
+    else fs.writeFileSync(path.join(appDir, 'plans', 'week_sample.md'), '# 空的一週 10/26–10/30\n');
+    fs.writeFileSync(path.join(userDir, 'config.json'), JSON.stringify({ ...cfg0, npc: { ...cfg0.npc, ...npc }, lore: { ...(cfg0.lore || {}), embeddings: false }, llm: { ...cfg0.llm, enabled: false } }));
+    const E = new Engine({ appDir, userDir });
+    E.npc.status.online = false;
+    E.dirs = [appDir, userDir];
+    return E;
+  };
+  // 1. 只把 config.json 的 name 改成雪球（selfName、口頭禪還是範例的艾琳）→ 自稱、口頭禪、系統提示都是雪球；設定檔不動
+  let E = mk({ name: '雪球' });
+  assert.deepStrictEqual(E.npc.names(), { self: '雪球', call: '冒險者' }, '自稱跟著新名字');
+  assert.ok(E.config.npc.catchphrases.includes('交給雪球吧！'), '口頭禪：' + E.config.npc.catchphrases.join('、'));
+  const sp = E.npc.systemPrompt();
+  assert.ok(!leftover(sp) && /自稱「雪球」/.test(sp), '系統提示沒有艾琳：' + (sp.match(/.{0,20}艾琳.{0,20}/) || [''])[0]);
+  assert.strictEqual(JSON.parse(fs.readFileSync(E.configFile(), 'utf8')).npc.selfName, '艾琳', '設定檔不動');
+  // AI 還是說了「艾琳」（主動開話題、聊天）→ 換成雪球（虛構的句子）
+  E.config.llm.enabled = true; E.npc.llm.enabled = true; E.npc.status = { online: true };
+  E.npc.fetchJSON = async () => ({ message: { content: JSON.stringify({ line: '鐘樓旁邊的燈好亮，艾琳只數到三顆星星～冒險者那邊看得到星星嗎？', emotion: 'happy' }) } });
+  let line = await E.say('topic', {});
+  assert.ok(line.source === 'llm' && line.text.includes('雪球只數到三顆星星') && !leftover(line.text), 'AI 的台詞：' + line.text);
+  E.npc.fetchJSON = async () => ({ message: { content: JSON.stringify({ line: '我也想去看看！', emotion: 'happy' }) } });
+  line = await E.say('chat', {}, { userText: '今天去看了燈會' });
+  assert.strictEqual(line.text, '雪球也想去看看！', '自稱「我」改成新名字');
+  // 之後用右鍵改名：自稱、口頭禪跟著寫進設定檔
+  E.config.llm.enabled = false; E.npc.llm.enabled = false;
+  const r = E.renameNpc('小雪');
+  assert.ok(r.renamed === '小雪' && E.npc.names().self === '小雪', '再改名');
+  const saved = JSON.parse(fs.readFileSync(E.configFile(), 'utf8')).npc;
+  assert.ok(saved.selfName === '小雪' && saved.catchphrases.includes('交給小雪吧！'), '寫進設定檔：' + JSON.stringify(saved));
+  for (const d of E.dirs) fs.rmSync(d, { recursive: true, force: true });
+  // 自己另外取的自稱照舊；沒改名照舊
+  E = mk({ name: '雪球', selfName: '球球' });
+  assert.strictEqual(E.npc.names().self, '球球', '另外取的自稱不動');
+  for (const d of E.dirs) fs.rmSync(d, { recursive: true, force: true });
+  E = mk({});
+  assert.ok(E.npc.names().self === '艾琳' && E.config.npc.catchphrases.includes('交給艾琳吧！'), '沒改名：照舊');
+  for (const d of E.dirs) fs.rmSync(d, { recursive: true, force: true });
+
+  // 2. 計畫還沒有任務的提示：「用筆記本跟雪球說」
+  E = mk({ name: '雪球' }, { plan: false });
+  const pe = E.view().planError;
+  assert.ok(/還沒有任務/.test(pe) && /跟雪球說/.test(pe) && !leftover(pe), '計畫空白的提示：' + pe);
+  for (const d of E.dirs) fs.rmSync(d, { recursive: true, force: true });
+
+  E = mk({ name: '雪球' });
+  // 3. 送禮：給 AI 看的禮物說明也是新名字
+  E.config.llm.enabled = true; E.npc.llm.enabled = true; E.npc.status = { online: true };
+  let facts = null;
+  E.npc.say = async (event, f) => { if (event === 'gift') facts = f; return { text: '謝謝冒險者～', emotion: 'happy', source: 'llm', event }; };
+  E.state.player.gold = 500;
+  await E.buyGift('tea');
+  assert.ok(facts && /溫奶茶/.test(facts.gift) && !leftover(facts.gift) && /雪球一天要喝五杯/.test(facts.gift), '禮物說明：' + (facts && facts.gift));
+  E.config.llm.enabled = false; E.npc.llm.enabled = false; E.npc.status = { online: false };
+  delete E.npc.say;
+
+  // 4. 收工時問「今天有卡住的嗎？」→ 說「掰掰，雪球」是道別，不是卡點
+  const now = E.now();
+  const cat = I.buildCatalog(E.plan, E.ps, E.todayInfo(), now);
+  E.state.wrapAsk = { date: require('../src/main/game').todayISO(now), at: now.getTime() };
+  assert.strictEqual(await E.wrapAnswer('掰掰，雪球', cat, now), null, '新名字＋掰掰＝道別');
+  assert.ok(!E.state.wrapAsk.answered, '沒有被當成回答卡點');
+  assert.strictEqual(await E.wrapAnswer('掰掰，艾琳', cat, now), null, '舊名字也一樣');
+
+  // 5. 幫她取名（小鴿子）：取她自己的名字不算
+  const st = E.dcState();
+  st.pending = { id: 'pigeon7', at: E.now().getTime() };
+  assert.strictEqual(E.decideFromChat('叫雪球吧'), null, '取她的新名字不算');
+  st.pending = { id: 'pigeon7', at: E.now().getTime() };
+  const ok = E.decideFromChat('叫阿福吧');
+  assert.ok(ok && ok.lines && /阿福/.test(ok.lines[0].text), '一般的名字照樣收下：' + JSON.stringify(ok && ok.lines));
+  for (const d of E.dirs) fs.rmSync(d, { recursive: true, force: true });
+
+  // 6. 計畫範本（第一次打開時複製到你的資料夾）不寫死名字
+  assert.ok(!fs.readFileSync(path.join(root, 'plans', '_template.md'), 'utf8').includes('艾琳'), '計畫範本');
+  console.log('改名漏網之魚測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

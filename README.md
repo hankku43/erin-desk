@@ -506,7 +506,7 @@ Intel 內顯和比較舊的 AMD 顯示卡目前 Ollama 用不到，會照沒有�
 | 設定 | 說明 |
 |---|---|
 | `npc.name`、`role`、`personality`、`catchphrases` | NPC 的名字、身分、個性、口頭禪，AI 會照這些演 |
-| `npc.callName`、`npc.selfName` | 她怎麼叫你（預設「冒險者」）、怎麼稱呼自己（預設用 `name`，也就是「艾琳」，不說「我」）。AI 偶爾不聽話時，程式會把回覆裡的「我」「玩家」「主人」「您」自動改回來；任務名稱和你自己寫的字不會被改 |
+| `npc.callName`、`npc.selfName` | 她怎麼叫你（預設「冒險者」）、怎麼稱呼自己（預設用 `name`，也就是「艾琳」，不說「我」）。AI 偶爾不聽話時，程式會把回覆裡的「我」「玩家」「主人」「您」自動改回來；任務名稱和你自己寫的字不會被改。想幫她改名字，用右鍵 ⚙「幫接待員改名字」最簡單；直接改 `name` 也可以，`selfName` 還是「艾琳」的話會自動跟著新名字（另外取了別的自稱就照你寫的） |
 | `divination.cost`、`divination.repeatHours` | ✨ 占卜一次花多少金幣（預設 10）、同一件事幾小時內不能再占（預設 24） |
 | `focus.minutes`、`focus.rest`、`focus.xp`、`focus.gold` | 🍅 專注的分鐘數（預設 25）、提醒休息幾分鐘（5）、完成的星屑與金幣（15、3） |
 | `llm.enabled` | `false` 就不用 AI，只用內建台詞 |
