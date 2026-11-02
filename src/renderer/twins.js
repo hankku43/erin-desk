@@ -103,11 +103,42 @@
         const act = await play(r.visit);
         after(r.visit, act);
       }
-      if (r && r.lines && r.lines.length) enqueue(r.lines);
+      if (r && r.tea) teaGot(r); // ☕ 留著的奶茶：艾琳交給你
+      else if (r && r.lines && r.lines.length) enqueue(r.lines);
     } catch (e) { console.error(e); }
     V.busy = false;
+    syncCup();
   }
   setInterval(poll, 4000);
+
+  // ---------- ☕ 櫃台上留著的奶茶：五點前畫面一直沒空（或下午沒開），奶茶放在她旁邊，點一下就拿；有空時她也會自己交給你 ----------
+  function syncCup() {
+    const v = state.view;
+    const on = !!(v && v.twins && v.twins.teaKept && v.twins.enabled !== false);
+    let cup = $('#teaCup');
+    if (!on) { if (cup && !cup.classList.contains('bye')) cup.remove(); return; }
+    if (cup) return;
+    cup = document.createElement('button');
+    cup.id = 'teaCup'; cup.type = 'button';
+    cup.dataset.tip = '☕ 雲朵茶舖送來的奶茶，幫你留在櫃台上了（點一下拿）';
+    cup.innerHTML = `${Art.gift('tea')}<i class="tc-steam"></i>`;
+    cup.addEventListener('mousedown', (e) => e.stopPropagation()); // 不算點她、也不拖動視窗
+    cup.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (V.busy) return;
+      V.busy = true;
+      try { const r = await api.twinsTea(); if (r && r.view) applyView(r.view); if (r && r.tea) teaGot(r); } catch (err) { console.error(err); }
+      V.busy = false;
+    });
+    $('#npcWrap').appendChild(cup);
+  }
+  function teaGot(r) {
+    const cup = $('#teaCup');
+    if (cup) { cup.classList.add('bye'); setTimeout(() => cup.remove(), 500); }
+    if (r.lines && r.lines.length) enqueue(r.lines);
+    if (window.Idle) window.Idle.markDone('tea'); // 待機的「三點的奶茶」不要再演一次
+  }
+  setInterval(syncCup, 1500);
 
   // 道具：外送的奶茶、道賀的抽卡券、許願單上的東西
   function prop(v) {

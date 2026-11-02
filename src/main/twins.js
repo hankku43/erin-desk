@@ -1,5 +1,7 @@
 // 🐰 棉棉和朵朵出場：攤位以外，她們也會自己跑來櫃台（純函式，不碰檔案）
 //   ☕ 下午茶外送：每天下午三點左右送奶茶給艾琳（一天一次；算艾琳收到一份心意，好感 +2，受每日上限）
+//     不會錯過：五點前畫面一直沒空（縮成小貓、專注、開著面板、不在座位…）或下午沒開艾琳，奶茶就「放在櫃台上」，
+//     等冒險者回來由艾琳交給你（當天晚上或隔天早上都算；隔天中午前），櫃台上看得到那杯奶茶，點它也可以馬上拿
 //   🎉 慶祝道賀：升級、連續上工里程碑、整週委託全部完成 → 送「免費抽卡券」（一次最多 3 張）
 //   🔖 存錢許願單：在雜貨舖請朵朵把想要的東西「留著」（最多 3 個），金幣存夠了她們跑來說
 //   🌌 抽卡演出：畫面那邊做（renderer/twins.js），這裡只有台詞
@@ -7,7 +9,7 @@
 // 出場排隊存在 state.twins.queue，畫面有空（沒在說話、沒開面板、不是專注或縮小）時才拿出來演
 'use strict';
 
-const DEFAULTS = { enabled: true, tea: true, teaFrom: '15:00', teaUntil: '17:00', teaAffection: 2, congrats: true, wish: true, wishMax: 3, maxTickets: 3 };
+const DEFAULTS = { enabled: true, tea: true, teaFrom: '15:00', teaUntil: '17:00', teaKeepUntil: '12:00', teaAffection: 2, congrats: true, wish: true, wishMax: 3, maxTickets: 3 };
 const NAMES = { mian: '棉棉', duo: '朵朵' };
 
 // 每一種出場的台詞（幾組挑一組）；{item} {price} {level} {title} {days} {n} 會換掉
@@ -64,19 +66,52 @@ const mm = (hhmm) => { const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/)
 function cfg(config) { return { ...DEFAULTS, ...((config && config.twins) || {}) }; }
 function blank(level = 1) { return { queue: [], seq: 0, teaDay: '', level, wish: [], wishReady: {} }; }
 
-// 下午茶該不該來：時段內、今天還沒來過、平日（作息設定只算平日時）
-function teaDue(tw, now, { from = DEFAULTS.teaFrom, until = DEFAULTS.teaUntil, weekdaysOnly = true, today } = {}) {
+// 下午茶該不該送：三點以後（五點以後才打開艾琳也算：她們下午來過、奶茶留在櫃台）、今天還沒送、平日（作息設定只算平日時；放假日由 engine 另外擋）
+function teaDue(tw, now, { from = DEFAULTS.teaFrom, weekdaysOnly = true, today } = {}) {
   const t = now.getHours() * 60 + now.getMinutes();
-  const a = mm(from), b = mm(until);
-  if (a === null || b === null || t < a || t >= b) return false;
+  const a = mm(from);
+  if (a === null || t < a) return false;
   if (weekdaysOnly && (now.getDay() === 0 || now.getDay() === 6)) return false;
   return tw.teaDay !== today;
+}
+// 這杯奶茶現在怎麼交：'visit'＝五點前，雙胞胎自己跑來；'later'＝五點以後，艾琳交給你；'next'＝隔天（早上）才交
+function teaPhase(day, now, { until = DEFAULTS.teaUntil } = {}) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  if (day && day !== today) return 'next';
+  const b = mm(until);
+  return b !== null && now.getHours() * 60 + now.getMinutes() >= b ? 'later' : 'visit';
+}
+// 留著的奶茶放到什麼時候：隔天 keepUntil（預設中午）
+function teaKeepTime(day, keepUntil = DEFAULTS.teaKeepUntil) {
+  const m = String(keepUntil || '').match(/^(\d{1,2}):(\d{2})$/) || ['', '12', '00'];
+  const d = new Date(`${day}T${m[1].padStart(2, '0')}:${m[2]}:00`);
+  d.setDate(d.getDate() + 1);
+  return d.getTime();
 }
 
 function lines(script, data) { return script.map(([who, text]) => ({ who, name: NAMES[who], text: fill(text, data) })); }
 
 // 做一次出場：kind＝tea／congrats／wish
 //   congrats 的 data：{ level, title, levels（升了幾級）, streak（天數）, allclear }，抽卡券張數照事件算
+// 奶茶放在櫃台上，冒險者回來時艾琳交給你（艾琳的口吻）；later＝當天五點以後、next＝隔天
+const ERIN_KEPT = {
+  later: [
+    '冒險者回來啦！下午棉棉和朵朵送奶茶來的時候你剛好在忙，艾琳幫你留著了～',
+    '這杯奶茶是雲朵茶舖下午送來的，艾琳一直幫冒險者顧著喔。',
+    '奶茶有點涼了……不過棉棉說，涼的也是「剛剛好多一點點」的甜度。給你！',
+    '朵朵下午送奶茶來的時候，冒險者不在位子上。她說杯套上的貓耳朵是特地畫給你的～',
+    '下午的奶茶還在這裡喔！艾琳沒有偷喝……只聞了一下下。',
+    '冒險者辛苦了。下午茶晚了一點，但是一直在等你。',
+  ],
+  next: [
+    '早安～昨天下午的奶茶冒險者沒喝到，艾琳一早請棉棉換了一杯熱的！',
+    '昨天幫你留的奶茶，朵朵說換成今天的早餐甜點剛剛好～',
+    '昨天的下午茶，今天補給冒險者！雲朵茶舖說這杯不算錢。',
+    '這是昨天的那杯奶茶。……棉棉堅持要重泡，所以是熱的喔。',
+  ],
+};
+
 function build(kind, data = {}, rnd = Math.random) {
   if (kind === 'tea') return { kind, lines: lines(pick(SCRIPTS.tea, rnd), data), actions: [] };
   if (kind === 'wish') {
@@ -121,5 +156,6 @@ function stallLine(key, data = {}, rnd = Math.random) {
   return { who, name: NAMES[who], text: fill(text, data) };
 }
 function erinTea(tier, rnd = Math.random) { return pick(ERIN_TEA[tier] || ERIN_TEA.low, rnd); }
+function erinKept(phase, rnd = Math.random) { return pick(ERIN_KEPT[phase] || ERIN_KEPT.later, rnd); }
 
-module.exports = { DEFAULTS, NAMES, SCRIPTS, STALL, ERIN_TEA, cfg, blank, teaDue, build, mergeCongrats, wishCheck, stallLine, erinTea };
+module.exports = { DEFAULTS, NAMES, SCRIPTS, STALL, ERIN_TEA, ERIN_KEPT, cfg, blank, teaDue, teaPhase, teaKeepTime, erinKept, build, mergeCongrats, wishCheck, stallLine, erinTea };

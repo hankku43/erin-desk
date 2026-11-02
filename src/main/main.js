@@ -1039,6 +1039,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('shop:draw', wrap((n, ticket) => engine.drawCards(Number(n), { ticket: !!ticket })));
   ipcMain.handle('shop:wish', wrap((id) => engine.wishToggle(String(id))));
   ipcMain.handle('twins:take', wrap(() => engine.twinsTake()));
+  ipcMain.handle('twins:tea', wrap(() => engine.teaTakeNow())); // ☕ 點櫃台上留著的奶茶
   ipcMain.handle('shop:exchange', wrap((id) => engine.exchangeCard(String(id))));
   ipcMain.handle('collection:open', wrap(() => engine.collectionOpen()));
   ipcMain.handle('ui:setHud', wrap((on) => engine.setHud(!!on)));

@@ -2590,7 +2590,16 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   // 規則：下午茶的時段、平日、一天一次
   const tw = TW.blank(1);
   assert.ok(TW.teaDue(tw, d(`${Y}-10-07T15:10:00`), { today: `${Y}-10-07`, weekdaysOnly: false }), '三點多');
-  assert.ok(!TW.teaDue(tw, d(`${Y}-10-07T14:59:00`), { today: 'x' }) && !TW.teaDue(tw, d(`${Y}-10-07T17:00:00`), { today: 'x' }), '時段外不來');
+  assert.ok(!TW.teaDue(tw, d(`${Y}-10-07T14:59:00`), { today: 'x', weekdaysOnly: false }), '三點前不來');
+  assert.ok(TW.teaDue(tw, d(`${Y}-10-07T17:00:00`), { today: 'x', weekdaysOnly: false }) && TW.teaDue(tw, d(`${Y}-10-07T21:30:00`), { today: 'x', weekdaysOnly: false }), '五點以後才開艾琳也算（奶茶留在櫃台）');
+  // 怎麼交：五點前雙胞胎跑來、五點後艾琳交、隔天也算；放到隔天中午
+  assert.strictEqual(TW.teaPhase(`${Y}-10-07`, d(`${Y}-10-07T16:59:00`)), 'visit');
+  assert.strictEqual(TW.teaPhase(`${Y}-10-07`, d(`${Y}-10-07T17:00:00`)), 'later');
+  assert.strictEqual(TW.teaPhase(`${Y}-10-07`, d(`${Y}-10-08T09:00:00`)), 'next');
+  assert.strictEqual(TW.teaKeepTime(`${Y}-10-31`), d(`${Y}-11-01T12:00:00`).getTime(), '隔天中午（跨月）');
+  assert.strictEqual(TW.teaKeepTime(`${Y}-10-07`, '09:30'), d(`${Y}-10-08T09:30:00`).getTime());
+  for (const t of Object.values(TW.ERIN_KEPT).flat()) assert.ok(!/玩家|您/.test(t) && !/(^|[^我])我(?!們)/.test(t) && /奶茶|下午茶/.test(t), '留著的奶茶，艾琳的口吻：' + t);
+  assert.ok(TW.ERIN_KEPT.later.length >= 5 && TW.ERIN_KEPT.next.length >= 4);
   const sat = new Date(`${Y}-10-03T15:10:00`); while (sat.getDay() !== 6) sat.setDate(sat.getDate() + 1);
   assert.ok(!TW.teaDue(tw, sat, { today: 'x' }) && TW.teaDue(tw, sat, { today: 'x', weekdaysOnly: false }), '週末看作息設定');
   tw.teaDay = 'x'; assert.ok(!TW.teaDue(tw, d(`${Y}-10-07T15:30:00`), { today: 'x', weekdaysOnly: false }), '一天一次');
@@ -2639,9 +2648,46 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(tea.visit.kind === 'tea' && tea.visit.lines.length >= 2 && tea.visit.erin && /艾琳|冒險者/.test(tea.visit.erin.text), '外送');
   assert.strictEqual(E.aff().points - a0, 2, '好感 +2');
   assert.strictEqual(E.twinsTake().visit, null, '拿完就沒了');
-  // 到了 17:00 還沒演（例如一直在專注）：過期不來
-  E.state.twins.teaDay = ''; t = wed.getTime() + 110 * 60000; await E.tick(); assert.strictEqual(E.view().twins.waiting, 1);
-  t = wed.getTime() + 116 * 60000; await E.tick(); assert.strictEqual(E.view().twins.waiting, 0, '17:00 過期');
+  assert.strictEqual(E.state.twins.teaLog[0].how, 'visit', '記下送到了');
+  const wedDay = G3.todayISO(wed);
+  const at = (h, m = 0, plusDay = 0) => { const x = new Date(wed); x.setDate(x.getDate() + plusDay); x.setHours(h, m, 0, 0); return x.getTime(); };
+  const reset = () => { E.state.twins.teaDay = ''; E.state.twins.queue = []; E.aff().gainedToday = 0; E.aff().coldUntil = 0; };
+  // 1. 五點前一直沒空（例如一直在專注、縮成小貓）：不會過期，五點一到奶茶就「放在櫃台上」，有空時艾琳交給你
+  reset(); t = at(16, 50); await E.tick();
+  assert.ok(E.view().twins.waiting === 1 && !E.view().twins.teaKept, '五點前：等雙胞胎跑來');
+  E.twinsDirty = false; t = at(17, 1); await E.tick();
+  assert.ok(E.view().twins.waiting === 1 && E.view().twins.teaKept && E.twinsDirty, '五點過了：不過期，櫃台上出現那杯奶茶');
+  let a1 = E.aff().points; let kt = E.twinsTake();
+  assert.ok(!kt.visit && kt.tea === 'later' && TW.ERIN_KEPT.later.includes(kt.lines[0].text) && kt.lines[0].emotion === 'happy', '艾琳交給你：' + JSON.stringify(kt.lines));
+  assert.ok(E.aff().points - a1 === 2 && E.state.twins.teaLog[0].how === 'later' && E.view().twins.waiting === 0 && !E.view().twins.teaKept, '好感照給、記下來');
+  // 2. 一直到隔天早上才有空：隔天交（換成熱的）
+  reset(); t = at(16, 0); await E.tick();
+  t = at(9, 10, 1); a1 = E.aff().points;
+  assert.ok(E.view().twins.teaKept, '隔天早上：還在櫃台上');
+  kt = E.twinsTake();
+  assert.ok(kt.tea === 'next' && TW.ERIN_KEPT.next.includes(kt.lines[0].text) && E.aff().points - a1 === 2, '隔天交：' + kt.lines[0].text);
+  assert.ok(E.state.twins.teaLog.some((x) => x.day === wedDay && x.how === 'next'), '記在那天');
+  // 3. 下午沒開艾琳、晚上才開：一樣有（她們下午來過，奶茶留著）
+  reset(); t = at(19, 30); await E.tick();
+  assert.ok(E.view().twins.teaKept, '晚上才開：櫃台上有奶茶');
+  // 點櫃台上的那杯：馬上拿
+  kt = E.teaTakeNow();
+  assert.ok(kt.tea === 'later' && kt.lines.length === 1 && !E.view().twins.teaKept, '點奶茶就拿到');
+  assert.strictEqual(E.teaTakeNow().lines.length, 0, '拿完再點沒有東西');
+  // 4. 隔天中午都沒開艾琳：才真的收掉（記一筆 expired）
+  reset(); t = at(15, 20); await E.tick();
+  t = at(12, 1, 1); E.state.twins.teaDay = G3.todayISO(new Date(t)); await E.tick();
+  assert.ok(E.view().twins.waiting === 0 && E.state.twins.teaLog.some((x) => x.day === wedDay && x.how === 'expired'), '隔天中午過了才收掉');
+  // 5. 冷戰中：先放著，和好了再交（冷戰時也照樣排進來）
+  reset(); t = at(17, 30); E.aff().coldUntil = t + 10 * 60000; await E.tick();
+  assert.ok(E.view().twins.waiting === 1, '冷戰也照樣留著');
+  assert.ok(E.twinsTake().tea === undefined && E.teaTakeNow().lines.length === 0 && E.view().twins.waiting === 1, '冷戰中不交');
+  t = at(17, 45); assert.strictEqual(E.twinsTake().tea, 'later', '和好了才交');
+  // 6. 請假、國定假日：不送（作息只算平日時）
+  reset(); E.state.leave = { ...(E.state.leave || {}), [wedDay]: '特休' }; t = at(15, 30); await E.tick();
+  assert.strictEqual(E.view().twins.waiting, 0, '請假那天不送');
+  delete E.state.leave[wedDay];
+  E.state.twins.teaDay = wedDay; E.state.twins.queue = [];
   t = wed.getTime() + 60000;
   // 升級＋整週完成：同一次道賀（抽卡券在演出時才給）
   G3.grant(E.state, { xp: 400, gold: 0 }, 'x', E.config.rewards, E.now());

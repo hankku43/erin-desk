@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('api', {
   shopDraw: (n, ticket) => ipcRenderer.invoke('shop:draw', n, !!ticket),
   shopWish: (id) => ipcRenderer.invoke('shop:wish', id),
   twinsTake: () => ipcRenderer.invoke('twins:take'),
+  twinsTea: () => ipcRenderer.invoke('twins:tea'),
   shopExchange: (id) => ipcRenderer.invoke('shop:exchange', id),
   collectionOpen: () => ipcRenderer.invoke('collection:open'),
   setHud: (on) => ipcRenderer.invoke('ui:setHud', !!on),

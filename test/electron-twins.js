@@ -128,6 +128,24 @@ module.exports = ({ win, engine }) => {
       await click('#twinsVisit [data-tv="shop"]');
       await until(`state.panel === 'shop' && !!document.querySelector('.sp-row.flash')`, 4000, '那一列閃一下');
       await wait(200); await shot('t11_wish_go');
+      // 8. 11/2：五點前畫面一直沒空（這裡開著雜貨舖）→ 奶茶不會過期，放在櫃台上；點那杯就拿到，艾琳交給你
+      const TW = require('../src/main/twins');
+      engine.state.twins.teaDay = ''; engine.state.twins.queue = []; engine.aff().gainedToday = 0;
+      t = wed.getTime() + (17 * 60 + 10 - 10 * 60 - 20) * 60000; // 17:10
+      await engine.tick(); update();
+      assert(engine.view().twins.teaKept && engine.view().twins.waiting === 1, '五點過了還在：留在櫃台上');
+      await until(`!!document.querySelector('#teaCup')`, 4000, '櫃台上的奶茶');
+      assert(await js(`state.panel === 'shop' && !document.querySelector('#twinsVisit')`), '面板開著：不跑來打擾');
+      await wait(600); await shot('t12_tea_kept');
+      await js('closePanel(); 0'); await wait(200);
+      const a0 = engine.aff().points;
+      await js(`document.querySelector('#teaCup').click(); 0`);
+      await until(`!document.querySelector('#teaCup')`, 3000, '奶茶拿走了');
+      await until(`!document.querySelector('#dialog').classList.contains('hidden') && document.querySelector('#dialog').textContent.includes('奶茶')`, 4000, '艾琳說話');
+      const said = await js(`document.querySelector('.dlg-text').textContent`);
+      assert(TW.ERIN_KEPT.later.some((x) => said.includes(x.slice(0, 8))) && engine.aff().points - a0 === 2 && engine.state.twins.teaLog[0].how === 'later', '艾琳交給你：' + said);
+      await wait(1500); await shot('t13_tea_handed');
+      assert(engine.view().twins.waiting === 0 && !engine.view().twins.teaKept, '交完了');
       console.log('DONE');
       setTimeout(() => process.exit(0), 200);
     } catch (e) { console.error(e); await shot('t_fail').catch(() => {}); process.exit(1); }

@@ -897,6 +897,16 @@ body[data-theme="frost"] { --navy: #4a6a92; --navy-2: #34506f; --frame: #6c8fb8;
 #decor img { object-fit: contain; object-position: 50% 100%; }
 #decor .d-hang img { object-position: 50% 0; }
 body.mini #decor, #npcWrap.transforming #decor, #npcWrap.shrinking #decor { display: none; }
+/* ☕ 櫃台上留著的奶茶（點一下拿） */
+#teaCup { position: absolute; left: 58px; bottom: 4px; width: 46px; height: 46px; padding: 0; border: 0; background: none; cursor: pointer; z-index: 2; filter: drop-shadow(0 3px 3px rgba(20, 24, 60, .3)); animation: dPop .45s cubic-bezier(.3, 1.6, .5, 1) both; }
+#teaCup svg, #teaCup img { width: 100%; height: 100%; display: block; object-fit: contain; }
+#teaCup:hover { transform: translateY(-3px) rotate(-4deg); }
+#teaCup .tc-steam { position: absolute; left: 50%; top: -10px; width: 14px; height: 16px; margin-left: -7px; border-radius: 50%; border-left: 2px solid rgba(255, 255, 255, .85); animation: tcSteam 2.4s ease-in-out infinite; pointer-events: none; }
+#teaCup.bye { animation: tcBye .45s ease-in forwards; pointer-events: none; }
+body.mini #teaCup, #npcWrap.transforming #teaCup, #npcWrap.shrinking #teaCup { display: none; }
+@keyframes tcSteam { 0% { opacity: 0; transform: translateY(6px) scaleY(.6); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-10px) scaleY(1.1); } }
+@keyframes tcBye { to { opacity: 0; transform: translate(40px, -60px) scale(.5); } }
+@media (prefers-reduced-motion: reduce) { #teaCup, #teaCup .tc-steam { animation: none; } }
 @keyframes dSway { 0%, 100% { rotate: -3deg; } 50% { rotate: 3deg; } }
 @keyframes dRing { 0% { rotate: 0; } 20% { rotate: 14deg; } 45% { rotate: -10deg; } 70% { rotate: 6deg; } 100% { rotate: 0; } }
 @keyframes dPop { from { scale: .3; opacity: 0; } to { scale: 1; opacity: 1; } }

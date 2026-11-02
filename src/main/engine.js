@@ -513,7 +513,7 @@ class Engine {
       projects: J.projects(this.state), // 以前用過的專案（新任務表單的選項）
       decor: { ...this.state.shop.equip }, // 🛒 主題配色、櫃台吊飾／擺設
       streak: this.streakOn() ? AC.current(this.state.streak, G.todayISO(this.now()), this.streakOpts()) : 0,
-      twins: { waiting: this.twinsWaiting(), tickets: this.state.collection.tickets || 0, enabled: this.twCfg().enabled !== false }, // 🐰 排隊要來櫃台的次數、抽卡券
+      twins: { waiting: this.twinsWaiting(), tickets: this.state.collection.tickets || 0, enabled: this.twCfg().enabled !== false, teaKept: this.teaKept() }, // 🐰 排隊要來櫃台的次數、抽卡券、☕ 櫃台上留著的奶茶
       weather: this.weatherView(), // ☁ 天候水晶
       idleExtra: this.idleExtra(), // 待機小字：今天的節日、之前幫她做的決定
     };
@@ -2833,13 +2833,52 @@ class Engine {
     this.saveState();
     return { shop: this.shopView(line), view: this.view() };
   }
+  // ☕ 奶茶：五點以後（或隔天）還沒交到冒險者手上＝放在櫃台上，畫面看得到那杯
+  teaItem() { const tw = this.state.twins; return tw ? tw.queue.find((v) => v.kind === 'tea' && (!v.until || v.until > this.now().getTime())) : null; }
+  teaKept() {
+    const v = this.twCfg().enabled === false ? null : this.teaItem();
+    return !!v && TW.teaPhase(v.data && v.data.day, this.now(), { until: this.twCfg().teaUntil }) !== 'visit';
+  }
+  teaLog(day, how) { const tw = this.state.twins; tw.teaLog = [{ day, at: this.now().toISOString(), how }, ...(tw.teaLog || []).filter((x) => x.day !== day)].slice(0, 30); }
+  // 過期的拿掉（奶茶記一筆 expired：隔天中午前都沒開艾琳）
+  twinsPrune() {
+    const tw = this.state.twins; if (!tw) return false;
+    const now = this.now().getTime();
+    const n = tw.queue.length;
+    tw.queue = tw.queue.filter((v) => { const ok = !v.until || v.until > now; if (!ok && v.kind === 'tea') this.teaLog((v.data && v.data.day) || '', 'expired'); return ok; });
+    return tw.queue.length !== n;
+  }
+  // 艾琳把留著的奶茶交給你（不用雙胞胎跑來演）：好感照給
+  teaHandOver(v, phase) {
+    const tw = this.state.twins;
+    tw.queue = tw.queue.filter((x) => x !== v);
+    const r = () => this.rnd();
+    const text = RN.rename(TW.erinKept(phase, r), this.npc.names().self);
+    if (this.affOn()) this.affect(this.twCfg().teaAffection, '下午茶外送：雲朵茶舖的奶茶（艾琳幫你留著的）');
+    this.teaLog((v.data && v.data.day) || '', phase);
+    return this.settle({ visit: null, tea: phase, lines: [{ text, emotion: 'happy', event: 'tea' }], view: this.view() });
+  }
+  // 點櫃台上的那杯奶茶：馬上拿
+  teaTakeNow() {
+    this.twinsPrune();
+    const v = this.twCfg().enabled === false || this.isCold() ? null : this.teaItem();
+    if (!v) { this.saveState(); return { visit: null, lines: [], view: this.view() }; }
+    const ph = TW.teaPhase(v.data && v.data.day, this.now(), { until: this.twCfg().teaUntil });
+    return this.teaHandOver(v, ph === 'visit' ? 'later' : ph);
+  }
   // 畫面有空了：拿下一次出場來演（抽卡券、好感在這時候給）
   twinsTake() {
     const tw = this.state.twins;
-    const now = this.now().getTime();
-    tw.queue = tw.queue.filter((v) => !v.until || v.until > now);
-    const v = this.twCfg().enabled === false ? null : tw.queue.shift();
+    this.twinsPrune();
+    const cold = this.isCold(); // 冷戰中奶茶先放著，和好了再交
+    const i = this.twCfg().enabled === false ? -1 : tw.queue.findIndex((x) => !(cold && x.kind === 'tea'));
+    const v = i < 0 ? null : tw.queue[i];
     if (!v) { this.saveState(); return { visit: null, lines: [], view: this.view() }; }
+    if (v.kind === 'tea') {
+      const ph = TW.teaPhase(v.data && v.data.day, this.now(), { until: this.twCfg().teaUntil });
+      if (ph !== 'visit') return this.teaHandOver(v, ph);
+    }
+    tw.queue.splice(i, 1);
     const r = () => this.rnd();
     const name = this.config.npc.name;
     const visit = TW.build(v.kind, { ...v.data, maxTickets: this.twCfg().maxTickets }, r);
@@ -2849,6 +2888,7 @@ class Engine {
     if (visit.kind === 'tea') {
       visit.erin = { text: RN.rename(TW.erinTea(S.giftTier(this.affOn() ? this.affStage() : 3), r), this.npc.names().self), emotion: 'happy' };
       if (this.affOn()) this.affect(this.twCfg().teaAffection, '下午茶外送：雲朵茶舖的奶茶');
+      this.teaLog((v.data && v.data.day) || '', 'visit');
     }
     return this.settle({ visit, lines: [], view: this.view() });
   }
@@ -3051,16 +3091,22 @@ class Engine {
         out.push(await this.say('reminder', { label: d.label, action: d.action, eventDetail: `決策點「${d.label}」到了，計畫的應對：${d.action}` }));
       }
     }
-    // ☕ 下午茶外送：時段內、平日（作息只算平日時）、今天還沒來過 → 排隊，畫面有空時雙胞胎就來
+    // ☕ 下午茶外送：三點以後、平日（作息只算平日時；國定假日、請假不送）、今天還沒送 → 排隊
+    //   五點前畫面有空＝雙胞胎跑來；之後還沒空＝奶茶放在櫃台上，冒險者回來時艾琳交給你（放到隔天中午）
     const tc = this.twCfg(); const tw = this.state.twins;
     let twChanged = false;
-    if (tw && tc.enabled !== false && tc.tea !== false && this.state.onboarding && this.state.onboarding.done && !this.isCold()
-      && TW.teaDue(tw, now, { from: tc.teaFrom, until: tc.teaUntil, weekdaysOnly: cfg.weekdaysOnly !== false, today })) {
+    const weekdaysOnly = cfg.weekdaysOnly !== false;
+    if (tw && tc.enabled !== false && tc.tea !== false && this.state.onboarding && this.state.onboarding.done
+      && !(weekdaysOnly && this.dayOff(today).off)
+      && TW.teaDue(tw, now, { from: tc.teaFrom, weekdaysOnly: false, today })) { // 週末、補班日交給 dayOff 判斷
       tw.teaDay = today; twChanged = true;
-      const m = String(tc.teaUntil).match(/^(\d{1,2}):(\d{2})$/);
-      this.twinsQueue('tea', { until: new Date(`${today}T${m[1].padStart(2, '0')}:${m[2]}:00`).getTime() });
+      this.twinsQueue('tea', { day: today, until: TW.teaKeepTime(today, tc.teaKeepUntil) });
     }
-    if (tw) { const n = tw.queue.length; tw.queue = tw.queue.filter((v) => !v.until || v.until > now.getTime()); if (tw.queue.length !== n) { twChanged = true; this.twinsDirty = true; } }
+    if (tw) {
+      const kept = this.teaKept();
+      if (this.twinsPrune()) { twChanged = true; this.twinsDirty = true; }
+      if (kept !== !!tw.teaKeptShown) { tw.teaKeptShown = kept; this.twinsDirty = true; } // 五點一到，櫃台上冒出那杯奶茶
+    }
     if (out.length || twChanged || this.raidDirty) { this.raidDirty = false; this.saveState(); }
     return out;
   }
