@@ -4169,6 +4169,39 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   t += 60000;
   await E.chat('沒有，很順利');
   assert.strictEqual(E.plan.progressLog.find((x) => x.date === '2026-10-16').blocker, '', '沒有卡點');
+  // 問完卡點之後她又開了別的話題：冒險者是在回那句閒聊，不記成今天的卡點（11/2）
+  t = new Date('2026-10-19T16:51:00').getTime(); E.state.reminded = {}; delete E.state.wrapAsk;
+  await E.tick();
+  assert.ok(E.state.wrapAsk && E.state.wrapAsk.date === '2026-10-19', '下週一也問卡點');
+  t += 45 * 60000;
+  const tp = await E.topic();
+  assert.ok(tp && tp.lines && tp.lines.length, '她開了別的話題');
+  t += 30000;
+  r = await E.chat('我是最後一刻才衝的那種');
+  assert.ok(!E.plan.progressLog.some((x) => x.date === '2026-10-19') && !E.state.wrapAsk.answered && !r.lines.some((l) => l.event === 'daily_report'), '回話題的話不記成卡點：' + JSON.stringify(r.lines.map((l) => l.event)));
+  // 問完卡點之後她請你幫忙決定：說的是選項，不是卡點
+  t = new Date('2026-10-20T16:51:00').getTime(); E.state.reminded = {}; delete E.state.wrapAsk;
+  await E.tick();
+  t += 10 * 60000;
+  E.dcState().pending = { id: 'pigeon7', day: '2026-10-20', at: t };
+  t += 30000;
+  r = await E.chat('就叫阿福吧');
+  assert.ok(r.decided === 'pigeon7' && !E.plan.progressLog.some((x) => x.date === '2026-10-20'), '幫忙取名，不是卡點');
+  // 她在聊天裡反問了別的事：回的是那個問題，也不算
+  t = new Date('2026-10-21T16:51:00').getTime(); E.state.reminded = {}; delete E.state.wrapAsk; E.dcState().pending = null;
+  E.writePlan(E.planText.replace(/\n## 進度紀錄[\s\S]*$/, '\n'));
+  await E.tick();
+  t += 5 * 60000;
+  E.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: '冒險者晚餐想吃什麼呀？', emotion: 'happy' }), source: 'llm', quest: null, at: t });
+  t += 30000;
+  await E.chat('想吃咖哩飯');
+  assert.ok(!E.plan.progressLog.some((x) => x.date === '2026-10-21'), '回她反問的事：不記成卡點');
+  // 中間沒有別的話：照樣接（她剛問完就回）
+  t = new Date('2026-10-22T16:51:00').getTime(); E.state.reminded = {}; delete E.state.wrapAsk; E.dcState().pending = null;
+  await E.tick();
+  t += 20 * 60000;
+  await E.chat('卡在報價單');
+  assert.ok((E.plan.progressLog.find((x) => x.date === '2026-10-22') || {}).blocker === '報價單', '剛問完就回：照樣記');
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('收工測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });

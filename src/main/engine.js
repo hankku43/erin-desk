@@ -1564,6 +1564,12 @@ class Engine {
     const w = this.state.wrapAsk;
     const today = G.todayISO(now);
     if (!w || w.date !== today || w.answered || now.getTime() - w.at > 90 * 60000) return null;
+    // 問完卡點之後她又開了別的話題、問了別的事、請你幫忙決定：冒險者多半在回那一句，不是在回答卡點
+    //   （11/2：收工問完一陣子後她又開了話題，冒險者回她的那句閒聊被記成今天的卡點、寫進計畫檔）
+    //   只是道別、沒有問問題的回覆（「辛苦了，明天見～」）不算，之後說「沒有」照樣接
+    const lineOf = (h) => { try { return JSON.parse(h.content).line; } catch (_) { return h.content; } };
+    const dc = this.dcState().pending;
+    if (this.state.chat.some((h) => h.role === 'assistant' && h.at > w.at && (h.topic || QA.hasQuestion(lineOf(h)))) || (dc && dc.at > w.at)) return null;
     if (/[?？]/.test(text) || this.plan.progressLog.some((p) => p.date === today)) return null;
     const bye = FW.detect(RN.toBase(text, this.config.npc.name)); // 「掰掰，小雪」：新名字也算客套話
     if (bye && bye.pure) return null; // 👋 只是說掰掰：不是在回答卡點（以前「掰掰明天見」會被記成「卡點：掰掰；明天：見」）
