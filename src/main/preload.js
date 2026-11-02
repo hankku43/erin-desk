@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   renameNpc: (name) => ipcRenderer.invoke('npc:rename', name), // ✏️ 幫接待員改名字
   storyDone: (n, opts) => ipcRenderer.invoke('story:done', n, opts || {}), // 💗 升階漫畫演完（或跳過）
   replayOpening: () => ipcRenderer.invoke('opening:replay'), // 🎬 回憶相簿：重看開場
+  playStage: (n, opts) => ipcRenderer.invoke('story:stage', n, opts || {}), // 💗 第 5 階終章（舞台模式，另開全螢幕視窗）
+  renameCall: (call) => ipcRenderer.invoke('npc:call', call), // 💬 ⚙ 她怎麼叫你
   daily: () => ipcRenderer.invoke('npc:daily'),
   poke: (zone, gesture) => ipcRenderer.invoke('npc:poke', zone || null, gesture || 'tap'),
   chat: (text) => ipcRenderer.invoke('npc:chat', text),
@@ -102,7 +104,7 @@ contextBridge.exposeInMainWorld('api', {
   openMenu: () => ipcRenderer.send('win:menu'),
   setMini: (on) => ipcRenderer.send('win:mini', on),
   on: (channel, fn) => {
-    const allowed = ['view:update', 'npc:lines', 'npc:partial', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:raid', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor', 'opening:done'];
+    const allowed = ['view:update', 'npc:lines', 'npc:partial', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:raid', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor', 'opening:done', 'finale:done'];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, payload) => fn(payload));
   },

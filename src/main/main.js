@@ -304,6 +304,37 @@ function endOpening() {
   push('opening:done', { view: engine.view(), replay: openingReplay });
 }
 
+// ---------- 💗 好感第 5 階「特別的冒險者」（finale.html，跟開場一樣的全螢幕舞台） ----------
+let finaleWin = null, finaleReplay = false, finaleDone = false;
+function startFinale({ replay = false } = {}) {
+  if (finaleWin && !finaleWin.isDestroyed()) { finaleWin.focus(); return finaleWin; }
+  if (openingWin && !openingWin.isDestroyed()) return null; // 開場還在演
+  finaleReplay = replay; finaleDone = false;
+  const d = targetDisplay();
+  finaleWin = new BrowserWindow({
+    ...d.bounds,
+    transparent: true, frame: false, resizable: false, movable: false, hasShadow: false, fullscreenable: false,
+    skipTaskbar: false, backgroundColor: '#00000000', alwaysOnTop: true,
+    title: `${engine.config.npc.name}的任務櫃台`,
+    icon: path.join(APP_DIR, 'build', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, 'finale-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+  });
+  finaleWin.setAlwaysOnTop(true, 'screen-saver');
+  finaleWin.on('page-title-updated', (e) => e.preventDefault());
+  finaleWin.loadFile(path.join(APP_DIR, 'src', 'renderer', 'finale.html'));
+  // 被關掉（Alt+F4）：主視窗叫回來，沒演完的下次頭上還會冒「!」
+  finaleWin.on('closed', () => { finaleWin = null; if (!finaleDone) endFinale({ aborted: true }); });
+  if (win && !win.isDestroyed() && win.isVisible()) win.hide();
+  return finaleWin;
+}
+function endFinale(out = {}) {
+  finaleDone = true;
+  const fw = finaleWin;
+  if (fw && !fw.isDestroyed()) setTimeout(() => { if (!fw.isDestroyed()) fw.close(); }, 60);
+  if (win && !win.isDestroyed()) win.show();
+  push('finale:done', { n: 5, view: engine.view(), first: !!out.first, replay: finaleReplay, aborted: !!out.aborted });
+}
+
 // ---- 📓 艾琳的筆記本（委託）：大視窗、AI 在背景一句一句整理 ----
 let pdWin = null;
 const pdWinLines = []; // 大視窗打開時要說的話（視窗載好再拿）
@@ -532,7 +563,7 @@ function lockReason(r) {
 // ---- 🔄 自動更新（updater.js）：安裝版先問再下載、關掉時換上（update.ask＝false 改回自動）；免安裝版提醒；開發版不檢查 ----
 let updater = null;
 const updLog = (m) => { try { fs.appendFileSync(path.join(engine.dataDir, 'update.log'), `${new Date().toISOString()} ${m}\n`); } catch (_) { /* 寫不了就算了 */ } };
-const npcNames = () => ({ call: engine.config.npc.callName || '冒險者', self: engine.config.npc.selfName || engine.config.npc.name });
+const npcNames = () => engine.npc.names(); // 💬 稱呼第 5 階才解鎖（冷戰中也是冒險者），跟台詞同一套
 function setupUpdater() {
   updater = UPD.createUpdater({
     app, fetchImpl: netFetch, log: updLog,
@@ -721,6 +752,7 @@ function menuTemplate() {
     ] },
     { label: '⚙ 設定與資料', submenu: [
       { label: `✏️ 幫接待員改名字（現在叫「${npcName}」）`, click: open('rename') },
+      ...(engine.callUnlocked() ? [{ label: `💬 她怎麼叫你（現在叫你「${engine.config.npc.callName || '冒險者'}」）`, click: open('callName') }] : []), // 好感第 5 階「特別的冒險者」之後
       { type: 'separator' },
       { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
       { label: '📊 狀態欄（等級、當前任務）', type: 'checkbox', checked: engine.config.window.hud !== false, click: (m) => { const r = engine.setHud(m.checked); push('view:update', { view: r.view }); } },
@@ -920,6 +952,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('npc:rename', wrap((name) => { const r = engine.renameNpc(String(name || '').slice(0, 40)); syncTitle(); return r; })); // ✏️ ⚙ 幫接待員改名字
   ipcMain.handle('story:done', wrap((n, opts) => engine.finishShow(Number(n), { skipped: !!(opts && opts.skipped), pick: opts && Number.isInteger(opts.pick) ? opts.pick : null }))); // 💗 升階漫畫演完、收進回憶相簿（第 4 階的回答也存起來）
   ipcMain.handle('opening:replay', wrap(async () => { startOpening({ replay: true }); return {}; })); // 🎬 回憶相簿裡的開場
+  // 💗 第 5 階終章（舞台模式）：主視窗點「!」或相簿重看 → 開全螢幕舞台
+  ipcMain.handle('story:stage', wrap(async (n, opts) => { if (Number(n) !== 5) return { started: false }; return { started: !!startFinale({ replay: !!(opts && opts.replay) }) }; }));
+  ipcMain.handle('finale:init', wrap(async () => ({ ...engine.finaleInit(), replay: finaleReplay, test: !!process.env.QUEST_NPC_TEST })));
+  ipcMain.handle('finale:finish', wrap(async (r) => {
+    const out = engine.finishFinale(r || {}, { replay: finaleReplay });
+    endFinale(out);
+    return { first: out.first };
+  }));
+  ipcMain.handle('npc:call', wrap((call) => engine.renameCall(String(call || '').slice(0, 40)))); // 💬 ⚙ 她怎麼叫你
   ipcMain.handle('opening:finish', wrap(async (r) => {
     const out = engine.finishOpening(r || {}, { replay: openingReplay });
     endOpening();
@@ -1122,7 +1163,7 @@ app.whenReady().then(async () => {
   try { powerMonitor.on('resume', () => setTimeout(() => runWeather(), 15000)); } catch (_) { /* 有些系統沒有 */ }
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
-  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, runTick, runWeather, updater, pdWin: () => pdWin, pdOpen, opening: { start: startOpening, win: () => openingWin } });
+  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, runTick, runWeather, updater, pdWin: () => pdWin, pdOpen, opening: { start: startOpening, win: () => openingWin }, finale: { start: startFinale, win: () => finaleWin } });
 });
 
 app.on('second-instance', () => { if (openingWin && !openingWin.isDestroyed()) { openingWin.focus(); return; } if (win) { win.restore(); win.focus(); } });

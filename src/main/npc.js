@@ -573,6 +573,12 @@ const TEMPLATES = {
     ['{self}、{self}……好，記住了！從今天起，交給{self}吧！', 'cheer'],
     ['新的名字……{self}會好好珍惜的。嘿嘿，請多指教！', 'shy'],
   ],
+  // 💬 ⚙「她怎麼叫你」改好之後（第 5 階解鎖）；冷戰中先不改口
+  call_renamed: [
+    ['……{call}。嗯，記住了！以後就這樣叫你喔。', 'happy'],
+    ['{call}、{call}……嘿嘿，叫起來心裡暖暖的。', 'shy'],
+  ],
+  call_renamed_cold: [['……記下來了。等{self}氣消了，再這樣叫你。', 'normal']],
   smart_on: [['{self}戴上思考帽了！換個說法問，{self}也聽得懂喔～', 'cheer']],
   smart_off: [['思考帽先收起來，{self}改翻小本子上的關鍵字找～', 'normal']],
   smart_missing: [['欸，{self}的思考帽戴不上……要先開著 Ollama、裝好 {model} 才行喔。在那之前先用關鍵字找。', 'worried']],
@@ -1010,6 +1016,7 @@ function voice(text, { self = '艾琳', call = '冒險者', protect = [] } = {})
   s = s.replace(/您/g, '你');
   s = s.replace(/玩家|使用者|用戶/g, call);
   s = s.replace(/(^|[，,。！!？?～~、\s…])(主人|勇者大人|勇者)(?=[，,。！!？?～~、\s…]|$)/g, `$1${call}`);
+  s = RN.call(s, call); // 💬 換了稱呼：叫對方的「冒險者」換成稱呼（冒險者考試、新手冒險者這種不換）
   s = s.replace(new RegExp(`${escRe(call)}(大人|先生|小姐|閣下|同學|桑|醬)`, 'g'), call);
   s = RN.rename(s, self); // 改過名：AI 還是說了「艾琳」就換成新名字
   s = s.replace(new RegExp(`(${escRe(self)}){2,}`, 'g'), self).replace(new RegExp(`(${escRe(call)}){2,}`, 'g'), call);
@@ -1066,9 +1073,11 @@ class NPC {
   }
 
   // 角色的自稱與對玩家的稱呼（config 的 npc.selfName／npc.callName）
+  //   callGate（engine 設定）：第 5 階說破之前、冷戰中一律叫「冒險者」
   names() {
     const p = this.persona || {};
-    return { self: p.selfName || p.name || '艾琳', call: p.callName || '冒險者' };
+    const call = this.callGate && !this.callGate() ? '冒險者' : (p.callName || '冒險者');
+    return { self: p.selfName || p.name || '艾琳', call };
   }
 
   systemPrompt() {
@@ -1122,7 +1131,8 @@ class NPC {
 
   // 一句寫好的話（節日、幫忙做決定、天氣…）：填 {self}／{call}／其他欄位，再換成現在的名字；不問 AI
   textLine(text, emotion = 'normal', f = {}) {
-    return { text: RN.rename(fill(String(text || ''), { ...this.names(), ...f }), this.names().self, { protect: protectedTexts(f) }), emotion: normEmotion(emotion), source: 'template' };
+    const n = this.names();
+    return { text: RN.call(RN.rename(fill(String(text || ''), { ...n, ...f }), n.self, { protect: protectedTexts(f) }), n.call, { protect: protectedTexts(f) }), emotion: normEmotion(emotion), source: 'template' };
   }
 
   template(event, f) {
@@ -1146,7 +1156,8 @@ class NPC {
     if (key === 'poke' && !f.quest) pool = pool.filter(([t]) => !t.includes('{quest}'));
     const [tpl, emotion] = pick(pool);
     // 內建台詞和填進去的片段（運勢、話題…）是用「艾琳」寫的：換成現在的名字（冒險者自己寫的字不動）
-    return { text: RN.rename(fill(tpl, { ...this.names(), ...f }), this.names().self, { protect: protectedTexts(f) }), emotion, source: 'template', tpl };
+    const n = this.names();
+    return { text: RN.call(RN.rename(fill(tpl, { ...n, ...f }), n.self, { protect: protectedTexts(f) }), n.call, { protect: protectedTexts(f) }), emotion, source: 'template', tpl };
   }
 
   // 健康檢查：問 Ollama 有沒有活著、模型在不在。回傳 status，並用 changed 標記狀態是否翻轉

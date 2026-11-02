@@ -55,6 +55,7 @@ const pad2 = (n) => String(n).padStart(2, '0');
 const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建的「艾琳」換成現在的名字
 const OS = require('../renderer/opening-script'); // 🎬 開場：名字規則
 const SU = require('../renderer/stageup-script'); // 💗 好感升階動畫：哪幾階有、舊存檔補演
+const FS = require('../renderer/finale-script'); // 💗 第 5 階終章：稱呼規則
 
 function deepMerge(a, b) {
   const out = { ...a };
@@ -84,6 +85,7 @@ class Engine {
     this.loadLore();
     this.npc = new NPC(this.config);
     this.npc.setLogFile(path.join(this.dataDir, 'llm.log')); // 每次呼叫 AI 的耗時，AI 常回不出來時看這裡
+    this.npc.callGate = () => this.callOn(); // 💬 稱呼：第 5 階說破之前一律叫「冒險者」、冷戰時也改回去
     this.loadState();
     this.backedUp = false;
     this.affPending = []; // 好感度事件（冷戰開始…），settle() 時變成台詞
@@ -490,7 +492,7 @@ class Engine {
       today: this.todayInfo(), progressToday: progress,
       decisions: this.plan.decisions.map((d) => ({ ...d, shown: !!this.ps.decisionsShown[d.id] })),
       history: this.state.history.slice(0, 20),
-      npc: { name: this.config.npc.name, status: this.npc.status, enabled: !!this.config.llm.enabled, model: this.config.llm.model },
+      npc: { name: this.config.npc.name, status: this.npc.status, enabled: !!this.config.llm.enabled, model: this.config.llm.model, call: this.npc.names().call, callSet: this.config.npc.callName || FS.DEFAULT_CALL, callUnlocked: this.callUnlocked(), playerName: this.state.playerName || '' }, // call＝現在實際怎麼叫（冷戰時是冒險者）；playerName＝登記簿上的名字
       writeBack: this.config.plan.writeBack,
       fx: this.config.window.transformFx !== false,
       idleAnim: this.config.window.idleAnim !== false, // 待機小動作
@@ -1089,6 +1091,50 @@ class Engine {
     }
     this.saveState();
     return { first, promised, title: SU.title(n), view: this.view() };
+  }
+  // 💬 她怎麼叫你：好感第一次到第 5 階、看完終章（或跳過）才解鎖；沒開好感度＝照設定
+  callUnlocked() {
+    if (!this.affOn()) return true;
+    if (this.state.callUnlocked) return true;
+    return !this.showsOn() && (this.aff().maxStage || 1) >= 5; // 關掉升階動畫：到第 5 階直接解鎖
+  }
+  callOn() { return this.callUnlocked() && !this.isCold(); } // 冷戰中改回「冒險者」（變生疏的感覺）
+  // 稱呼寫進 config.json 的 npc.callName；回傳 { ok, changed, call, error }
+  setCallName(raw) {
+    const v = FS.validateCall(raw, { self: this.config.npc.name });
+    if (!v.ok) return { ok: false, changed: false, call: v.call, error: v.error };
+    if (v.call === (this.config.npc.callName || FS.DEFAULT_CALL)) return { ok: true, changed: false, call: v.call };
+    if (this.configError) return { ok: false, changed: false, call: v.call, error: 'config.json 格式有問題，先修好才能改（🩺 健康檢查）' };
+    this.saveConfigPatch({ npc: { callName: v.call } });
+    return { ok: true, changed: true, call: v.call };
+  }
+  // ⚙ 右鍵「💬 她怎麼叫你」：改好之後她用新稱呼叫一次
+  renameCall(raw) {
+    if (!this.callUnlocked()) return { locked: true, view: this.view() };
+    const r = this.setCallName(raw);
+    if (!r.ok) return { invalid: r.error, view: this.view() };
+    if (!r.changed) return { same: true, lines: [], view: this.view() };
+    return this.settle({ called: r.call, lines: [this.lineOf(this.isCold() ? 'call_renamed_cold' : 'call_renamed', {}, 'call_renamed')], view: this.view() });
+  }
+  // 💗 第 5 階終章演完（finale.html）：r＝{ call, player, blank, echo, skipped }
+  //   第一次：稱呼解鎖並寫進設定、登記簿空著的時候補上名字、序章那句沒選過就存起來；重看只記時間（那句話沒選過的話也存）
+  finishFinale(r = {}, { replay = false } = {}) {
+    const prev = this.state.opening || {};
+    const n = Number(r.echo);
+    if (n >= 1 && n <= OS.ECHOES.length && !prev.echo) this.state.opening = { ...prev, echo: n };
+    if (!replay) {
+      if (!r.blank && r.player) this.state.playerName = OS.cleanPlayerName(r.player);
+      if (r.call != null) this.setCallName(r.call);
+      if (!this.state.callUnlocked) { this.state.callUnlocked = true; this.state.callUnlockedAt = this.now().toISOString(); }
+    }
+    this.saveState();
+    const out = this.finishShow(5, { skipped: !!r.skipped });
+    return { first: !!out.first, title: out.title, view: this.view() };
+  }
+  finaleInit() {
+    const sh = this.affShows();
+    return { erinName: this.config.npc.name || '艾琳', playerName: this.state.playerName || '', echo: (this.state.opening || {}).echo || 0, promise: sh.promise || 0,
+      call: this.npc.names().call, callSet: this.config.npc.callName || FS.DEFAULT_CALL };
   }
   relationInfo() {
     if (!this.affOn()) return null;
@@ -2875,7 +2921,7 @@ class Engine {
     const tw = this.state.twins;
     tw.queue = tw.queue.filter((x) => x !== v);
     const r = () => this.rnd();
-    const text = RN.rename(TW.erinKept(phase, r), this.npc.names().self);
+    const text = RN.call(RN.rename(TW.erinKept(phase, r), this.npc.names().self), this.npc.names().call); // 💬 叫對方的冒險者換成稱呼
     if (this.affOn()) this.affect(this.twCfg().teaAffection, '下午茶外送：雲朵茶舖的奶茶（艾琳幫你留著的）');
     this.teaLog((v.data && v.data.day) || '', phase);
     return this.settle({ visit: null, tea: phase, lines: [{ text, emotion: 'happy', event: 'tea' }], view: this.view() });
@@ -2908,7 +2954,7 @@ class Engine {
     for (const l of visit.lines) l.text = RN.rename(l.text, name);
     if (visit.kind === 'congrats') this.state.collection.tickets = (this.state.collection.tickets || 0) + visit.tickets;
     if (visit.kind === 'tea') {
-      visit.erin = { text: RN.rename(TW.erinTea(S.giftTier(this.affOn() ? this.affStage() : 3), r), this.npc.names().self), emotion: 'happy' };
+      visit.erin = { text: RN.call(RN.rename(TW.erinTea(S.giftTier(this.affOn() ? this.affStage() : 3), r), this.npc.names().self), this.npc.names().call), emotion: 'happy' };
       if (this.affOn()) this.affect(this.twCfg().teaAffection, '下午茶外送：雲朵茶舖的奶茶');
       this.teaLog((v.data && v.data.day) || '', 'visit');
     }

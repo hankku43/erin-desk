@@ -469,6 +469,10 @@
 
   // ================= 播放器 =================
   let S = null; // { n, data, root, card, vp, si, step, shot, ready, timers, mode, replay, pageOnly, held, skipped }
+  let SS = null; // 💗 第 5 階終章（舞台模式）演出中：主視窗藏著，她想說的話先收著 { n, replay, held }
+  const isStage = (n) => !!(SU.SHOWS[n] && SU.SHOWS[n].mode === 'stage');
+  // 演完那句小聲的話：待機的小動作先安靜一下，不要馬上被「鐘樓都敲過好幾次了」蓋掉（演很久的時候待機的計時早就到了）
+  const quietIdle = (ms = 20000) => { try { const m = idleDebug.S.mem; if (m) { m.lastAt = nowMs(); m.nextGap = Math.max(m.nextGap || 0, ms); } } catch (_) { /* 沒有待機動作 */ } };
   const later = (fn, ms) => { const t = setTimeout(fn, ms); if (S) S.timers.push(t); return t; };
   const clearTimers = () => { if (S) { S.timers.forEach(clearTimeout); S.timers = []; } };
   const range = (spec) => { const m = String(spec).match(/^(\d+)(?:-(\d+)|(\+))?$/); if (!m) return [0, 99]; const a = +m[1]; return [a, m[3] ? 99 : m[2] != null ? +m[2] : a]; };
@@ -477,8 +481,8 @@
   function nextShow() {
     const v = state.view;
     const n = v && v.affection && v.affection.shows ? v.affection.shows.next : 0;
-    if (!n || !BUILD[n]) return 0;
-    if (state.mini || S || (v.affection && v.affection.cold) || (v.focus && v.focus.active) || state.panel === 'onboard') return 0;
+    if (!n || !(BUILD[n] || isStage(n))) return 0;
+    if (state.mini || S || SS || (v.affection && v.affection.cold) || (v.focus && v.focus.active) || state.panel === 'onboard') return 0;
     if (!$('#chatRow').classList.contains('hidden')) return 0; // 正在聊天：聊完再冒
     return n;
   }
@@ -520,7 +524,8 @@
 
   // 開始演（或從相簿重看）
   function play(n, { replay = false, pageOnly = false } = {}) {
-    if (S || !BUILD[n]) return false;
+    if (isStage(n)) return playStage(n, { replay });
+    if (S || SS || !BUILD[n]) return false;
     if (typeof hideTip === 'function') hideTip();
     $('#marker').classList.add('hidden');
     const root = build();
@@ -717,7 +722,9 @@
     try { r = await api.storyDone(cur.n, { skipped: cur.skipped, pick: cur.pick }); } catch (_) { /* 存不了就算了，下次還會冒「!」 */ }
     if (r && r.view) applyView(r.view);
     if (r && r.first && !cur.replay) {
+      quietIdle();
       setTimeout(() => {
+        quietIdle();
         setEmotion('happy');
         if (typeof idleDebug !== 'undefined') idleDebug.showWhisper(SU.LINES[cur.n].end, 3800);
         if (typeof Emotes !== 'undefined') Emotes.show($('#npcWrap'), 'heart', 2600);
@@ -728,10 +735,38 @@
     syncMarker();
     if (cur.held.length) setTimeout(() => { openDialog(); enqueue(cur.held.flat()); }, r && r.first ? 1600 : 300);
   }
+  // 💗 第 5 階：舞台模式（另開全螢幕視窗 finale.html，主視窗先藏起來）；演完 main 送 finale:done 回來
+  function playStage(n, { replay = false } = {}) {
+    if (S || SS || typeof api.playStage !== 'function') return false;
+    if (typeof hideTip === 'function') hideTip();
+    $('#marker').classList.add('hidden');
+    SS = { n, replay, held: [] };
+    api.playStage(n, { replay }).then((r) => { if (!r || !r.ok || !r.started) { SS = null; syncMarker(); } }).catch(() => { SS = null; syncMarker(); });
+    return true;
+  }
+  function stageDone({ view, first, replay, aborted } = {}) {
+    const cur = SS || { n: 5, replay: !!replay, held: [] };
+    SS = null;
+    if (view) applyView(view);
+    if (first && !aborted && !cur.replay) {
+      quietIdle();
+      setTimeout(() => {
+        quietIdle();
+        setEmotion('happy');
+        if (typeof idleDebug !== 'undefined') idleDebug.showWhisper(SU.LINES[cur.n].end, 4200);
+        if (typeof Emotes !== 'undefined') Emotes.show($('#npcWrap'), 'heart', 2800);
+        toast(`🎬 收進回憶相簿：${SU.title(cur.n)}`, 3800);
+        setTimeout(() => { if (!state.typing && !state.queue.length && !state.talking && state.emotion === 'happy') setEmotion('normal'); }, 4600);
+      }, 600);
+    }
+    syncMarker();
+    if (cur.held.length) setTimeout(() => { openDialog(); enqueue(cur.held.flat()); }, first ? 2000 : 400);
+  }
+  if (typeof api !== 'undefined' && api.on) api.on('finale:done', stageDone);
   // 演到一半縮成貓（從選單）：先收起來，下次再演（不算看過）
   function abort() { if (!S) return; const cur = S; teardown(cur); if (cur.held.length) setTimeout(() => miniNotify(cur.held.flat()), 300); }
   // 演的時候她想說的話：先收著，演完再說
-  function hold(lines) { if (!S) return false; S.held.push(lines); return true; }
+  function hold(lines) { const cur = S || SS; if (!cur) return false; cur.held.push(lines); return true; }
 
   // ================= 🎬 回憶相簿（右鍵 ✨ 更多玩法）=================
   function renderAlbum(el, v) {
@@ -739,7 +774,8 @@
     const opened = v.opening && v.opening.done;
     let cards = `<div class="alb-card"><div class="alb-thumb" style="background-image:url('../../assets/opening/forest.jpg')"></div><div class="alb-info"><b>序章　雨夜的小白貓</b><span>${opened ? '很久以前，某個下雨的晚上。' : '還沒看過的開場。'}</span><div class="alb-btns"><button class="btn small gold" data-alb-opening>▶ ${opened ? '重看' : '看開場'}</button></div></div></div>`;
     for (const a of sh.album) {
-      cards += `<div class="alb-card"><div class="alb-thumb" style="background-image:url('${ART(a.thumb)}')"></div><div class="alb-info"><b>♡ ${esc(a.title)}</b><span>${a.at ? `${new Date(a.at).getMonth() + 1}/${new Date(a.at).getDate()} 收進來的` : '之前就到這一階了'}</span><div class="alb-btns"><button class="btn small gold" data-alb-play="${a.n}">▶ 重看</button><button class="btn small" data-alb-page="${a.n}">📖 整頁</button></div></div></div>`;
+      const page = isStage(a.n) ? '' : `<button class="btn small" data-alb-page="${a.n}">📖 整頁</button>`; // 終章是舞台，沒有整頁
+      cards += `<div class="alb-card"><div class="alb-thumb" style="background-image:url('${ART(a.thumb)}')"></div><div class="alb-info"><b>♡ ${esc(a.title)}</b><span>${a.at ? `${new Date(a.at).getMonth() + 1}/${new Date(a.at).getDate()} 收進來的` : '之前就到這一階了'}</span><div class="alb-btns"><button class="btn small gold" data-alb-play="${a.n}">▶ 重看</button>${page}</div></div></div>`;
     }
     if (sh.next) cards += `<div class="alb-card locked"><div class="alb-thumb">!</div><div class="alb-info"><b>♡ ${esc(SU.title(sh.next))}</b><span>${esc(npcNameR())}好像有話想說……點她頭上的「!」</span></div></div>`;
     el.innerHTML = head('🎬 回憶相簿', `${sh.album.length + 1} 頁`) + `<div class="panel-body alb-body">${cards}<p class="hint">跟${esc(npcNameR())}越來越熟的時候，相簿會多一頁。</p></div>`;
@@ -754,8 +790,9 @@
 
   window.Story = {
     play, syncMarker, onNpcClick, hold, abort, renderAlbum, albumClick,
-    active: () => !!S,
+    active: () => !!(S || SS),
     // 測試用：現在演到哪、能不能點下一步
+    stage: () => (SS ? { n: SS.n, replay: SS.replay, held: SS.held.length } : null),
     debug: () => (S ? { n: S.n, shot: S.si, step: S.step, mode: S.mode, ready: S.ready, choosing: S.choosing, pick: S.pick, hint: S.card.querySelector('.st-hint').classList.contains('on') } : null),
     click: () => advance(),
     choose: (i) => choose(i),

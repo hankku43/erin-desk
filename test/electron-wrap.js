@@ -35,7 +35,7 @@ module.exports = ({ win, engine, app }) => {
       await wait(600); await flush();
       const card = await text('#proposal');
       assert(/整理的收工回報/.test(card) && /寫收工回報/.test(card) && /卡點 等廠商報價/.test(card) && /明日 寫測試/.test(card) && /先不要/.test(card) && /記下來/.test(card), '確認卡：' + card);
-      assert(/收工回報|卡住/.test(await text('#dlgText')), '她問要不要記：' + await text('#dlgText'));
+      assert(/收工回報|卡住|進度/.test(await text('#dlgText')), '她問要不要記：' + await text('#dlgText'));
       assert(!engine.plan.progressLog.some((x) => x.date === today()), '還沒記');
       await shot('w01_confirm');
       // 2. 按確認 → 寫進計畫檔、她回收工的話

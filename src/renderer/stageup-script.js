@@ -1,5 +1,5 @@
 // 💗 好感升階動畫：哪幾階有動畫、標題、台詞、舊存檔怎麼補演（純資料／純函式，main、畫面、測試共用）
-// 第 2～4 階＝主視窗裡的漫畫（一格一格放大看，最後拉遠成整頁）；第 5 階＝舞台模式（之後做）
+// 第 2～4 階＝主視窗裡的漫畫（一格一格放大看，最後拉遠成整頁）；第 5 階＝舞台模式（finale.html，劇本在 finale-script.js）
 // 分鏡定稿：dist/stageup/erin-stageup2-storyboard-v4.png（10/12）、erin-stageup3-storyboard-v1.png（10/12）、erin-stageup4-storyboard-v2.png（11/2）
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -7,11 +7,12 @@
 }(typeof self !== 'undefined' ? self : this, () => {
   'use strict';
 
-  // 已經做好動畫的階段（之後做好第 5 階再加進來；舊存檔會自動補演最新的一階）
+  // 已經做好動畫的階段（舊存檔會自動補演最新的一階）；mode: 'stage'＝另開全螢幕舞台演（沒有整頁）
   const SHOWS = {
     2: { stage: 2, no: '其之二', name: '常客', shots: 7, thumb: 'mini_peek.webp' },
     3: { stage: 3, no: '其之三', name: '熟面孔', shots: 7, thumb: 'thumb_3.webp' },
     4: { stage: 4, no: '其之四', name: '可靠的夥伴', shots: 7, thumb: 'thumb_4.webp' },
+    5: { stage: 5, no: '終章', name: '特別的冒險者', mode: 'stage', thumb: 'thumb_5.webp' },
   };
   const STAGES = Object.keys(SHOWS).map(Number).sort((a, b) => a - b);
   const title = (n) => (SHOWS[n] ? `${SHOWS[n].no}　${SHOWS[n].name}` : '');
@@ -79,15 +80,19 @@
       nar: '（那天晚上，小豆一直沒有熄。）',
       end: '……小豆，要加油喔。', // 偷偷點出小豆，小聲跟它說
     },
+    5: { // 舞台模式（finale-script.js）；這裡只有演完之後主視窗的她小聲說的那句（「冒險者」畫面會換成稱呼）
+      end: '……冒險者。嘿嘿。',
+    },
   };
   // 有選項而且要記住的階段：選的是第幾個（1 起算）；第 5 階和之後的話題會說回來
   const PROMISES = { 4: ['一起去吧。', '等你練好，我等你。', '我陪你練。'] };
   // 艾琳說的台詞（口吻測試用；其他是狀聲字、旁白、冒險者的回答）
-  const ERIN = { 2: ['huh', 'deny', 'star', 'hehe', 'end'], 3: ['hum', 'oops', 'hold', 'nope', 'ask', 'replyA', 'replyB', 'lantern', 'call', 'secret', 'end'], 4: ['ha', 'small', 'more', 'warm', 'who', 'hide', 'seen', 'notyet', 'dream', 'worry', 'reply1', 'reply2', 'reply3', 'thanks', 'lean', 'end'] };
+  const ERIN = { 2: ['huh', 'deny', 'star', 'hehe', 'end'], 3: ['hum', 'oops', 'hold', 'nope', 'ask', 'replyA', 'replyB', 'lantern', 'call', 'secret', 'end'], 4: ['ha', 'small', 'more', 'warm', 'who', 'hide', 'seen', 'notyet', 'dream', 'worry', 'reply1', 'reply2', 'reply3', 'thanks', 'lean', 'end'], 5: ['end'] };
   // 整頁上的小對話框（字比較少）
   const PAGE_LINES = {
     2: { marga1: '……就是你常說的那位？', deny: '才、才沒有常說。只是……登記簿上的一位冒險者而已。', marga2: '好啦好啦，不說了。', star: '……這是常客才有的喔。' },
     3: { hold: '忍、忍住……！不能變回貓……！', nope: '這、這頁不能看！', lantern: '……路上暗，小心喔。', secret: '……這是秘密喔。' },
+    5: {}, // 舞台模式沒有整頁
     4: { warm: '……星火溫。', hide: '沒、沒有在偷練喔！只是……在溫奶茶！', notyet: '艾琳……其實還沒放棄喔。', dream: '去霜月村北邊的冰湖……看極光。', reply1: '……那，約好了喔！打勾勾！', reply2: '……嗯。不准先走喔。', reply3: '那、那……明天晚上也要來喔！', lean: '……艾琳也想變成，能讓冒險者依靠的人。' },
   };
   const WHO = { marga: '瑪格大姐' };

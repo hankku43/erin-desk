@@ -3791,17 +3791,21 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const SU = require('../src/renderer/stageup-script');
   const { Engine } = require('../src/main/engine');
   // 1. 舊存檔：升過的只補演最新的一階，更早的直接收進相簿；新版本多一階動畫也一樣
-  assert.deepStrictEqual(SU.STAGES, [2, 3, 4]);
-  assert.deepStrictEqual(SU.migrate(undefined, 1), { pending: [], seen: {}, known: [2, 3, 4] }, '還在第 1 階：不用演');
+  assert.deepStrictEqual(SU.STAGES, [2, 3, 4, 5]);
+  assert.deepStrictEqual(SU.migrate(undefined, 1), { pending: [], seen: {}, known: [2, 3, 4, 5] }, '還在第 1 階：不用演');
   assert.deepStrictEqual(SU.migrate(undefined, 2).pending, [2], '第 2 階：補演第 2 階');
   const m4 = SU.migrate(undefined, 4);
   assert.deepStrictEqual([m4.pending, !!m4.seen[2].unlocked, !!m4.seen[3].unlocked], [[4], true, true], '第 4 階：只補演最新的第 4 階，第 2、3 階直接收進相簿');
   const m5 = SU.migrate(undefined, 5);
-  assert.deepStrictEqual(m5.pending, [4], '第 5 階（還沒有動畫）：補演第 4 階');
+  assert.deepStrictEqual([m5.pending, !!m5.seen[4].unlocked], [[5], true], '第 5 階：只補演終章，第 4 階直接收進相簿');
+  const up5 = SU.migrate({ pending: [], seen: { 2: { at: 'x' }, 3: { at: 'y' }, 4: { at: 'z' } }, known: [2, 3, 4] }, 5);
+  assert.deepStrictEqual([up5.pending, up5.known], [[5], [2, 3, 4, 5]], '看過第 2～4 階、新版本多了終章：補演終章');
+  assert.deepStrictEqual(SU.migrate({ pending: [4], seen: { 2: { at: 'x' }, 3: { at: 'y' } }, known: [2, 3, 4] }, 5).pending, [4, 5], '第 4 階還沒看（排著）、又多了終章：照順序演');
+  assert.ok(SU.SHOWS[5].mode === 'stage' && SU.title(5) === '終章　特別的冒險者', '第 5 階＝舞台模式');
   const up = SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2] }, 3);
-  assert.deepStrictEqual([up.pending, up.known], [[3], [2, 3, 4]], '看過第 2 階、新版本多了第 3 階：補演第 3 階');
+  assert.deepStrictEqual([up.pending, up.known], [[3], [2, 3, 4, 5]], '看過第 2 階、新版本多了第 3 階：補演第 3 階');
   const up4 = SU.migrate({ pending: [], seen: { 2: { at: 'x' }, 3: { at: 'y' } }, known: [2, 3] }, 4);
-  assert.deepStrictEqual([up4.pending, up4.known], [[4], [2, 3, 4]], '看過第 2、3 階、新版本多了第 4 階：補演第 4 階');
+  assert.deepStrictEqual([up4.pending, up4.known], [[4], [2, 3, 4, 5]], '看過第 2、3 階、新版本多了第 4 階：補演第 4 階');
   assert.deepStrictEqual([SU.migrate({ promise: 2, promiseAt: 'z' }, 4).promise, SU.migrate({ promise: 7 }, 4).promise], [2, undefined], '第 4 階的回答留著；不合理的丟掉');
   assert.deepStrictEqual(SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2] }, 2).pending, [], '還沒到第 3 階：不演');
   const seen = SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2, 3] }, 3);
@@ -3882,6 +3886,122 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const f of [...sjs.matchAll(/SHOP\('([^']+)'\)/g)].map((m) => m[1])) assert.ok(fs.existsSync(path.join(root, 'assets', 'shop', f)), '雜貨舖的圖：' + f);
   for (const p of [...sjs.matchAll(/pose\('(\w+)'/g)].map((m) => m[1])) assert.ok(fs.existsSync(path.join(root, 'assets', 'character', p + '.png')), '立繪：' + p);
   console.log('好感升階動畫測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 💗 第 5 階終章「特別的冒險者」＋ 💬 她怎麼叫你：劇本、稱呼規則、只換叫對方的冒險者、第 5 階才解鎖、冷戰改回冒險者 ----------
+(async () => {
+  const os = require('os');
+  const root = path.join(__dirname, '..');
+  const FS = require('../src/renderer/finale-script');
+  const RN = require('../src/renderer/rename');
+  const SU = require('../src/renderer/stageup-script');
+  const { NPC, voice } = require('../src/main/npc');
+  const { Engine } = require('../src/main/engine');
+  // 1. 稱呼的規則：1～8 字、不能有「我」、不能跟她的名字一樣
+  assert.deepStrictEqual([FS.validateCall('  小葵 ').ok, FS.validateCall('小葵').call], [true, '小葵']);
+  for (const bad of ['', '   ', '我的勇者', '一二三四五六七八九', '艾琳']) assert.ok(!FS.validateCall(bad).ok, '不行：' + bad);
+  assert.ok(FS.validateCall('艾琳', { self: '小雪' }).ok && !FS.validateCall('小雪', { self: '小雪' }).ok, '不能跟她現在的名字一樣');
+  assert.strictEqual(FS.validateCall('<b>{x}').call, 'bx', '奇怪的符號拿掉');
+  // 2. 劇本：重看不問名字和稱呼；登記過就不問；第 4 階的約定三選一、沒回答就跳過
+  const ids = (o) => FS.plan(o).map((x) => x.id);
+  assert.ok(ids({}).includes('reg') && ids({}).includes('callSet') && !ids({}).includes('promise'), '第一次、登記簿空著、沒有約定');
+  assert.ok(!ids({ playerName: '阿明' }).includes('reg') && ids({ playerName: '阿明' }).includes('callSet'), '登記過：不問名字');
+  assert.ok(!ids({ replay: true }).includes('reg') && !ids({ replay: true }).includes('callSet'), '重看：不問');
+  for (const p of [1, 2, 3]) { const st = FS.plan({ promise: p }).find((x) => x.id === 'promise'); assert.ok(st && st.dlg && st.erin && st.dlg.text === FS.PROMISE_STEPS[p].dlg.text, '約定 ' + p); }
+  assert.ok(/極光/.test(FS.PROMISE_STEPS[1].dlg.text) && /練好/.test(FS.PROMISE_STEPS[2].dlg.text) && /小豆/.test(FS.PROMISE_STEPS[3].dlg.text), '三種約定對應第 4 階的回答');
+  const all = FS.plan({ promise: 1 });
+  assert.ok(all.findIndex((x) => x.id === 'callSet') < all.findIndex((x) => x.id === 'called') && all[all.length - 1].wait.finale, '先設定稱呼才叫名字、最後是結尾');
+  assert.ok(all.every((x) => x.wait && (!x.scene || x.scene in FS.SCENES) && (!x.erin || (FS.POSES[x.erin.split('@')[0]] && FS.CAMS[x.erin.split('@')[1] || 'mid']))), '場景、姿勢、鏡頭都有');
+  // 稱呼設定之前一律叫「冒險者」（{call} 只出現在之後）
+  const ci = all.findIndex((x) => x.id === 'callSet');
+  assert.ok(all.slice(0, ci).every((x) => !x.dlg || !/\{call\}/.test(x.dlg.text + (x.dlg.keep || ''))) && all.slice(ci).some((x) => x.dlg && /\{call\}/.test(x.dlg.text)), '還沒叫過名字之前都是冒險者');
+  assert.ok(FS.STEPS.some((x) => x.dlg && /星火溫/.test(x.dlg.text)) && FS.STEPS.some((x) => x.dlg && /落榜/.test(x.dlg.text)) && FS.STEPS.some((x) => x.dlg && /進來的是冒險者/.test(x.dlg.text)), '說破：星火溫、落榜、進來的是冒險者');
+  assert.deepStrictEqual(FS.ECHO_SAYS, require('../src/renderer/opening-script').ECHOES.map((e) => e.say), '序章那句跟開場同一組');
+  assert.deepStrictEqual(FS.wishLines('小葵'), ['一直當小葵的', '接待員。']);
+  // 3. 口吻：她自稱名字、不說「我、您、玩家」；換了名字和稱呼也一樣
+  for (const v of [{}, { name: '小雪', call: '阿明' }]) {
+    const lines = FS.erinLines(v);
+    assert.ok(lines.length >= 20, '她的台詞');
+    for (const t of lines) assert.ok(!/我(?!們)|您|玩家/.test(t) && !/\{\w+\}/.test(t), '口吻：' + t);
+  }
+  assert.ok(FS.erinLines({ name: '小雪' }).some((t) => /小雪/.test(t)) && !FS.erinLines({ name: '小雪' }).some((t) => /艾琳/.test(t)), '改過名：自稱跟著換');
+  assert.ok(SU.LINES[5].end && !/[我您]/.test(SU.LINES[5].end), '演完小聲說的那句');
+  // 4. 圖都在、畫面檔案、載入順序
+  for (const f of FS.files()) assert.ok(fs.existsSync(path.join(root, 'assets', 'stageup', f)), '圖：' + f);
+  assert.ok(fs.existsSync(path.join(root, 'assets', 'stageup', SU.SHOWS[5].thumb)), '相簿縮圖');
+  const fh = fs.readFileSync(path.join(root, 'src/renderer/finale.html'), 'utf8');
+  assert.ok(fh.indexOf('opening.css') < fh.indexOf('finale.css') && fh.indexOf('opening-art.js') < fh.indexOf('finale-script.js') && fh.indexOf('finale-script.js') < fh.indexOf('finale.js') && /Content-Security-Policy/.test(fh), 'finale.html');
+  const mainJs = fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8'), pre = fs.readFileSync(path.join(root, 'src/main/finale-preload.js'), 'utf8');
+  assert.ok(/finale-preload\.js/.test(mainJs) && /sandbox: true/.test(mainJs.slice(mainJs.indexOf('function startFinale'))) && /finale:init/.test(pre) && /finale:finish/.test(pre) && !/require\('fs'\)/.test(pre), '終章視窗：只開放兩件事');
+  assert.ok(/'finale:done'/.test(fs.readFileSync(path.join(root, 'src/main/preload.js'), 'utf8')) && /src="finale-script\.js"/.test(fs.readFileSync(path.join(root, 'src/renderer/index.html'), 'utf8')), '主視窗收得到演完的通知、認得稱呼規則');
+  // 5. 只換叫對方的「冒險者」：當職業說的不換；換過的再換一次一樣
+  const cases = [['冒險者，今天也辛苦了！', '小葵，今天也辛苦了！'], ['那顆是冒險者的星星喔。', '那顆是小葵的星星喔。'], ['謝謝冒險者！', '謝謝小葵！'],
+    ['冒險者考試落榜了', '冒險者考試落榜了'], ['一位冒險者走進來', '一位冒險者走進來'], ['新手冒險者們', '新手冒險者們'], ['艾琳的冒險者，就是你喔。', '艾琳的冒險者，就是你喔。'], ['公會裡的冒險者們', '公會裡的冒險者們']];
+  for (const [a, b] of cases) assert.strictEqual(RN.call(a, '小葵'), b, a);
+  assert.strictEqual(RN.call('冒險者，早安', '冒險者'), '冒險者，早安', '沒換稱呼：不動');
+  assert.strictEqual(RN.call(RN.call('冒險者，早安', '冒險者大人'), '冒險者大人'), '冒險者大人，早安', '稱呼裡有冒險者：換兩次一樣');
+  assert.strictEqual(RN.call('「冒險者手冊」交給冒險者', '小葵', { protect: ['「冒險者手冊」'] }), '「冒險者手冊」交給小葵');
+  // AI 的話：玩家／冒險者都換成稱呼；「」裡面、任務名不動；冒險者大人 → 稱呼
+  assert.strictEqual(voice('冒險者大人，「冒險者考試準備」我幫你記下來了！', { self: '艾琳', call: '小葵' }), '小葵，「冒險者考試準備」艾琳幫你記下來了！');
+  assert.strictEqual(voice('玩家今天也加油', { call: '小葵' }), '小葵今天也加油');
+  // 6. NPC：第 5 階說破之前（callGate 關著）一律叫冒險者
+  const npc = new NPC({ npc: { name: '艾琳', callName: '小葵' }, llm: { enabled: false } });
+  assert.strictEqual(npc.names().call, '小葵', '沒有 gate（舊的用法）：照設定');
+  npc.callGate = () => false;
+  assert.strictEqual(npc.names().call, '冒險者');
+  const cr = () => npc.template('call_renamed', {}).text; // 兩句都有 {call}
+  assert.ok(/冒險者/.test(cr()) && !/小葵/.test(cr()), '解鎖前：台詞叫冒險者');
+  npc.callGate = () => true;
+  assert.ok(/小葵/.test(cr()), '解鎖後：台詞叫稱呼');
+  assert.ok(/小葵/.test(npc.systemPrompt()), 'AI 提示也用稱呼');
+  // 7. 引擎：第 5 階演完 → 解鎖、寫進設定、登記名字和序章那句補上；冷戰改回冒險者；⚙ 改稱呼；重看不改
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-finale-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false }, lore: { path: path.join(root, 'lore', '艾琳.md'), embeddings: false }, npc: { callName: '阿明' } }));
+  let t = new Date(`${new Date().getFullYear()}-09-30T10:00:00`).getTime();
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(t) });
+  assert.deepStrictEqual([E.view().npc.call, E.view().npc.callSet, E.view().npc.callUnlocked], ['冒險者', '阿明', false], '設定檔寫了稱呼，但還沒到第 5 階：叫冒險者');
+  assert.ok(E.renameCall('小葵').locked && E.config.npc.callName === '阿明', '還沒解鎖：⚙ 不能改');
+  const a = E.aff();
+  Object.assign(a, { points: 300, stage: 5, maxStage: 5 });
+  a.shows = { pending: [5], seen: { 2: { at: 'x' }, 3: { at: 'y' }, 4: { at: 'z' } }, known: [2, 3, 4, 5], promise: 2 };
+  E.state.opening = { done: true, echo: 0, skipped: true };
+  assert.deepStrictEqual([E.view().affection.shows.next, E.finaleInit().promise, E.finaleInit().playerName, E.finaleInit().echo], [5, 2, '', 0], '終章要的資料');
+  let r = E.finishFinale({ call: '小葵', player: '小葵', blank: false, echo: 3 });
+  assert.ok(r.first && E.state.callUnlocked && E.state.callUnlockedAt && E.config.npc.callName === '小葵' && E.state.playerName === '小葵' && E.state.opening.echo === 3 && E.state.opening.done, '演完：解鎖、存稱呼、登記名字、那句話');
+  assert.deepStrictEqual([r.view.npc.call, r.view.affection.shows.next, r.view.affection.shows.album.map((x) => x.n)], ['小葵', 0, [2, 3, 4, 5]]);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).npc.callName, '小葵', '寫進 config.json');
+  assert.ok(/小葵/.test(E.lineOf('call_renamed', {}, 'x').text), '台詞用新稱呼');
+  // 重看：不改稱呼、不改登記名字、那句話已經有了也不改
+  t += 60000;
+  r = E.finishFinale({ call: '阿明', player: '阿明', echo: 1 }, { replay: true });
+  assert.ok(!r.first && E.config.npc.callName === '小葵' && E.state.playerName === '小葵' && E.state.opening.echo === 3 && a.shows.seen[5].replayedAt, '重看：什麼都不改');
+  // ⚙ 改稱呼
+  assert.ok(E.renameCall('我的勇者').invalid && E.renameCall('小葵').same, '不合規則、一樣的');
+  r = E.renameCall('小隊長');
+  assert.ok(r.called === '小隊長' && r.lines.length && /小隊長/.test(r.lines[0].text) && E.view().npc.call === '小隊長', '⚙ 改稱呼：她叫一次');
+  // 冷戰：改回冒險者，和好之後換回來
+  a.coldUntil = t + 30 * 60000;
+  assert.strictEqual(E.view().npc.call, '冒險者', '冷戰中叫冒險者');
+  assert.ok(!/小隊長/.test(E.lineOf('call_renamed', {}, 'x').text));
+  r = E.renameCall('隊長');
+  assert.ok(r.called === '隊長' && /氣消/.test(r.lines[0].text) && E.view().npc.call === '冒險者', '冷戰中改：先記下來');
+  t += 31 * 60000;
+  assert.strictEqual(E.view().npc.call, '隊長', '和好了');
+  // 跳過、選維持冒險者
+  E.state.callUnlocked = false; a.shows.pending = [5]; delete a.shows.seen[5];
+  r = E.finishFinale({ call: '冒險者', blank: true, skipped: true });
+  assert.ok(r.first && E.state.callUnlocked && E.config.npc.callName === '冒險者' && E.state.playerName === '小葵' && a.shows.seen[5].skipped, '跳過也解鎖；空著不會把登記名字清掉');
+  // 沒開好感度：照設定叫；關掉升階動畫但到了第 5 階：直接解鎖
+  E.saveConfigPatch({ npc: { callName: '小葵' } }); E.state.callUnlocked = false;
+  E.saveConfigPatch({ affection: { shows: false } });
+  assert.ok(E.callUnlocked() && E.view().npc.call === '小葵', '關掉升階動畫：到第 5 階就解鎖');
+  a.maxStage = 4;
+  assert.ok(!E.callUnlocked() && E.view().npc.call === '冒險者', '還沒到第 5 階');
+  E.saveConfigPatch({ affection: { enabled: false } });
+  assert.ok(E.callUnlocked() && E.view().npc.call === '小葵', '沒開好感度：照設定');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('終章與稱呼測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
 
 // ---------- 📓 艾琳的筆記本（委託）：日子／時間、規則（含步驟）、草稿＋原本的計畫、寫進計畫檔、引擎流程（AI 用假的） ----------
