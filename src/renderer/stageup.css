@@ -120,6 +120,38 @@
 .st-nbname.fresh { color: #1f2a52; opacity: .95; }
 .st-nbname.fresh span { color: #f0b23a; font-size: .75em; margin-left: 4px; }
 
+/* 第 4 階：小豆（會晃的火和光）、竄高的火、想像中的火球、溫度條、熱氣、頭頂冒煙 */
+.st-flick { animation: stFlick .9s ease-in-out infinite alternate; }
+@keyframes stFlick { 0% { opacity: .75; transform: scale(.94); } 35% { opacity: 1; transform: scale(1.04); } 60% { opacity: .85; transform: scale(.98); } 100% { opacity: 1; transform: scale(1.06); } }
+.st-pulse { animation: stPulse 1.2s ease-in-out infinite; }
+@keyframes stPulse { 50% { opacity: .6; transform: scale(1.15); } }
+.st-flame { transform-box: fill-box; transform-origin: 50% 100%; animation: stFlame .5s ease-in-out infinite alternate; }
+@keyframes stFlame { 0% { transform: scale(.94, 1); } 50% { transform: scale(1.04, .94) rotate(-2deg); } 100% { transform: scale(.97, 1.07) rotate(2deg); } }
+.st-spark circle { animation: stSpark 1.1s ease-out infinite; }
+.st-spark circle:nth-child(2n) { animation-delay: .35s; }
+.st-spark circle:nth-child(3n) { animation-delay: .7s; }
+@keyframes stSpark { from { opacity: 1; transform: translateY(6px); } to { opacity: 0; transform: translateY(-22px); } }
+.st-dream { transform-box: fill-box; transform-origin: center; animation: stDream 1.8s ease-in-out infinite; }
+@keyframes stDream { 50% { transform: scale(1.05) rotate(6deg); } }
+.st-steam { animation: stSteam 2.8s ease-in-out infinite; }
+@keyframes stSteam { 0% { opacity: 0; transform: translate(0, 18px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(10px, -40px); } }
+.st-puff { animation: stPuffUp 2.2s ease-out infinite; }
+@keyframes stPuffUp { 0% { opacity: 0; transform: translateY(14px) scale(.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: translateY(-34px) scale(1.15); } }
+.st-g4 { position: absolute; width: 380px; box-sizing: border-box; background: rgba(16, 20, 42, .9); border: 2px solid #8a93c4; border-radius: 12px; padding: 8px 14px 9px; color: #e8ebff; box-shadow: 0 8px 20px rgba(0, 0, 0, .4); }
+.st-g4 .hd { display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; letter-spacing: 1px; margin-bottom: 5px; }
+.st-g4 .hd b { color: #ffd66b; }
+.st-g4 .tr { position: relative; height: 13px; display: flex; }
+.st-g4 .tr i { display: block; }
+.st-g4 .tr i:first-child { border-radius: 999px 0 0 999px; }
+.st-g4 .tr i:nth-child(3) { border-radius: 0 999px 999px 0; }
+.st-g4 .tr i.warm { background: #ffd66b; }
+.st-g4.on .tr i.warm { box-shadow: 0 0 10px #ffd66b; }
+.st-g4 .nd { position: absolute; top: -4px; width: 4px; height: 21px; background: #fff; border-radius: 2px; box-shadow: 0 0 6px #fff; transform: translateX(-2px); }
+.st-g4.on .nd { box-shadow: 0 0 10px 4px #ffd66b; }
+.st-shot .sv.on .st-g4 .nd { animation: stNeedle var(--ms, 1800ms) cubic-bezier(.3, .1, .3, 1) both; }
+@keyframes stNeedle { from { left: var(--a); } to { left: var(--b); } }
+.st-g4 .lb { display: flex; font-size: 11px; font-weight: 700; margin-top: 3px; color: #c9d4f5; }
+
 /* 頭上的「!」：升階漫畫（粉色驚嘆號旁邊多一顆小愛心） */
 .marker.story::after { content: ''; position: absolute; right: -8px; top: -2px; width: 18px; height: 16px; background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 30'%3E%3Cpath d='M16 28 C6 20 2 15 2 9.5 C2 5 5.5 2 9.5 2 C12.5 2 14.8 3.8 16 6 C17.2 3.8 19.5 2 22.5 2 C26.5 2 30 5 30 9.5 C30 15 26 20 16 28 Z' fill='%23ff9fb8' stroke='%23d9607f' stroke-width='3'/%3E%3C/svg%3E"); animation: stBob 1.2s ease-in-out infinite; }
 

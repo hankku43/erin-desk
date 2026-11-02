@@ -1,6 +1,6 @@
 // 💗 好感升階動畫（漫畫）：好感第一次升到某一階 → 她頭上冒「!」→ 點她 → 主視窗裡一格一格放大看（每格自己的鏡頭），
 // 最後拉遠拼成一整頁 → 點一下收回她身上，她小聲說一句、收進「🎬 回憶相簿」
-// 分鏡定稿：dist/stageup/erin-stageup2-storyboard-v4.png（10/12）；劇本、台詞在 stageup-script.js
+// 分鏡定稿：dist/stageup/erin-stageup2-storyboard-v4.png（10/12）、stageup3-v1（10/12）、stageup4-v2（11/2）；劇本、台詞在 stageup-script.js
 // （renderer.js 之後載入；用到 state、$、api、esc、nmR、setMarker、setEmotion、openDialog、enqueue、toast、openPanel、renderPanel、head、Emotes、idleDebug）
 (function () {
   'use strict';
@@ -331,7 +331,141 @@
     };
     return { shots, page };
   }
-  const BUILD = { 2: show2, 3: show3 };
+  // ================= 第 4 階「可靠的夥伴」=================
+  // 人物圖都是 1024×1536 原尺寸畫布（座標＝assets/raw 原圖座標；臉＝兩眼中點）
+  const ER = (n, s, fx, fy, x, y, extra = '') => img(ART(n + '.webp'), 1024, s, fx, fy, x, y, extra);
+  // 夜晚的後院（scene_backdoor_night 1672×941；0.7444 倍＝高 700）：門 x 280～560、台階 y 620～880（最上面那階 y≈640）、星空在右上
+  const night4 = (L = 520) => bgImg('scene_backdoor_night.jpg', 1672, 941, .7444, L, 0);
+  const nightSky = () => bgImg('scene_backdoor_night.jpg', 1672, 941, 1, 1100, 0); // 星空那一角
+  // 會晃的暖光（小豆、提燈）
+  const glowAt = (x, y, r, c = '255,190,110', o = .55, cls = 'st-flick') => `<div class="${cls}" style="position:absolute;left:${x - r}px;top:${y - r}px;width:${r * 2}px;height:${r * 2}px;border-radius:50%;background:radial-gradient(circle,rgba(${c},${o}),rgba(${c},0) 70%);mix-blend-mode:screen;pointer-events:none"></div>`;
+  // 門打開：暖光從左邊灑進來，地上一個兜帽的影子（不畫冒險者的臉）
+  const doorLight = () => '<div style="position:absolute;inset:0;background:linear-gradient(100deg,rgba(255,206,140,.55) 0,rgba(255,190,120,.25) 30%,rgba(0,0,0,0) 52%);clip-path:polygon(0 120px,170px 150px,420px 700px,0 700px);mix-blend-mode:screen"></div>' +
+    svg('<path d="M40,700 C60,620 90,590 120,590 C150,590 162,620 166,650 L210,700 Z" fill="#141a3a" opacity=".55"/><path d="M96,600 C104,570 136,566 146,596" fill="#141a3a" opacity=".55"/>');
+  // 小豆（程式畫的小火：不畫臉）
+  const flame = (x, y, s = 1) => `<g transform="translate(${x} ${y}) scale(${s})"><circle cx="0" cy="-10" r="40" fill="#ffb347" opacity=".22"/><circle cx="0" cy="-8" r="24" fill="#ffc46b" opacity=".3"/><g class="st-flame"><path d="M0,-34 C9,-20 16,-10 13,2 A13,13 0 0 1 -13,2 C-15,-10 -6,-16 0,-34 Z" fill="#ff8a3a"/><path d="M0,-20 C5,-12 8,-6 6,1 A6,6 0 0 1 -6,1 C-7,-6 -3,-10 0,-20 Z" fill="#ffe7a0"/></g></g>`;
+  // 嚇到時竄高的火（模糊的漸層火＋火星，配正式圖）
+  const flare = (x, y, s = 1) => `<g transform="translate(${x} ${y}) scale(${s})"><defs><radialGradient id="stF4" cx=".5" cy=".75" r=".65"><stop offset="0" stop-color="#fff6c8"/><stop offset=".3" stop-color="#ffd27a"/><stop offset=".65" stop-color="#ff8a3a" stop-opacity=".95"/><stop offset="1" stop-color="#ff5a2a" stop-opacity="0"/></radialGradient><filter id="stB4" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.5"/></filter></defs>
+    <g class="st-flame"><path filter="url(#stB4)" d="M0,10 C-62,2 -84,-58 -52,-112 C-44,-84 -32,-84 -27,-98 C-22,-152 10,-172 4,-226 C42,-184 64,-142 46,-98 C58,-106 66,-122 64,-138 C100,-90 84,-8 0,10 Z" fill="url(#stF4)"/>
+    <path filter="url(#stB4)" d="M0,4 C-26,0 -32,-32 -17,-60 C-10,-42 0,-46 2,-74 C22,-52 32,-20 0,4 Z" fill="#fffbe6" opacity=".9"/></g>
+    <g class="st-spark">${[[-70, -150], [80, -170], [-96, -60], [100, -80], [30, -250], [-30, -210]].map(([a, c], i) => `<circle cx="${a}" cy="${c}" r="${i % 2 ? 3 : 4.5}" fill="#ffe08a"/>`).join('')}</g></g>`;
+  // 想像中的大火球（虛線）
+  const dreamBall = (x, y, r) => `<g class="st-dream" opacity=".9"><circle cx="${x}" cy="${y}" r="${r}" fill="rgba(255,150,70,.18)" stroke="#ffb36a" stroke-width="4" stroke-dasharray="14 10"/>${[0, 60, 120, 180, 240, 300].map((d) => { const a = d * Math.PI / 180; return `<path d="M${(x + Math.cos(a) * (r + 10)).toFixed(0)},${(y + Math.sin(a) * (r + 10)).toFixed(0)} L${(x + Math.cos(a) * (r + 40)).toFixed(0)},${(y + Math.sin(a) * (r + 40)).toFixed(0)}" stroke="#ffb36a" stroke-width="4" stroke-dasharray="8 6"/>`; }).join('')}</g>`;
+  // 序章那條溫度條（迷你版）：指針從 a% 走到 b%
+  const gauge = (x, y, a, b, on = false, ms = 1800) => `<div class="st-g4${on ? ' on' : ''}" style="left:${x}px;top:${y}px"><div class="hd"><span>🔥 小豆</span><b>${on ? '✨ 星火溫' : '目標：星火溫'}</b></div><div class="tr"><i style="flex:5;background:linear-gradient(90deg,#4f78c8,#8fb3ea)"></i><i class="warm" style="flex:2"></i><i style="flex:3;background:linear-gradient(90deg,#ff9a5c,#e0445c)"></i><div class="nd" style="--a:${a}%;--b:${b}%;--ms:${ms}ms;left:${b}%"></div></div><div class="lb"><span style="flex:5">🌙 月光涼</span><span style="flex:2;color:#ffd66b;text-align:center">星火溫</span><span style="flex:3;text-align:right">日焰燙 ☀</span></div></div>`;
+  // 白色的熱氣、頭頂冒的煙（會飄）
+  const wisp = (x, y, h, s = 1, o = .75, d = 0) => `<g transform="translate(${x} ${y}) scale(${s})"><g class="st-steam" style="animation-delay:${d}ms" fill="none" stroke="#fff" stroke-linecap="round" opacity="${o}"><path d="M0,0 C-16,${-h * .2} 18,${-h * .4} 0,${-h * .6} C-18,${-h * .8} 10,${-h * .9} 4,${-h}" stroke-width="18" opacity=".22"/><path d="M0,0 C-16,${-h * .2} 18,${-h * .4} 0,${-h * .6} C-18,${-h * .8} 10,${-h * .9} 4,${-h}" stroke-width="7"/><path d="M14,${-h * .15} C0,${-h * .35} 26,${-h * .5} 12,${-h * .7}" stroke-width="5" opacity=".7"/></g></g>`;
+  const puffs = (x, y, s = 1, d = 0) => `<g transform="translate(${x} ${y}) scale(${s})"><g class="st-puff" style="animation-delay:${d}ms" fill="#fff" stroke="#d9d4ea" stroke-width="2">${[[0, 0, 15], [-15, 6, 11], [15, 5, 12], [-5, -14, 11], [9, -15, 9]].map(([a, b, r]) => `<circle cx="${a}" cy="${b}" r="${r}"/>`).join('')}</g></g>`;
+  const dreamEdge = () => '<div style="position:absolute;inset:0;background:radial-gradient(ellipse 80% 75% at 50% 48%,rgba(255,255,255,0) 66%,rgba(255,250,240,.7) 100%)"></div>' +
+    svg(`<g class="st-twk">${sparkle(30, 120, 12, '#fff')}</g><g class="st-twk" style="animation-delay:.4s">${sparkle(536, 80, 14, '#fff')}</g><g class="st-twk" style="animation-delay:.8s">${sparkle(520, 600, 10, '#fff')}</g>${sparkle(40, 640, 12, '#fff')}`);
+  const choiceCol = (labels, x = 114, y = 470, w = 340) => labels.map((t, i) => choiceBtn(i, x, y + i * 64, w, t)).join('');
+
+  function show4() {
+    const L = SU.LINES[4], P = SU.PAGE_LINES[4];
+    const shots = [
+      { // 1　那天晚上・公會後院：超誇張的攻擊架式「哈——！」（背後是想像中的大火球）→ 推到指尖：只有蠟燭大的小豆「……噗。」
+        start: { x: 284, y: 350, z: 1.06 },
+        steps: [{ cam: { x: 284, y: 350, z: 1 }, ms: 500, fx: 'shake', auto: 2600 }, { cam: { x: 236, y: 300, z: 1.55 }, ms: 1100 }],
+        content: night4() +
+          sv('0', svg(dreamBall(140, 150, 108)) + ER('erin_fire_stance', .59, 575, 408, 330, 340) + glowAt(140, 149, 50), 'fade-fast') +
+          sv('1', ER('erin_xiaodou', .7, 481, 355, 330, 300) + glowAt(163, 284, 46), 'fade-fast'),
+        over: cap(10, 10, '那天晚上・公會後院') +
+          pop('0', csfx(30, 520, L.ha, 64, -10, '#ff7a2a'), 150, 120, 560) + pop('0', csfx(260, 60, L.dreamt, 18, 4, '#ffb36a'), 900, 300, 70) +
+          pop('0', svg('<g stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".8"><line x1="470" y1="300" x2="520" y2="290"/><line x1="470" y1="340" x2="526" y2="336"/><line x1="480" y1="380" x2="530" y2="384"/></g>'), 300, 500, 340) +
+          pop('1', csfx(26, 150, L.pfft, 40, -6, '#ff9a5c'), 700, 90, 170) +
+          pop('1', bubble({ x: 300, y: 500, w: 240, text: L.small, tail: [250, 470], size: 19 }), 1500, 420, 540) +
+          pop('1', svg(`<g class="st-twk">${sparkle(120, 300, 10, '#ffe08a')}</g><g class="st-twk" style="animation-delay:.5s">${sparkle(250, 250, 7, '#fff')}</g>`), 1100, 180, 280),
+      },
+      { // 2　構圖跟序章 cg_fire_tea 一樣，這次是她的手：「……再一點點。」→ 指針停在星火溫（★ 線索）
+        start: { x: 284, y: 350, z: 1.08 },
+        steps: [{ cam: { x: 284, y: 350, z: 1.02 }, ms: 2000, auto: 3000 }, { cam: { x: 270, y: 300, z: 1.2 }, ms: 1200 }],
+        content: bgImg('cg_fire_tea_erin.jpg', 1448, 1086, .6446, 216, 0) + glowAt(332, 405, 44, '255,200,120', .45) + sv('1', glowAt(332, 405, 76, '255,205,130', .6), 'fade-slow'),
+        over: sv('0', svg(focusLines(300, 360, 260, 60, '#fff', 41)), 'fade-fast') +
+          pop('0', bubble({ x: 24, y: 40, w: 200, text: L.more, size: 20 }), 600, 120, 60) +
+          sv('0', gauge(94, 584, 8, 44), 'fade-fast') + sv('1', gauge(94, 584, 44, 60, true, 900), 'fade-fast') +
+          pop('1', bubble({ x: 30, y: 40, w: 180, text: L.warm, size: 22 }), 900, 120, 60) +
+          pop('1', svg(`<g class="st-twk">${sparkle(420, 110, 18, '#ffe08a')}</g><g class="st-twk" style="animation-delay:.3s">${sparkle(470, 170, 10, '#fff')}</g><g class="st-twk" style="animation-delay:.6s">${sparkle(120, 230, 12, '#ffe08a')}</g>`), 1100, 300, 170),
+      },
+      { // 3　「喀。」門開了 → 小豆在指尖噗哇地竄高 →「冒、冒險者？！」→ 杯子藏到背後，熱氣從背後一直冒出來
+        start: { x: 284, y: 350, z: 1 },
+        steps: [{ cam: { x: 284, y: 350, z: 1.04 }, ms: 260, fx: 'shake', auto: 1700 }, { cam: { x: 290, y: 330, z: 1.08 }, ms: 500 }, { cam: { x: 284, y: 350, z: 1 }, ms: 0 }],
+        content: night4() + doorLight() +
+          sv('0', ER('erin_xiaodou', .7, 481, 355, 330, 300) + glowAt(163, 200, 170, '255,170,90', .7) + svg(flare(163, 300, 1.05)), 'fade-fast') +
+          sv('1', pose('surprised', .78, 520, 370, 300, 300), 'fade-fast') +
+          sv('2', ER('erin_hide_cup', .5, 498, 407, 284, 230) + svg(`${wisp(430, 600, 260, 1, .75)}${wisp(462, 590, 200, .8, .6, 900)}`), 'fade-x'),
+        over: pop('0', csfx(24, 600, L.click, 40, -4, '#ffd9a0'), 0, 60, 620) + pop('0', csfx(250, 110, L.whoosh, 60, 8, '#ff7a2a'), 120, 320, 140) + pop('0', csfx(470, 200, '！！', 44, 8, '#34437a'), 400, 500, 220) +
+          pop('1', bubble({ x: 18, y: 40, w: 250, text: L.who, tail: [250, 250], size: 21 }), 300, 140, 80) + pop('1', svg(drop(410, 200, 2) + drop(436, 236, 1.4)), 600, 420, 210) +
+          pop('2', bubble({ x: 14, y: 30, w: 270, text: L.hide, tail: [240, 200], size: 19 }), 500, 150, 70) +
+          pop('2', csfx(476, 330, '飄～', 22, 0, '#8a93c4'), 1000, 500, 340) + pop('2', nar(170, 630, L.steamNar), 1500, 284, 640),
+      },
+      { // 4　台階上，並排坐（冒險者的提燈放在旁邊那階）：「……被看到了呢。」→「艾琳……其實還沒放棄喔。」
+        start: { x: 300, y: 420, z: 1.5 },
+        steps: [{ cam: { x: 300, y: 400, z: 1.35 }, ms: 1500 }, { cam: { x: 318, y: 350, z: 2.1 }, ms: 1400 }],
+        content: night4(265) + ER('erin_sit_stars', .175, 414, 1054, 300, 478) +
+          img(ART('lantern.webp'), 240, .26, 120, 240, 398, 432, 'filter:drop-shadow(0 0 16px rgba(255,190,90,.9))') + glowAt(398, 440, 90, '255,200,120', .4),
+        over: pop('0', bubble({ x: 24, y: 40, w: 220, text: L.seen, tail: [250, 200], size: 20 }), 900, 130, 60) + pop('0', csfx(330, 100, '（嘿嘿）', 18, 6, '#ff7aa8'), 1600, 370, 110) +
+          pop('1', bubble({ x: 20, y: 36, w: 240, text: nmR(L.notyet), tail: [260, 200], size: 21 }), 1000, 140, 60) +
+          pop('1', svg(`<g class="st-twk">${sparkle(470, 120, 12, '#fff')}</g><g class="st-twk" style="animation-delay:.5s">${sparkle(510, 170, 8, '#ffe08a')}</g>`), 1400, 490, 140),
+      },
+      { // 5　想像：冰湖的極光、兩個背影（從極光往下搖）→ 回到後院，耳朵垂下來：「……總有一天會去王都的大公會吧。」
+        start: { x: 284, y: 282, z: 1.25 },
+        steps: [{ cam: { x: 284, y: 350, z: 1.02 }, ms: 3200, ready: 2600 }, { cam: { x: 290, y: 330, z: 1.05 }, ms: 600 }],
+        content: sv('0', bgImg('aurora_dream.jpg', 1672, 941, .7444, 348, 0) + dreamEdge(), 'fade-x') + sv('1', night4() + pose('worried', .7, 520, 370, 290, 300), 'fade-x'),
+        over: pop('0', bubble({ x: 30, y: 26, w: 300, text: L.dream, size: 17 }), 1500, 180, 60) + pop('0', csfx(400, 650, L.dreamNar, 16, 0, '#7a86b8'), 2300, 470, 660) +
+          pop('1', bubble({ x: 14, y: 30, w: 290, text: L.worry, tail: [250, 230], size: 18 }), 400, 150, 70) + pop('1', nar(170, 620, L.earsNar), 1300, 284, 630) +
+          pop('1', svg('<g stroke="#8a93c4" stroke-width="3" fill="none" stroke-linecap="round"><path d="M140,90 q-6,14 0,28"/><path d="M430,90 q6,14 0,28"/></g>'), 900, 284, 100),
+      },
+      { // 6　三選一（存成 shows.promise）→ 打勾勾／含淚的笑／小豆變成愛心
+        start: { x: 284, y: 350, z: 1 },
+        steps: [
+          { cam: { x: 284, y: 350, z: 1 }, ms: 0, choice: [{ go: 1 }, { go: 2 }, { go: 3 }] },
+          { cam: { x: 284, y: 350, z: 1 }, ms: 0, next: 9 },
+          { cam: { x: 284, y: 350, z: 1 }, ms: 0, next: 9 },
+          { cam: { x: 284, y: 350, z: 1.03 }, ms: 300, fx: 'shake', next: 9 },
+        ],
+        content: night4() + sv('0', pose('worried', .62, 520, 370, 284, 270), 'fade-fast') +
+          sv('1', ER('erin_pinky', .55, 553, 410, 300, 250), 'fade-fast') +
+          sv('2', ER('erin_teary', .62, 512, 336, 284, 260), 'fade-fast') +
+          sv('3', ER('erin_heart_flame', .66, 510, 375, 284, 260) + glowAt(63, 290, 60, '255,150,170', .55, 'st-pulse'), 'fade-fast'),
+        over: pop('0', bubble({ x: 24, y: 40, w: 120, text: '……', tail: [210, 210], size: 22 }), 200, 80, 60) +
+          pop('0', choiceCol([L.pick1, L.pick2, L.pick3]), 800, 284, 560) +
+          pop('1', chip(14, 640, L.pick1), 0, 100, 650) + pop('1', bubble({ x: 300, y: 30, w: 250, text: L.reply1, tail: [330, 210], size: 19 }), 300, 420, 70) +
+          pop('1', svg(`<g class="st-bob">${heart(96, 330, 1.3)}</g><g class="st-twk">${sparkle(48, 360, 12, '#ffe08a')}</g><g class="st-twk" style="animation-delay:.4s">${sparkle(140, 300, 8, '#fff')}</g>`), 700, 96, 340) + pop('1', csfx(24, 420, L.pinkyNar, 18, -4, '#ff7aa8'), 1100, 90, 430) +
+          pop('2', chip(14, 640, L.pick2), 0, 100, 650) + pop('2', bubble({ x: 300, y: 30, w: 250, text: nmR(L.reply2), tail: [330, 210], size: 19 }), 400, 420, 70) +
+          pop('3', chip(14, 640, L.pick3), 0, 100, 650) + pop('3', bubble({ x: 300, y: 30, w: 250, text: L.reply3, tail: [330, 210], size: 19 }), 300, 420, 70) +
+          pop('3', svg(`${puffs(200, 40, 1.1)}${puffs(380, 30, .9, 500)}`), 200, 290, 40) + pop('3', csfx(24, 160, L.heartNar, 18, -4, '#ff7aa8'), 900, 110, 170),
+      },
+      { // 7　星空下（三種回答都接到這裡）：「冒險者，謝謝你一直這麼可靠。」→ 雙手背在身後傾身：「……艾琳也想變成，能讓冒險者依靠的人。」
+        start: { x: 284, y: 350, z: 1.04 },
+        steps: [{ cam: { x: 284, y: 350, z: 1 }, ms: 1200 }, { cam: { x: 290, y: 330, z: 1.12 }, ms: 1000 }],
+        content: nightSky() + sv('0', pose('happy', .6, 520, 360, 284, 330), 'fade-x') + sv('1', ER('erin_starlight', .62, 509, 419, 284, 290), 'fade-x') +
+          svg(`<g class="st-bob">${flame(470, 490, .8)}</g>`),
+        over: pop('0', bubble({ x: 20, y: 40, w: 240, text: L.thanks, tail: [240, 220], size: 20 }), 500, 140, 60) +
+          pop('1', bubble({ x: 14, y: 30, w: 290, text: nmR(L.lean), tail: [250, 220], size: 19 }), 700, 160, 60) +
+          pop('1', svg(`<g class="st-bob">${heart(470, 120, 1.3)}</g><g class="st-twk">${sparkle(520, 200, 10, '#ffe08a')}</g>`), 1300, 480, 140) + pop('1', nar(90, 620, L.nar), 2000, 284, 630),
+      },
+    ];
+    const page = {
+      panels: [
+        { k: 0, st: 0, box: [11, 42, 552, 140], cam: { x: 284, y: 300, z: 1 } },
+        { k: 1, st: 1, box: [11, 190, 272, 160], cam: { x: 300, y: 260, z: .62 } },
+        { k: 2, st: 2, box: [291, 190, 272, 160], cam: { x: 300, y: 300, z: .56 } },
+        { k: 3, st: 0, box: [11, 358, 206, 140], poly: [[0, 0], [206, 0], [186, 140], [0, 140]], cam: { x: 300, y: 500, z: .62 } },
+        { k: 4, st: 0, box: [195, 358, 368, 140], poly: [[22, 0], [368, 0], [368, 140], [2, 140]], cam: { x: 284, y: 390, z: .66 } },
+        { k: 5, st: (pick) => 1 + pick, box: [11, 506, 552, 130], cam: { x: 284, y: 300, z: 1 } }, // 放冒險者選的那個反應
+        { k: 6, st: 1, box: [11, 644, 552, 126], cam: { x: 284, y: 300, z: 1 } },
+      ],
+      words: (pick) => `<div class="st-pcap" style="left:19px;top:50px">那天晚上・公會後院</div><div class="st-pc" style="left:40px;top:130px;color:#ff7a2a">${esc(L.ha)}</div>` +
+        `<div class="st-pb" style="left:24px;top:200px;width:110px">${esc(P.warm)}</div>` +
+        `<div class="st-pb" style="left:300px;top:198px;width:170px">${esc(P.hide)}</div>` +
+        `<div class="st-pb" style="left:22px;top:366px;width:120px">${esc(nmR(P.notyet))}</div>` +
+        `<div class="st-pb" style="left:396px;top:366px;width:160px">${esc(P.dream)}</div>` +
+        `<div class="st-pb" style="left:${pick === 0 ? 24 : 360}px;top:514px;width:150px">${esc(nmR(P['reply' + (pick + 1)]))}</div>` +
+        `<div class="st-pb" style="left:24px;top:654px;width:220px">${esc(nmR(P.lean))}</div><div class="st-nar small" style="left:290px;top:744px">${esc(L.nar)}</div>`,
+    };
+    return { shots, page };
+  }
+  const BUILD = { 2: show2, 3: show3, 4: show4 };
 
   // ================= 播放器 =================
   let S = null; // { n, data, root, card, vp, si, step, shot, ready, timers, mode, replay, pageOnly, held, skipped }
@@ -462,7 +596,7 @@
       else hint(true);
     }, readyAt);
   }
-  // 二選一：選了就演那個反應（不存檔）
+  // 選項：選了就演那個反應（第 3 階不存；第 4 階演完存成 shows.promise）
   function choose(i) {
     if (!S || !S.choosing) return;
     const st = S.data.shots[S.si].steps[S.step];
@@ -496,11 +630,18 @@
   function flash() { const f = S.vp.querySelector('.st-flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
   function shake() { S.vp.classList.remove('shake'); void S.vp.offsetWidth; S.vp.classList.add('shake'); }
 
+  // 整頁裡有選項的那格放哪個反應：這次選的 → 存起來的回答（相簿直接看整頁）→ 第一個
+  function pageSPick() {
+    if (S.pick != null) return S.pick;
+    const sh = state.view && state.view.affection && state.view.affection.shows;
+    return sh && sh.promise ? sh.promise - 1 : 0;
+  }
   // 拉遠：拼成一整頁（也是回憶相簿裡的那一頁）
   function pageEl() {
     const pg = document.createElement('div');
     pg.className = 'st-page';
     const { panels, words } = S.data.page;
+    const pick = pageSPick();
     let frames = '';
     pg.innerHTML = `<div class="st-ttl"><b>♡</b> ${esc(SU.title(S.n))}<span class="st-pdots">${S.data.shots.map(() => '<i></i>').join('')}</span><span class="st-foot">點一下收起來 ▼</span></div>`;
     panels.forEach((p, i) => {
@@ -509,7 +650,7 @@
       const pn = document.createElement('div');
       pn.className = 'st-pn'; pn.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;clip-path:polygon(${poly.map(([a, b]) => `${a}px ${b}px`).join(',')});transition-delay:${i === panels.length - 1 ? 0 : 160 + i * 110}ms`;
       const sh = shotEl(p.k, { forPage: true });
-      applyStep(sh, S.data.shots[p.k], p.st, { instant: true });
+      applyStep(sh, S.data.shots[p.k], typeof p.st === 'function' ? p.st(pick) : p.st, { instant: true });
       sh.classList.add('ff');
       const cam = sh.querySelector('.st-cam');
       cam.style.transform = `translate(${(w / 2 - p.cam.x * p.cam.z).toFixed(1)}px,${(h / 2 - p.cam.y * p.cam.z).toFixed(1)}px) scale(${p.cam.z})`;
@@ -518,7 +659,7 @@
       pg.appendChild(pn);
       frames += `<polygon points="${poly.map(([a, b]) => `${x + a},${y + b}`).join(' ')}" fill="none" stroke="#2a2d4a" stroke-width="3"/>`;
     });
-    pg.insertAdjacentHTML('beforeend', `<svg class="st-frames" width="568" height="774">${frames}</svg><div class="st-words">${words}</div>`);
+    pg.insertAdjacentHTML('beforeend', `<svg class="st-frames" width="568" height="774">${frames}</svg><div class="st-words">${typeof words === 'function' ? words(pick) : words}</div>`);
     return pg;
   }
   function toPage(direct) {
@@ -550,7 +691,7 @@
     if (!S) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); skip(); }
     else if ([' ', 'Enter', 'ArrowRight'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); advance(); }
-    else if (S.choosing && ['1', '2'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); choose(+e.key - 1); }
+    else if (S.choosing && /^[1-9]$/.test(e.key)) { e.preventDefault(); e.stopPropagation(); choose(+e.key - 1); }
   }
   function skip() { if (!S || S.mode === 'closing') return; if (S.mode !== 'page') S.skipped = true; close(); }
 
@@ -573,7 +714,7 @@
   async function finish(cur) {
     teardown(cur);
     let r = null;
-    try { r = await api.storyDone(cur.n, { skipped: cur.skipped }); } catch (_) { /* 存不了就算了，下次還會冒「!」 */ }
+    try { r = await api.storyDone(cur.n, { skipped: cur.skipped, pick: cur.pick }); } catch (_) { /* 存不了就算了，下次還會冒「!」 */ }
     if (r && r.view) applyView(r.view);
     if (r && r.first && !cur.replay) {
       setTimeout(() => {

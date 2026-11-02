@@ -3789,13 +3789,18 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const SU = require('../src/renderer/stageup-script');
   const { Engine } = require('../src/main/engine');
   // 1. 舊存檔：升過的只補演最新的一階，更早的直接收進相簿；新版本多一階動畫也一樣
-  assert.deepStrictEqual(SU.STAGES, [2, 3]);
-  assert.deepStrictEqual(SU.migrate(undefined, 1), { pending: [], seen: {}, known: [2, 3] }, '還在第 1 階：不用演');
+  assert.deepStrictEqual(SU.STAGES, [2, 3, 4]);
+  assert.deepStrictEqual(SU.migrate(undefined, 1), { pending: [], seen: {}, known: [2, 3, 4] }, '還在第 1 階：不用演');
   assert.deepStrictEqual(SU.migrate(undefined, 2).pending, [2], '第 2 階：補演第 2 階');
   const m4 = SU.migrate(undefined, 4);
-  assert.deepStrictEqual([m4.pending, !!m4.seen[2].unlocked], [[3], true], '第 4 階：只補演最新的第 3 階，第 2 階直接收進相簿');
+  assert.deepStrictEqual([m4.pending, !!m4.seen[2].unlocked, !!m4.seen[3].unlocked], [[4], true, true], '第 4 階：只補演最新的第 4 階，第 2、3 階直接收進相簿');
+  const m5 = SU.migrate(undefined, 5);
+  assert.deepStrictEqual(m5.pending, [4], '第 5 階（還沒有動畫）：補演第 4 階');
   const up = SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2] }, 3);
-  assert.deepStrictEqual([up.pending, up.known], [[3], [2, 3]], '看過第 2 階、新版本多了第 3 階：補演第 3 階');
+  assert.deepStrictEqual([up.pending, up.known], [[3], [2, 3, 4]], '看過第 2 階、新版本多了第 3 階：補演第 3 階');
+  const up4 = SU.migrate({ pending: [], seen: { 2: { at: 'x' }, 3: { at: 'y' } }, known: [2, 3] }, 4);
+  assert.deepStrictEqual([up4.pending, up4.known], [[4], [2, 3, 4]], '看過第 2、3 階、新版本多了第 4 階：補演第 4 階');
+  assert.deepStrictEqual([SU.migrate({ promise: 2, promiseAt: 'z' }, 4).promise, SU.migrate({ promise: 7 }, 4).promise], [2, undefined], '第 4 階的回答留著；不合理的丟掉');
   assert.deepStrictEqual(SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2] }, 2).pending, [], '還沒到第 3 階：不演');
   const seen = SU.migrate({ pending: [], seen: { 2: { at: 'x' } }, known: [2, 3] }, 3);
   assert.deepStrictEqual([seen.pending, seen.seen[2].at], [[], 'x'], '看過的不再演');
@@ -3808,9 +3813,13 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   for (const n of SU.STAGES) assert.ok(SU.LINES[n].end && SU.PAGE_LINES[n], `第 ${n} 階：收尾那句、整頁的字`);
   assert.ok(/艾琳/.test(SU.LINES[3].secret) && /這是秘密喔/.test(SU.LINES[3].secret) && SU.LINES[3].end !== SU.LINES[2].end, '第 3 階：秘密那句（＝stageup_3）、收尾換一句');
   assert.ok(SU.LINES[3].pickA && SU.LINES[3].pickB, '第 3 階：二選一');
+  assert.ok(SU.PROMISES[4].length === 3 && [1, 2, 3].every((i) => SU.LINES[4]['pick' + i] === `「${SU.PROMISES[4][i - 1]}」` && SU.LINES[4]['reply' + i] && SU.PAGE_LINES[4]['reply' + i]), '第 4 階：三選一，每個都有反應');
+  assert.ok(/星火溫/.test(SU.LINES[4].warm) && /小豆/.test(SU.LINES[4].end) && SU.LINES[4].end !== SU.LINES[3].end, '第 4 階：星火溫（線索）、收尾對小豆說');
+  assert.ok(/可靠/.test(SU.LINES[4].thanks) && /依靠/.test(SU.LINES[4].lean), '第 4 階：可靠的夥伴');
   assert.ok(/艾琳/.test(L.star) && /冒險者/.test(L.star), '星星那句：用名字和冒險者（畫面會換成現在的名字）');
   const { TEMPLATES } = require('../src/main/npc');
   for (const [x] of TEMPLATES.stageup_tease) assert.ok(/\{self\}/.test(x) && /\{call\}/.test(x) && !/[我您]|玩家/.test(x), x);
+  assert.ok(TEMPLATES.stageup_4.every(([x]) => /依靠/.test(x) && /\{self\}/.test(x) && !/魚形麵包/.test(x)), 'stageup_4＝第 4 階漫畫最後那句');
   // 3. 引擎：升到第 2 階 → 預告＋待演＋心意；演完 → 收進相簿；跳過也算；重看只記時間；關掉動畫 → 照舊說那句話
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-stageup-'));
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
@@ -3830,9 +3839,23 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   r = E.finishShow(2, {});
   assert.ok(!r.first && a.shows.seen[2].replayedAt && a.shows.seen[2].skipped, '重看：只記時間');
   assert.deepStrictEqual(E.view().affection.shows.album.map((x) => x.n), [2]);
-  assert.ok(!E.finishShow(3).first && !E.finishShow('x').first, '沒有動畫的階段');
+  assert.ok(!E.finishShow(3).first && !E.finishShow('x').first, '還沒升到的階段、不認得的階段');
+  assert.strictEqual(E.view().affection.shows.promise, 0, '還沒回答第 4 階');
+  // 第 4 階：三選一的回答存成 promise（1 起算），只記第一次；跳過（沒選）不記；重看再選不改
+  Object.assign(a, { maxStage: 4 }); a.shows.pending = [4];
+  r = E.finishShow(4, { skipped: true });
+  assert.ok(r.first && !r.promised && a.shows.promise == null, '沒選就跳過：不記回答');
+  r = E.finishShow(4, { pick: 2 });
+  assert.ok(!r.first && r.promised && a.shows.promise === 3 && a.shows.promiseAt && E.view().affection.shows.promise === 3, '重看時第一次選：記下來');
+  r = E.finishShow(4, { pick: 0 });
+  assert.ok(!r.promised && a.shows.promise === 3, '再重看選別的：不改');
+  assert.ok(!E.finishShow(2, { pick: 1 }).promised && a.shows.promise === 3, '別的階段的選項不算');
+  Object.assign(a.shows, { promise: undefined }); a.shows.pending = []; delete a.shows.seen[4]; a.shows.pending = [4];
+  assert.ok(E.finishShow(4, { pick: 5 }).first && a.shows.promise == null && E.finishShow(4, { pick: 1.5 }) && a.shows.promise == null, '不合理的選項不記');
+  assert.ok(E.finishShow(4, { pick: 0 }).promised && a.shows.promise === 1);
   const saved = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'save.json'), 'utf8'));
-  assert.ok(saved.affection.shows.seen[2], '存進存檔');
+  assert.ok(saved.affection.shows.seen[2] && saved.affection.shows.promise === 1, '存進存檔');
+  Object.assign(a, { maxStage: 2 }); delete a.shows.seen[4]; delete a.shows.promise; delete a.shows.promiseAt;
   // 掉下去再升回來：不再演、不再送
   Object.assign(a, { points: 20 }); E.settle({ lines: [] });
   Object.assign(a, { points: 35 }); r = E.settle({ lines: [] });
@@ -3849,7 +3872,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(/🎬 回憶相簿/.test(fs.readFileSync(path.join(root, 'src/main/main.js'), 'utf8')) && /storyDone/.test(fs.readFileSync(path.join(root, 'src/main/preload.js'), 'utf8')));
   const sjs = fs.readFileSync(path.join(root, 'src/renderer/stageup.js'), 'utf8');
   const files = [...new Set([...sjs.matchAll(/(?:ART|bgImg|ball|nb3)\('([^']+)'/g)].map((m) => m[1]))];
-  assert.ok(files.length >= 18 && files.includes('mini_hide.webp') && files.includes('notebook_first_page.jpg') && files.includes('erin_lantern.webp'), files.join(','));
+  const er4 = [...sjs.matchAll(/ER\('(\w+)'/g)].map((m) => m[1] + '.webp');
+  assert.ok(er4.length >= 8 && er4.includes('erin_pinky.webp') && er4.includes('erin_starlight.webp'), '第 4 階的人物圖：' + er4.join(','));
+  files.push(...new Set(er4));
+  assert.ok(files.length >= 30 && files.includes('mini_hide.webp') && files.includes('notebook_first_page.jpg') && files.includes('erin_lantern.webp') && files.includes('cg_fire_tea_erin.jpg') && files.includes('aurora_dream.jpg') && files.includes('lantern.webp'), files.join(','));
   for (const f of [...files, ...SU.STAGES.map((n) => SU.SHOWS[n].thumb)]) assert.ok(fs.existsSync(path.join(root, 'assets', 'stageup', f)), '圖：' + f);
   for (const f of [...sjs.matchAll(/SHOP\('([^']+)'\)/g)].map((m) => m[1])) assert.ok(fs.existsSync(path.join(root, 'assets', 'shop', f)), '雜貨舖的圖：' + f);
   for (const p of [...sjs.matchAll(/pose\('(\w+)'/g)].map((m) => m[1])) assert.ok(fs.existsSync(path.join(root, 'assets', 'character', p + '.png')), '立繪：' + p);

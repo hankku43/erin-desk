@@ -1,16 +1,17 @@
 // 💗 好感升階動畫：哪幾階有動畫、標題、台詞、舊存檔怎麼補演（純資料／純函式，main、畫面、測試共用）
 // 第 2～4 階＝主視窗裡的漫畫（一格一格放大看，最後拉遠成整頁）；第 5 階＝舞台模式（之後做）
-// 分鏡定稿：dist/stageup/erin-stageup2-storyboard-v4.png（10/12）
+// 分鏡定稿：dist/stageup/erin-stageup2-storyboard-v4.png（10/12）、erin-stageup3-storyboard-v1.png（10/12）、erin-stageup4-storyboard-v2.png（11/2）
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.StageupScript = factory();
 }(typeof self !== 'undefined' ? self : this, () => {
   'use strict';
 
-  // 已經做好動畫的階段（之後做好第 3、4、5 階再加進來；舊存檔會自動補演最新的一階）
+  // 已經做好動畫的階段（之後做好第 5 階再加進來；舊存檔會自動補演最新的一階）
   const SHOWS = {
     2: { stage: 2, no: '其之二', name: '常客', shots: 7, thumb: 'mini_peek.webp' },
     3: { stage: 3, no: '其之三', name: '熟面孔', shots: 7, thumb: 'thumb_3.webp' },
+    4: { stage: 4, no: '其之四', name: '可靠的夥伴', shots: 7, thumb: 'thumb_4.webp' },
   };
   const STAGES = Object.keys(SHOWS).map(Number).sort((a, b) => a - b);
   const title = (n) => (SHOWS[n] ? `${SHOWS[n].no}　${SHOWS[n].name}` : '');
@@ -47,17 +48,51 @@
       nar: '（秘密，尾巴已經說出來了。）',
       end: '……尾、尾巴，不准搖。', // 低頭瞪著自己甩個不停的尾巴
     },
+    4: { // 分鏡：dist/stageup/erin-stageup4-storyboard-v2.png（11/2）
+      ha: '哈——！',
+      dreamt: '（想像中）',
+      pfft: '……噗。',
+      small: '……小豆，\n今天也一樣\n小呢。',
+      more: '……再一點點。',
+      warm: '……星火溫。',
+      click: '喀。',
+      whoosh: '噗哇！',
+      who: '冒、冒險者？！\n什麼時候……',
+      hide: '沒、沒有在偷練喔！\n只是……\n在溫奶茶！',
+      steamNar: '（熱氣從背後冒出來）',
+      seen: '……被看到了呢。',
+      notyet: '艾琳……\n其實還沒放棄喔。',
+      dream: '想跟冒險者一起\n出一次真正的委託。\n去霜月村北邊的冰湖……\n看極光。',
+      dreamNar: '（艾琳的想像）',
+      worry: '……不過，冒險者\n那麼厲害，總有一天\n會去王都的大公會吧。',
+      earsNar: '（耳朵垂下來了）',
+      pick1: '「一起去吧。」', // 冒險者的回答（三選一，存成 shows.promise＝1～3，第 5 階會說回來）
+      pick2: '「等你練好，我等你。」',
+      pick3: '「我陪你練。」',
+      reply1: '真、真的？！\n……那，約好了喔！\n打勾勾！',
+      reply2: '……嗯。\n艾琳會努力的。\n不准先走喔。',
+      reply3: '欸？！那、那……\n明天晚上\n也要來喔！',
+      pinkyNar: '（伸出小指）',
+      heartNar: '（小豆變成愛心了）',
+      thanks: '冒險者，謝謝你\n一直這麼可靠。',
+      lean: '……艾琳也想變成，\n能讓冒險者\n依靠的人。', // ＝新的 stageup_4
+      nar: '（那天晚上，小豆一直沒有熄。）',
+      end: '……小豆，要加油喔。', // 偷偷點出小豆，小聲跟它說
+    },
   };
+  // 有選項而且要記住的階段：選的是第幾個（1 起算）；第 5 階和之後的話題會說回來
+  const PROMISES = { 4: ['一起去吧。', '等你練好，我等你。', '我陪你練。'] };
   // 艾琳說的台詞（口吻測試用；其他是狀聲字、旁白、冒險者的回答）
-  const ERIN = { 2: ['huh', 'deny', 'star', 'hehe', 'end'], 3: ['hum', 'oops', 'hold', 'nope', 'ask', 'replyA', 'replyB', 'lantern', 'call', 'secret', 'end'] };
+  const ERIN = { 2: ['huh', 'deny', 'star', 'hehe', 'end'], 3: ['hum', 'oops', 'hold', 'nope', 'ask', 'replyA', 'replyB', 'lantern', 'call', 'secret', 'end'], 4: ['ha', 'small', 'more', 'warm', 'who', 'hide', 'seen', 'notyet', 'dream', 'worry', 'reply1', 'reply2', 'reply3', 'thanks', 'lean', 'end'] };
   // 整頁上的小對話框（字比較少）
   const PAGE_LINES = {
     2: { marga1: '……就是你常說的那位？', deny: '才、才沒有常說。只是……登記簿上的一位冒險者而已。', marga2: '好啦好啦，不說了。', star: '……這是常客才有的喔。' },
     3: { hold: '忍、忍住……！不能變回貓……！', nope: '這、這頁不能看！', lantern: '……路上暗，小心喔。', secret: '……這是秘密喔。' },
+    4: { warm: '……星火溫。', hide: '沒、沒有在偷練喔！只是……在溫奶茶！', notyet: '艾琳……其實還沒放棄喔。', dream: '去霜月村北邊的冰湖……看極光。', reply1: '……那，約好了喔！打勾勾！', reply2: '……嗯。不准先走喔。', reply3: '那、那……明天晚上也要來喔！', lean: '……艾琳也想變成，能讓冒險者依靠的人。' },
   };
   const WHO = { marga: '瑪格大姐' };
 
-  // 存檔裡的 affection.shows：{ pending: [還沒演的階段], seen: { 階段: { at, skipped, unlocked } }, known: [這個版本認得的動畫] }
+  // 存檔裡的 affection.shows：{ pending: [還沒演的階段], seen: { 階段: { at, skipped, unlocked } }, known: [這個版本認得的動畫], promise: 第 4 階的回答 1～3, promiseAt }
   //   新版本多了一階動畫（或舊存檔第一次打開）：已經升過的只把「最新的那一階」排進 pending，更早的直接收進相簿
   function migrate(shows, maxStage = 1) {
     const sh = shows && typeof shows === 'object' ? shows : {};
@@ -66,7 +101,7 @@
       seen: sh.seen && typeof sh.seen === 'object' ? { ...sh.seen } : {},
       known: Array.isArray(sh.known) ? sh.known.map(Number) : [],
     };
-    if (sh.promise != null) out.promise = sh.promise; // 第 4 階的回答（之後用）
+    if ([1, 2, 3].includes(Number(sh.promise))) { out.promise = Number(sh.promise); if (sh.promiseAt) out.promiseAt = sh.promiseAt; } // 第 4 階的回答（第一次選的那個，重看不會改）
     const fresh = STAGES.filter((n) => !out.known.includes(n));
     out.known.push(...fresh);
     const reached = fresh.filter((n) => n <= maxStage && !out.seen[n] && !out.pending.includes(n));
@@ -87,5 +122,5 @@
     n, title: title(n), thumb: SHOWS[n].thumb, at: shows.seen[n].at || null, unlocked: !!shows.seen[n].unlocked,
   }));
 
-  return { SHOWS, STAGES, LINES, PAGE_LINES, WHO, ERIN, title, migrate, next, album };
+  return { SHOWS, STAGES, LINES, PAGE_LINES, WHO, ERIN, PROMISES, title, migrate, next, album };
 }));

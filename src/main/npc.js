@@ -815,7 +815,7 @@ const TEMPLATES = {
   stageup_tease: [['……啊。沒、沒事！{self}晚點再跟{call}說。', 'shy'], ['……欸嘿。等一下，{self}有件事想跟{call}說。', 'shy']], // 💗 升到有漫畫的那一階：先預告，頭上冒「!」
   stageup_2: [['欸，{call}最近常來呢。{self}在小本子上幫你畫了一顆星星……這是常客才有的喔。', 'happy']],
   stageup_3: [['{self}發現，現在看到{call}走進公會，尾巴會自己先搖起來。……這是秘密喔。', 'shy']],
-  stageup_4: [['{call}，謝謝你一直這麼可靠。媽媽寄來的魚形麵包，{self}留了一個給你——這次真的有留喔。', 'happy']],
+  stageup_4: [['{call}，謝謝你一直這麼可靠。……{self}也想變成，能讓{call}依靠的人。', 'shy']], // ＝第 4 階漫畫最後那句
   stageup_5: [['那、那個……{call}對{self}來說，已經不只是登記簿上的一個名字了。……就這樣！去忙你的委託吧！', 'shy']],
   stagedown: [['……{self}覺得，我們好像變得有點生疏了。', 'worried']],
   relation_1: [['{call}是{self}在三號櫃台登記的冒險者呀。……嗯，目前就是這樣。', 'normal']],

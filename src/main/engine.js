@@ -1065,12 +1065,13 @@ class Engine {
     return true;
   }
   showInfo() {
-    if (!this.showsOn()) return { next: 0, album: [] };
+    if (!this.showsOn()) return { next: 0, album: [], promise: 0 };
     const sh = this.affShows();
-    return { next: SU.next(sh), album: SU.album(sh) };
+    return { next: SU.next(sh), album: SU.album(sh), promise: sh.promise || 0 };
   }
   // 演完（或跳過）：從待演拿掉、收進相簿；從相簿重看只記時間
-  finishShow(n, { skipped = false } = {}) {
+  // pick＝選了第幾個（0 起算）：有要記住的選項（第 4 階）就存成 shows.promise（1 起算）；只記第一次選的，重看再選不改
+  finishShow(n, { skipped = false, pick = null } = {}) {
     n = Number(n);
     if (!SU.SHOWS[n]) return { view: this.view() };
     const sh = this.affShows();
@@ -1081,8 +1082,13 @@ class Engine {
       sh.seen[n] = { at: now, skipped: !!skipped };
     } else if (sh.seen[n]) sh.seen[n] = { ...sh.seen[n], replayedAt: now };
     else return { view: this.view() }; // 還沒升到這一階
+    let promised = false;
+    const opts = SU.PROMISES[n];
+    if (opts && sh.promise == null && Number.isInteger(pick) && pick >= 0 && pick < opts.length) {
+      sh.promise = pick + 1; sh.promiseAt = now; promised = true;
+    }
     this.saveState();
-    return { first, title: SU.title(n), view: this.view() };
+    return { first, promised, title: SU.title(n), view: this.view() };
   }
   relationInfo() {
     if (!this.affOn()) return null;
