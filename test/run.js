@@ -523,6 +523,8 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   r = await E.chat('掰掰明天見');
   assert.ok(E.plan.progressLog.length === before && !E.state.wrapAsk.answered && tplOf('farewell_day').includes(r.lines[0].text), '只是掰掰：不記成今天的進度');
   r = await E.chat('沒有，明天見');
+  assert.ok(r.proposal && r.proposal.items[0].type === 'report' && !E.plan.progressLog.some((p) => p.date === '2026-11-03'), '先給確認卡，還沒記');
+  await E.confirmProposal(r.proposal.id);
   const rep = E.plan.progressLog.find((p) => p.date === '2026-11-03');
   assert.ok(rep && !rep.blocker && !rep.next, '「沒有，明天見」：沒有卡點，也不會把「見」當成明天要做的事 ' + JSON.stringify(rep));
   fs.rmSync(dir, { recursive: true, force: true });
@@ -4147,11 +4149,18 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(ln && /卡住/.test(ln.text) && E.state.wrapAsk && E.state.wrapAsk.date === '2026-10-15', '下班提醒問卡點：' + JSON.stringify(out));
   t += 5 * 60000;
   let r = await E.chat('卡在等廠商報價，明天先寫測試');
+  // 不一定要回報：先整理成確認卡（完成／卡點／明日），按確認才寫進計畫檔
+  assert.ok(r.proposal && r.proposal.kind === 'wrap' && r.proposal.items.length === 1 && r.proposal.items[0].type === 'report', '確認卡：' + JSON.stringify(r.proposal));
+  assert.ok(/完成 .*收資料/.test(r.proposal.items[0].label) && /卡點 等廠商報價/.test(r.proposal.items[0].label) && /明日 寫測試/.test(r.proposal.items[0].label), '卡片寫出要記的內容：' + r.proposal.items[0].label);
+  assert.ok(!E.plan.progressLog.some((x) => x.date === '2026-10-15') && !r.lines.some((l) => l.event === 'daily_report'), '確認之前不記');
+  assert.ok(require('../src/main/npc').TEMPLATES.wrap_confirm.some(([x]) => x.replace(/\{self\}/g, '艾琳') === r.lines[0].text), '她問要不要記：' + r.lines[0].text);
+  const xp0 = E.state.player.xp;
+  r = await E.confirmProposal(r.proposal.id);
   const p = E.plan.progressLog.find((x) => x.date === '2026-10-15');
   assert.ok(p && p.blocker === '卡在等廠商報價'.replace(/^卡在/, '') && p.next === '寫測試' && /收資料/.test(p.done), '記成今天的進度：' + JSON.stringify(p));
-  assert.ok(r.lines.some((l) => l.event === 'daily_report'), '艾琳回收工的話');
+  assert.ok(r.lines.some((l) => l.event === 'daily_report') && E.state.player.xp > xp0, '確認後：艾琳回收工的話、拿收工獎勵');
   r = await E.chat('今天天氣真好');
-  assert.ok(!r.lines.some((l) => l.event === 'daily_report'), '只接一次');
+  assert.ok(!r.proposal && !r.lines.some((l) => l.event === 'daily_report'), '只接一次');
   // 週五（最後一天）：下班後半小時自動交日誌
   t = new Date('2026-10-16T17:10:00').getTime();
   out = await E.tick();
@@ -4167,7 +4176,9 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.writePlan(E.planText.replace(/\n## 進度紀錄[\s\S]*$/, '\n'));
   await E.tick();
   t += 60000;
-  await E.chat('沒有，很順利');
+  r = await E.chat('沒有，很順利');
+  assert.ok(/今天沒有卡點/.test(r.proposal.items[0].label) && require('../src/main/npc').TEMPLATES.wrap_confirm_none.some(([x]) => x === r.lines[0].text), '沒有卡點的確認卡：' + r.proposal.items[0].label + ' / ' + r.lines[0].text);
+  await E.confirmProposal(r.proposal.id);
   assert.strictEqual(E.plan.progressLog.find((x) => x.date === '2026-10-16').blocker, '', '沒有卡點');
   // 問完卡點之後她又開了別的話題：冒險者是在回那句閒聊，不記成今天的卡點（11/2）
   t = new Date('2026-10-19T16:51:00').getTime(); E.state.reminded = {}; delete E.state.wrapAsk;
@@ -4200,8 +4211,31 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   t = new Date('2026-10-22T16:51:00').getTime(); E.state.reminded = {}; delete E.state.wrapAsk; E.dcState().pending = null;
   await E.tick();
   t += 20 * 60000;
-  await E.chat('卡在報價單');
-  assert.ok((E.plan.progressLog.find((x) => x.date === '2026-10-22') || {}).blocker === '報價單', '剛問完就回：照樣記');
+  r = await E.chat('卡在報價單');
+  await E.confirmProposal(r.proposal.id);
+  assert.ok((E.plan.progressLog.find((x) => x.date === '2026-10-22') || {}).blocker === '報價單', '剛問完就回：確認後照樣記');
+  // 按「先不要」：今天不記、她說一聲；之後說的話照一般聊天
+  t = new Date('2026-10-23T16:51:00').getTime(); E.state.reminded = {}; delete E.state.wrapAsk;
+  await E.tick();
+  t += 10 * 60000;
+  r = await E.chat('今天好累喔');
+  assert.ok(r.proposal && r.proposal.kind === 'wrap', '一樣先問');
+  const xp1 = E.state.player.xp;
+  r = E.cancelProposal();
+  assert.ok(require('../src/main/npc').TEMPLATES.wrap_skip.some(([x]) => x === r.lines[0].text) && !E.pendingProposal, '先不要：' + r.lines[0].text);
+  assert.ok(!E.plan.progressLog.some((x) => x.date === '2026-10-23') && E.state.player.xp === xp1, '不記、沒有收工獎勵');
+  t += 60000;
+  r = await E.chat('明天見～');
+  assert.ok(!r.proposal && !E.plan.progressLog.some((x) => x.date === '2026-10-23'), '之後的話不會再被當成回報');
+  // 不理確認卡、接著聊別的：也不會記（10/26 是光復節補假，不會問）
+  t = new Date('2026-10-27T16:51:00').getTime(); E.state.reminded = {}; delete E.state.wrapAsk;
+  await E.tick();
+  t += 10 * 60000;
+  r = await E.chat('剛剛看到一隻貓');
+  assert.ok(r.proposal && !E.plan.progressLog.some((x) => x.date === '2026-10-27'), '不理確認卡：不記');
+  // 自己按 🌙 收工回報填的：照舊直接記（不用再確認）
+  const rr = await E.dailyReport({ done: '收資料', blocker: '', next: '' });
+  assert.ok(E.plan.progressLog.some((x) => x.date === '2026-10-27') && rr.lines.some((l) => l.event === 'daily_report'), '收工回報表單：直接記');
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('收工測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -1581,8 +1581,18 @@ class Engine {
     const none = /^(?:沒有|沒|還好|都還好|順利|很順|ok|okay|沒什麼|不會|沒卡)/i.test(t);
     const nx = t.match(/明天(?!見)(?:要|會|再|先)?\s*(.+)$/);
     const blocker = none ? '' : (nx ? t.slice(0, nx.index) : t).replace(/^(?:卡在|卡住|有，?|嗯，?)/, '').replace(/[，,。\s]+$/, '').slice(0, 120);
+    const fields = { done: this.todayDone(today), blocker, next: nx ? nx[1].replace(/[。\s]+$/, '').slice(0, 120) : '' };
     this.state.chat.push({ role: 'user', content: text, quest: this.ps.activeQuestId || null, at: now.getTime() });
-    return this.dailyReport({ done: this.todayDone(today), blocker, next: nx ? nx[1].replace(/[。\s]+$/, '').slice(0, 120) : '' });
+    // 🌙 不一定要回報（11/2 使用者）：先整理成確認卡，按「確認」才寫進計畫檔、拿收工獎勵；按「先不要」或不理它都不記
+    const label = `寫收工回報：${[fields.done && `完成 ${fields.done}`, fields.blocker ? `卡點 ${fields.blocker}` : '今天沒有卡點', fields.next && `明日 ${fields.next}`].filter(Boolean).join('／')}`;
+    const proposal = { id: `p${Date.now()}`, kind: 'wrap', items: [{ type: 'report', key: 'report', fields, label }], text };
+    this.pendingProposal = proposal;
+    const line = { ...this.npc.template(blocker || fields.next ? 'wrap_confirm' : 'wrap_confirm_none', {}), event: 'chat' };
+    delete line.tpl;
+    this.state.chat.push({ role: 'assistant', content: JSON.stringify({ line: line.text, emotion: line.emotion }), source: 'template', quest: this.ps.activeQuestId || null, at: now.getTime() });
+    this.state.chat = this.state.chat.slice(-20);
+    this.saveState();
+    return this.settle({ lines: [line], proposal, view: this.view() });
   }
 
   async dailyReport(fields) {
@@ -2979,7 +2989,9 @@ class Engine {
   }
 
   cancelProposal() {
+    const p = this.pendingProposal;
     this.pendingProposal = null;
+    if (p && p.kind === 'wrap') { const l = { ...this.npc.template('wrap_skip', {}), event: 'chat' }; delete l.tpl; return { lines: [l], view: this.view() }; } // 收工回報按「先不要」：今天就不記
     return { lines: [{ text: '好，那就先不動。', emotion: 'normal', source: 'template', event: 'chat' }], view: this.view() };
   }
 
@@ -3033,6 +3045,9 @@ class Engine {
         bonus: submitted.onTime ? '準時加成！' : '',
         eventDetail: `透過聊天交付「${submitted.quest.title}」，這次總共獲得 ${total.xp} XP`,
       }));
+    } else if (done.length && items.every((x) => x.type === 'report')) { // 只有收工回報（收工時問卡點、確認後）：她回收工的話
+      const f = items[0].fields || {};
+      lines.push(await this.act('daily_report', { report: [f.done, f.blocker && `卡點：${f.blocker}`, f.next && `明天：${f.next}`].filter(Boolean).join('；') }));
     } else if (done.length) {
       const qv = G.questView(this.plan, this.ps, this.now()).find((x) => x.active);
       lines.push(await this.act('objective', { questView: qv, eventDetail: `照冒險者說的更新了進度：${done.join('、')}` }, { coalesce: 'objective' }));

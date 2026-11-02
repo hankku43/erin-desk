@@ -1245,9 +1245,10 @@ function showProposal(p) {
   state.proposal = p;
   if (!p) { el.classList.add('hidden'); el.innerHTML = ''; return; }
   // 問句留給艾琳的泡泡（「要幫你勾選…嗎？」），卡片只列她整理的項目，不再問第二次（10/14 L）
-  el.innerHTML = `<div class="pp-title">📋 ${esc(npcNameR())}整理的變更<small>${p.items.length > 1 ? '不要的取消勾選' : ''}</small></div>
+  const wrap = p.kind === 'wrap'; // 🌙 收工問卡點、回了之後：確認了才記（不一定要回報）
+  el.innerHTML = `<div class="pp-title">${wrap ? `🌙 ${esc(npcNameR())}整理的收工回報` : `📋 ${esc(npcNameR())}整理的變更`}<small>${p.items.length > 1 ? '不要的取消勾選' : ''}</small></div>
     ${p.items.map((it, i) => `<label class="pp-item"><input type="checkbox" data-pp="${i}" checked><span>${rich(it.label)}</span></label>`).join('')}
-    <div class="q-actions"><button class="btn small ghost" id="ppNo">先不要</button><button class="btn small gold" id="ppYes">✔ 確認更新</button></div>`;
+    <div class="q-actions"><button class="btn small ghost" id="ppNo">先不要</button><button class="btn small gold" id="ppYes">${wrap ? '✔ 記下來' : '✔ 確認更新'}</button></div>`;
   el.classList.remove('hidden');
 }
 $('#proposal').addEventListener('click', async (e) => {
