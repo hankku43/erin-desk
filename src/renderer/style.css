@@ -377,7 +377,7 @@ body.dozing #npcImg { --breathe: 5.5s; --look: 2.4deg; filter: drop-shadow(0 4px
 @keyframes emZz { 0% { opacity: 0; transform: translate(0, 0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(-16px, -26px); } }
 body.mini .emote { display: none; }
 /* 小聲說的一句（不開對話框） */
-.idle-whisper { position: absolute; top: 34px; right: 66%; white-space: nowrap; font-size: var(--fs-m); font-weight: 700; color: var(--ink); padding: 5px 11px; border-radius: var(--r-l);
+.idle-whisper { position: absolute; top: 34px; right: 66%; width: max-content; max-width: 250px; line-height: 1.45; font-size: var(--fs-m); font-weight: 700; color: var(--ink); padding: 5px 11px; border-radius: var(--r-l);
   background: rgba(255, 253, 247, .97); border: 2px solid var(--frame); box-shadow: var(--shadow); z-index: 3; pointer-events: none; }
 .idle-whisper::after { content: ''; position: absolute; right: -9px; top: 10px; border: 6px solid transparent; border-left-color: var(--frame); border-right: 0; }
 .idle-whisper.in { animation: balloonIn .3s ease-out; }

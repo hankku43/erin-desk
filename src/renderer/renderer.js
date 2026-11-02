@@ -206,8 +206,17 @@ async function onPat() {
   patAt = now;
   if (state.talking || state.typing || state.queue.length || state.proposal) return;
   if (state.view && state.view.focus && state.view.focus.active) return;
-  openDialog();
-  await run(() => api.poke('head', 'pat'), { talk: true, thinking: false });
+  // 摸頭的反應不需要回覆：不開對話框，用頭旁邊的小字說（跟待機自言自語同一個）；升階、成就之類跟著來的話才進對話框
+  let r;
+  try { r = await api.poke('head', 'pat'); } catch (_) { return; }
+  if (!r || !r.ok) return;
+  if (r.view) applyView(r.view);
+  const lines = r.lines || [];
+  const i = lines.findIndex((l) => l.touch === 'pat' || l.event === 'poke');
+  const mine = i >= 0 ? lines[i] : null;
+  const rest = lines.filter((_, k) => k !== i);
+  if (mine && window.Idle) window.Idle.perform({ type: 'pat', emotion: mine.emotion || 'happy', emote: 'pat', whisper: mine.text, ms: 3800, force: true });
+  if (rest.length) { openDialog(); enqueue(rest); }
 }
 
 async function onNpcClick(zone = null) {

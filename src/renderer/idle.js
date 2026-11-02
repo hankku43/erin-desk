@@ -58,7 +58,7 @@
     else if (a.emotion) tempEmotion(a.emotion);
     if (a.anim) img.classList.add(`idle-${a.anim}`);
     if (a.emote) showEmote(a.emote, a.ms || 2400);
-    if (a.whisper && !dialogOpen()) showWhisper(a.whisper, Math.max(a.ms || 0, 3800)); // 對話框開著：只冒泡泡，不跟對話框搶
+    if (a.whisper && (a.force || !dialogOpen())) showWhisper(a.whisper, Math.max(a.ms || 0, 3800)); // 對話框開著：只冒泡泡，不跟對話框搶（摸頭的反應 force：一定說）
     S.actTimer = setTimeout(endAct, a.ms || 2500);
   }
   function endAct() {

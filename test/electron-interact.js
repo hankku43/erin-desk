@@ -124,10 +124,15 @@ module.exports = ({ win, engine, app, runWeather }) => {
       assert(tilts.has('l') && tilts.has('r'), '摸頭的時候手套左右擺：' + [...tilts]);
       await wait(300);
       const patEm = await js(`!!document.querySelector('#npcWrap > .emote')`);
-      await wait(1200); await flush();
+      await wait(900);
       assert(pokes.some(([z, g]) => z === 'head' && g === 'pat'), '摸頭：' + JSON.stringify(pokes));
       assert(patEm, '摸頭冒小愛心');
-      console.log('摸頭：', await text());
+      // 11/2：摸頭的反應不開對話框，用頭旁邊的小字（跟待機自言自語同一個）
+      const pw = await js(`(()=>{const w=document.querySelector('#idleWhisper');return {shown:!!w&&!w.classList.contains('hidden'),text:w?w.textContent:'',dlg:!document.querySelector('#dialog').classList.contains('hidden'),r:w?w.getBoundingClientRect().left:0};})()`);
+      const { TEMPLATES } = require('../src/main/npc');
+      const patLines = Object.keys(TEMPLATES).filter((k) => /^touch_pat_/.test(k)).flatMap((k) => TEMPLATES[k].map(([t]) => t.replace(/\{self\}/g, '艾琳').replace(/\{call\}/g, '冒險者')));
+      assert(pw.shown && patLines.includes(pw.text) && pw.r >= 0, '摸頭：小字說、整句看得到：' + JSON.stringify(pw));
+      console.log('摸頭（小字）：', pw.text, '對話框開著：', pw.dlg);
       await shot('x05_pat');
       // ---- 🤔 幫她做決定：選項按鈕 ----
       engine.state.decide = { answers: {}, asked: {}, lastBigAt: Date.now() }; // 先問一件小事（大決定下面另外測）
