@@ -5084,12 +5084,21 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   console.log('改名漏網之魚測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
 
-// ---------- 🔔 收入撲滿：月薪 ÷ 240、只算上班時間、週末國定假日不算、月薪不給 AI ----------
+// ---------- 🔔 收入撲滿：月薪 ÷（這個月工作天數 × 每天工時）、午休不進帳、週末國定假日不算、月薪不給 AI ----------
 (() => {
   const INC = require('../src/renderer/income');
   const os = require('os');
   const close = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
-  assert.ok(close(INC.hourly(48000), 200) && close(INC.perSec(48000), 200 / 3600) && INC.hourly(0) === 0, '時薪＝月薪 ÷ 240');
+  // 11/9 使用者改：時薪＝月薪 ÷（這個月實際工作天數 × 每天工時），每天工時扣掉午休
+  const base = { monthly: 48000, start: '09:00', end: '18:00', lunch: ['12:00', '13:00'], monthDays: 20 };
+  assert.ok(close(INC.hourly(base), 300) && close(INC.perSec(base), 300 / 3600), '48000 ÷（20 天 × 8 小時）＝ 300');
+  assert.ok(close(INC.hourly({ ...base, lunch: null }), 48000 / (20 * 9)), '沒有午休：一天 9 小時');
+  assert.ok(close(INC.hourly({ ...base, monthDays: 22 }), 48000 / 176), '工作天多，時薪就少一點');
+  assert.ok(INC.hourly({ ...base, monthly: 0 }) === 0 && INC.hourly(null) === 0);
+  assert.strictEqual(INC.weekdaysIn(new Date(2026, 10, 9)), 21, '2026 年 11 月週一～五 21 天（備用算法）');
+  assert.ok(close(INC.hourly({ ...base, monthDays: undefined }, new Date(2026, 10, 9)), 48000 / (21 * 8)), '沒給天數：用週一～五');
+  // 一個月每個工作天都上滿＝剛好月薪
+  assert.ok(close(INC.perSec(base) * INC.workSecOf(base) * base.monthDays, 48000, 1e-6), '加起來剛好等於月薪');
   // 時段：上班～下班扣掉午休
   assert.deepStrictEqual(INC.windows({ start: '09:00', end: '18:00', lunch: ['12:00', '13:00'] }), [[540, 720], [780, 1080]]);
   assert.deepStrictEqual(INC.windows({ start: '09:00', end: '18:00' }), [[540, 1080]]);
@@ -5104,9 +5113,11 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.strictEqual(INC.workedSec(win, at(14)), 4 * 3600);
   assert.strictEqual(INC.workedSec(win, at(20)), 8 * 3600, '下班後停在一天的量');
   assert.ok(INC.working(win, at(10)) && !INC.working(win, at(12, 30)) && !INC.working(win, at(18)) && !INC.working(win, at(8, 59)));
-  const v = { on: true, monthly: 48000, start: '09:00', end: '18:00', lunch: ['12:00', '13:00'], workday: true, date: '2026-11-09' };
+  const v = { on: true, monthly: 48000, start: '09:00', end: '18:00', lunch: ['12:00', '13:00'], monthDays: 20, workday: true, date: '2026-11-09' };
   const t = INC.today(v, at(14));
-  assert.ok(close(t.earned, 800) && close(t.max, 1600) && t.working, '下午兩點：賺了 800（4 小時 × 200）：' + JSON.stringify(t));
+  assert.ok(close(t.earned, 1200) && close(t.max, 2400) && t.working, '下午兩點：賺了 1200（4 小時 × 300）：' + JSON.stringify(t));
+  const tl = INC.today(v, at(12, 30)), tl2 = INC.today(v, at(13));
+  assert.ok(!tl.working && close(tl.earned, 900) && close(tl2.earned, 900), '午休不進帳：12:30 和 13:00 一樣是 900');
   assert.ok(INC.today({ ...v, workday: false }, at(14)).off && INC.today({ ...v, workday: false }, at(14)).earned === 0, '休假不算');
   assert.strictEqual(INC.today({ ...v, date: '2026-11-08' }, at(14)).earned, 0, '日期不對（過了午夜還沒更新）：當 0');
   assert.strictEqual(INC.today({ ...v, on: false }, at(14)).earned, 0);
@@ -5117,7 +5128,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   // 檢查設定
   assert.ok(!INC.normalize({ monthly: 'abc' }).ok && !INC.normalize({ monthly: 0 }).ok && /晚/.test(INC.normalize({ monthly: 1, start: '18:00', end: '09:00' }).error));
   const nz = INC.normalize({ monthly: '48,000', start: '08:30', end: '17:30', interval: 60, countLeave: true });
-  assert.deepStrictEqual(nz.cfg, { enabled: true, monthly: 48000, start: '08:30', end: '17:30', interval: 60, countLeave: true, showTotal: true });
+  assert.deepStrictEqual(nz.cfg, { enabled: true, monthly: 48000, start: '08:30', end: '17:30', lunchStart: '12:00', lunchEnd: '13:00', interval: 60, countLeave: true, showTotal: true });
+  assert.ok(INC.normalize({ monthly: 1, lunchStart: '', lunchEnd: '' }).cfg.lunchStart === '', '午休兩格都清空＝不休');
+  assert.ok(/午休結束/.test(INC.normalize({ monthly: 1, lunchStart: '13:00', lunchEnd: '12:00' }).error) && /格式/.test(INC.normalize({ monthly: 1, lunchStart: '12:00', lunchEnd: '' }).error));
+  assert.ok(/沒有上班時間/.test(INC.normalize({ monthly: 1, start: '12:00', end: '13:00' }).error));
   assert.strictEqual(INC.normalize({ monthly: 1, interval: 7 }).cfg.interval, 1, '不在清單裡的間隔：每 1 秒');
   // 引擎：設定、午休跟作息、週末國定假日不算、請假看設定
   const { Engine } = require('../src/main/engine');
@@ -5132,7 +5146,14 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.setIncome({ monthly: 48000, start: '09:00', end: '18:00', interval: 5 });
   let iv = E.view().income;
   assert.ok(iv.on && iv.monthly === 48000 && iv.interval === 5 && iv.workday && iv.date === '2026-11-11', JSON.stringify(iv));
-  assert.deepStrictEqual(iv.lunch, ['12:00', '13:00'], '午休照作息設定');
+  assert.deepStrictEqual(iv.lunch, ['12:00', '13:00'], '午休預設 12:00～13:00');
+  assert.strictEqual(iv.monthDays, 21, '2026 年 11 月：21 個工作天（沒有國定假日）');
+  now = new Date(2026, 9, 14, 14, 0); assert.strictEqual(E.view().income.monthDays, 20, '2026 年 10 月：22 個平日扣掉國慶日補假 10/9、光復節補假 10/26');
+  now = new Date(2026, 10, 11, 14, 0);
+  E.setIncome({ monthly: 48000, start: '09:00', end: '18:00', lunchStart: '12:30', lunchEnd: '13:30', interval: 5 });
+  assert.deepStrictEqual(E.view().income.lunch, ['12:30', '13:30'], '午休可以自己改');
+  E.state.leave = { '2026-11-12': '特休' }; assert.strictEqual(E.view().income.monthDays, 21, '請假不扣工作天數');
+  E.state.leave = {};
   now = new Date(2026, 10, 14, 14, 0); assert.ok(!E.view().income.workday && E.view().income.dayKind === 'weekend', '週六不算');
   now = new Date(2026, 9, 10, 14, 0); assert.ok(!E.view().income.workday, '國慶日不算');
   now = new Date(2026, 10, 12, 14, 0); E.state.leave = { '2026-11-12': '特休' };

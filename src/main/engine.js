@@ -2969,11 +2969,18 @@ class Engine {
   // ---- 🔔 收入撲滿：月薪 ÷ 240＝時薪，只算上班時間（作息設定的午休不算）、週末和國定假日不算 ----
   //   月薪只放在 config.json 的 income，不會進給 AI 的提示（npc.js 不讀這個）
   incomeCfg() { return { ...INC.DEFAULTS, ...((this.config && this.config.income) || {}) }; }
+  // 午休：收入撲滿自己的設定（預設 12:00～13:00；兩個都空＝不休）
   incomeLunch() {
-    const items = ((this.config.reminders || {}).items) || [];
-    const at = (ev) => (items.find((x) => x.event === ev) || {}).time || null;
-    const a = at('lunch'), b = at('afternoon');
-    return a && b && INC.mm(b) > INC.mm(a) ? [a, b] : null;
+    const c = this.incomeCfg();
+    return c.lunchStart && c.lunchEnd && INC.mm(c.lunchEnd) > INC.mm(c.lunchStart) ? [c.lunchStart, c.lunchEnd] : null;
+  }
+  // 這個月的工作天數：扣掉週末、國定假日（補班日算），請假不扣（還是這個月的工作天）
+  incomeMonthDays(now = this.now()) {
+    const y = now.getFullYear(), m = now.getMonth(), n = new Date(y, m + 1, 0).getDate();
+    const opts = { ...this.calOpts(), leave: {}, restDays: (this.config.streak || {}).restDays || CAL.DEFAULTS.restDays };
+    let c = 0;
+    for (let d = 1; d <= n; d++) if (!CAL.dayInfo(G.todayISO(new Date(y, m, d)), opts).off) c++;
+    return c;
   }
   incomeView() {
     const c = this.incomeCfg();
@@ -2982,7 +2989,7 @@ class Engine {
     const workday = !off.off || (off.kind === 'leave' && !!c.countLeave);
     const on = !!c.enabled && Number(c.monthly) > 0;
     return {
-      on, set: Number(c.monthly) > 0, monthly: Number(c.monthly) || 0, start: c.start, end: c.end, lunch: this.incomeLunch(),
+      on, set: Number(c.monthly) > 0, monthly: Number(c.monthly) || 0, start: c.start, end: c.end, lunch: this.incomeLunch(), lunchStart: c.lunchStart || '', lunchEnd: c.lunchEnd || '', monthDays: this.incomeMonthDays(),
       interval: INC.INTERVALS.includes(Number(c.interval)) ? Number(c.interval) : 1, countLeave: !!c.countLeave, showTotal: c.showTotal !== false,
       date: today, workday, dayKind: off.kind || null, dayName: off.name || null,
     };

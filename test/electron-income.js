@@ -29,14 +29,17 @@ module.exports = ({ win, engine }) => {
       await wait(1500); await flush();
       await js('closePanel(); closeDialog(); 0'); await wait(300);
       assert(!(await js(`!!document.querySelector('#incomeBank')`)), '還沒設定：沒有撲滿');
-      // 1. 設定面板：填月薪 48000 → 時薪 200
+      // 1. 設定面板：填月薪 48000 → 時薪＝48000 ÷（這個月工作天 × 每天工時）
       await js(`openPanel('income'); 0`); await wait(400);
       assert(await js(`state.panel === 'income' && !!document.querySelector('#icMonthly')`), '面板打開');
       await set('icMonthly', 'abc'); await js(`document.querySelector('#icSave').click(); 0`); await wait(300);
       assert(/月薪要填/.test(await js(`document.querySelector('#icPreview').textContent`)) && await js(`state.panel === 'income'`), '亂填：不存、說原因');
       await set('icMonthly', '48,000'); await set('icStart', hm(s)); await set('icEnd', hm(e));
       const pv = await js(`document.querySelector('#icPreview').textContent`);
-      assert(/時薪 NT\$200/.test(pv) && /每秒 NT\$0\.06/.test(pv) && /每 1 秒 掉 NT\$0\.06/.test(pv), '預覽：' + pv);
+      const md = engine.view().income.monthDays, hrs = (e.getTime() - s.getTime()) / 3600000 - (await js(`(()=>{const a=document.querySelector('#icLunchA').value,b=document.querySelector('#icLunchB').value;const m=(x)=>+x.slice(0,2)*60+ +x.slice(3);const st=${s.getHours() * 60 + s.getMinutes()},en=${e.getHours() * 60 + e.getMinutes()};return Math.max(0,Math.min(m(b),en)-Math.max(m(a),st))/60;})()`));
+      const hr = 48000 / (md * hrs);
+      const f2 = (x) => (x < 1 ? x.toFixed(2) : x < 10 ? x.toFixed(1) : Math.round(x).toLocaleString('en-US'));
+      assert(pv.includes(`這個月 ${md} 個工作天`) && pv.includes(`時薪 NT$${f2(hr)}`) && pv.includes(`每 1 秒 掉 NT$${f2(hr / 3600)}`), `預覽（${md} 天 × ${hrs} 小時）：` + pv);
       await shot('i01_panel');
       await js(`document.querySelector('#icSave').click(); 0`);
       await until(`!!document.querySelector('#incomeBank') && state.panel === null`, 4000, '撲滿出現');
@@ -46,7 +49,8 @@ module.exports = ({ win, engine }) => {
       let coins = 0;
       for (let i = 0; i < 30; i++) { coins = Math.max(coins, await js(`document.querySelectorAll('#incomeBank .ib-coin').length`)); if (coins) break; await wait(100); }
       assert(coins >= 1, '掉硬幣');
-      assert(/^\+0\.06$/.test(await js(`(document.querySelector('#incomeBank .ib-plus')||{}).textContent||''`)), '飄 +0.06');
+      const plusTxt = await js(`(document.querySelector('#incomeBank .ib-plus')||{}).textContent||''`);
+      assert(/^\+\d+\.\d\d$/.test(plusTxt), '飄「+0.0x」：' + plusTxt);
       await wait(500); await shot('i02_drop');
       await wait(2200);
       const t2 = await js(`document.querySelector('#incomeBank .ib-total').textContent`);
@@ -55,7 +59,7 @@ module.exports = ({ win, engine }) => {
       assert(/^NT\$[\d,]+$/.test(t1) && /^NT\$[\d,]+$/.test(t2) && n(t2) >= n(t1), `撲滿下面只寫整數：${t1} → ${t2}`);
       assert(n(t2) === Math.floor(e1) || n(t2) === Math.floor(e1) + 1, `整數＝今天賺的無條件捨去：${t2} vs ${e1}`);
       const tip = await js(`document.querySelector('#incomeBank').dataset.tip`);
-      assert(/今天賺了 NT\$/.test(tip) && /時薪 NT\$200（月薪 ÷ 240）/.test(tip), '滑過：' + tip);
+      assert(/今天賺了 NT\$/.test(tip) && tip.includes(`月薪 ÷（這個月 ${md} 個工作天 × 每天`), '滑過：' + tip);
       // 3. 擺設是別的東西 → 撲滿在它右邊；奶茶再往右
       engine.state.shop.equip.desk = 'pigeon'; wc.send('view:update', { view: engine.view() }); await wait(500);
       const pos = await js(`(()=>{const b=document.querySelector('#incomeBank').getBoundingClientRect(),d=document.querySelector('#decor .d-desk').getBoundingClientRect();return {b:b.left,d:d.left,dr:d.right};})()`);

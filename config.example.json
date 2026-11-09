@@ -100,6 +100,8 @@
     "monthly": 0,
     "start": "09:00",
     "end": "18:00",
+    "lunchStart": "12:00",
+    "lunchEnd": "13:00",
     "interval": 1,
     "countLeave": false,
     "showTotal": true
