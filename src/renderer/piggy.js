@@ -121,6 +121,11 @@
   }
   window.renderIncomePanel = function (el, v) {
     const c = v.income || {};
+    if (!c.unlocked) { // 還沒買鈴鐺撲滿：先帶去雜貨舖
+      el.innerHTML = head('🔔 收入撲滿', '還沒有撲滿', '', '') + `<div class="panel-body form"><p class="hint">收入撲滿要先有一個<b>鈴鐺撲滿</b>：在雲朵雜貨舖的「🎨 裝飾 → 擺設」買（${typeof COIN !== 'undefined' ? COIN : ''}220）。買了就會放上櫃台，填了月薪，上班時間它就會叮叮地存錢。</p></div>
+        <div class="panel-foot"><span class="spacer"></span><button class="btn ghost" data-close>取消</button><button class="btn gold" id="icShop">🛒 去雜貨舖</button></div>`;
+      return;
+    }
     const opts = Income.INTERVALS.map((s) => `<option value="${s}"${s === (c.interval || 1) ? ' selected' : ''}>${Income.INTERVAL_LABEL[s]}</option>`).join('');
     el.innerHTML = head('🔔 收入撲滿', c.on ? '開著' : '還沒打開', '', '時薪＝月薪 ÷（這個月的工作天數 × 每天的工作時數）；工作天數扣掉週末和國定假日，每天的工作時數扣掉午休。月薪只存在這台電腦的設定檔，不會給 AI 看') + `<div class="panel-body form">
       <p class="hint">上班的時候，${esc(typeof npcNameR === 'function' ? npcNameR() : '艾琳')}腳邊的鈴鐺撲滿會一直「叮」地掉進硬幣，寫著今天賺了多少。午休、下班後、週末和國定假日不算。</p>
@@ -146,6 +151,7 @@
   });
   window.incomeClick = async function (e) {
     const t = e.target;
+    if (t.closest('#icShop')) { openShopPiggy(); return true; }
     if (t.closest('#icSave')) {
       const f = form();
       const r0 = Income.normalize({ ...f, enabled: true });
@@ -163,6 +169,14 @@
       return true;
     }
     return false;
+  };
+  // 🛒 打開雜貨舖的「裝飾」，亮一下鈴鐺撲滿（右鍵選單「收入撲滿（到雜貨舖買…）」、沒有撲滿時的設定面板）
+  window.openShopPiggy = function () {
+    openShop('decor');
+    if (typeof Coach === 'undefined' || (state.view && state.view.income && state.view.income.unlocked)) return;
+    Coach.run([{ id: 'piggy', target: '#panel [data-sp-buy="piggy"], #panel [data-sp-equip="desk:piggy"]', scope: '#panel', wait: () => !!(state.view && state.view.income && state.view.income.unlocked) || state.panel !== 'shop', block: false,
+      text: '<b>鈴鐺撲滿</b>在這裡！買了就會放上櫃台，填了月薪，上班時間它就會叮叮地存錢。' }],
+    { ...(typeof coachFace === 'function' ? coachFace() : {}), tipWidth: 290, skipLabel: '知道了' });
   };
   window.Piggy = { sync, drop, tick, P };
 })();

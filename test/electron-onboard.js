@@ -40,22 +40,21 @@ module.exports = ({ win, engine, app }) => {
       assert(/下載完成|已經下載好了/.test(await text('.ob-body')), '下載完成');
       await click('[data-ob-next]'); await wait(600);
       assert(engine.config.llm.model === 'qwen3:1.7b' && engine.config.llm.enabled, '設定成 1.7b 並開啟 AI');
-      // 3. 計畫：跟艾琳一起寫
+      // 3. 筆記本那步（11/9 起預設用筆記本寫；這裡換成看範例，筆記本的聚光燈在 electron-onboard-tour.js）
       await shot('o07_plan');
-      await type('#obQTitle', '整理月報'); await type('#obQObjs', '收齊各組數字\n寫摘要\n寄給主管');
-      await shot('o07b_plan_filled');
-      await click('[data-ob-create]'); await wait(800);
-      assert(engine.plan.quests.length === 1 && engine.plan.quests[0].objectives.length === 3, '建立了一個任務、三個目標');
-      assert(engine.planFile().startsWith(process.env.QUEST_NPC_HOME), '計畫檔在使用者資料夾：' + engine.planFile());
-      assert(await js(`state.ob.step === 'schedule'`), '建立後直接到作息');
-      // 換一種：看範例（再回來）
-      await click('[data-ob-back]'); await wait(300); await click('[data-ob-mode="sample"]'); await wait(200); await shot('o08_plan_sample');
-      await click('[data-ob-mode="write"]'); await wait(200); await click('[data-ob-next]'); await wait(400);
+      assert(await js(`!!document.querySelector('[data-ob-pd]')`), '預設是用筆記本寫');
+      await click('[data-ob-mode="sample"]'); await wait(200); await shot('o08_plan_sample');
+      await click('[data-ob-sample]'); await wait(800);
+      assert(engine.plan.quests.length > 0, '用範例計畫');
+      await click('[data-ob-next]'); await wait(400);
       // 4. 作息
       await shot('o09_schedule');
       await js(`document.querySelector('#obBackOn').checked=false; document.querySelector('#obIdle').value='0';`);
       await click('[data-ob-schedule]'); await wait(500);
       assert(engine.config.reminders.items.length === 2 && engine.config.window.idleChatterMinutes === 0, '作息存好了');
+      // 5a. 雜貨舖那步：先跳過（買撲滿的聚光燈在 electron-onboard-tour.js）
+      assert(await js(`state.ob.step === 'shop'`), '作息之後是雜貨舖');
+      await click('[data-ob-next]'); await wait(400);
       // 5. 完成
       await shot('o10_done');
       await click('[data-ob-finish]'); await wait(2500); await flush(); await wait(600); await shot('o11_first_lines');
@@ -63,8 +62,9 @@ module.exports = ({ win, engine, app }) => {
       // 6. 新手任務：任務板上方清單；勾一個目標
       await js(`openPanel('board')`); await wait(400); await shot('o12_tutorial_list');
       assert(/新手任務/.test(await text('.tut')), '任務板有新手任務');
-      const q = engine.plan.quests[0];
-      await js(`api.setObjective(${JSON.stringify(q.id)}, 0, true).then((r)=>{applyView(r.view); openDialog(); enqueue(r.lines);})`); await wait(1500); await flush(); await wait(500);
+      const q = engine.view().quests.find((x) => x.objectives.some((o) => !o.done));
+      const oi = q.objectives.findIndex((o) => !o.done);
+      await js(`api.setObjective(${JSON.stringify(q.id)}, ${oi}, true).then((r)=>{applyView(r.view); openDialog(); enqueue(r.lines);})`); await wait(1500); await flush(); await wait(500);
       await shot('o13_tutorial_step');
       assert(engine.tutorialInfo().count === 1, '勾目標完成一個新手任務');
       await js('closePanel()'); await wait(200);

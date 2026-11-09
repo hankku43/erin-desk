@@ -759,7 +759,9 @@ function menuTemplate() {
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
       { label: '🐰 棉棉和朵朵來櫃台串門子（下午茶外送、道賀、許願單）', type: 'checkbox', checked: engine.twCfg().enabled !== false, click: (m) => { const r = engine.setTwins(m.checked); push('view:update', { view: r.view }); } },
       { label: `☁ 天候水晶…（${engine.weatherOn() ? '開著' : '關著'}；打開會連網看天氣）`, click: open('weatherSet') },
-      { label: `🔔 收入撲滿…（${engine.incomeView().on ? '開著' : '關著'}；照月薪算上班時賺了多少）`, click: open('income') }, // 說明會送出什麼、選位置、開關都在這個面板
+      engine.incomeUnlocked() // 🔔 買了鈴鐺撲滿才能用（還沒買：帶去雜貨舖的擺設）
+        ? { label: `🔔 收入撲滿…（${engine.incomeView().on ? '開著' : '關著'}；照月薪算上班時賺了多少）`, click: open('income') }
+        : { label: '🔔 收入撲滿（到雲朵雜貨舖買「鈴鐺撲滿」就能用）…', click: open('shopPiggy') },
       { label: '🔒 Ollama 只在這台電腦（關掉雲端、自動下載更新、對外開放）', type: 'checkbox', checked: lockWanted(), click: (m) => menuSafe(async () => {
         if (m.checked) { const r = await lockOllama(OL.DEFAULT_WANT, { restart: true }); push('view:update', { view: engine.view(), reason: lockReason(r) }); return; }
         engine.saveConfigPatch({ ollamaLock: { cloud: false, autoUpdate: false, expose: false } });
@@ -978,6 +980,7 @@ app.whenReady().then(async () => {
   // 打開／關掉天候水晶、選位置（使用者在說明面板按的）。打開了就馬上看一次天空（不等它，畫面先回來）
   ipcMain.handle('income:set', wrap((f) => engine.setIncome(f && typeof f === 'object' ? f : {}))); // 🔔 收入撲滿的設定
   ipcMain.handle('income:mode', wrap((m) => engine.setIncomeMode(String(m || '')))); // 🔔 撲滿下面寫今天／這個月
+  ipcMain.handle('setup:shopGift', wrap(() => engine.obShopGift())); // 🎓 新手教學：雜貨舖那步的見面禮（剛好夠買鈴鐺撲滿）
   ipcMain.handle('weather:set', wrap((on, where) => { const r = engine.setWeather({ enabled: on === true, where: String(where || '').slice(0, 20) }); if (on === true) runWeather(true); return r; }));
   ipcMain.handle('npc:confirm', wrap((id, keep) => engine.confirmProposal(id, Array.isArray(keep) ? keep.map(Number) : null)));
   ipcMain.handle('npc:cancel', wrap(() => engine.cancelProposal()));
@@ -1009,7 +1012,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('raids:restore', raidWrap((key) => engine.restoreRaid(key)));
   ipcMain.handle('calendar:leave', raidWrap((date, on, note) => engine.setLeave(date, on !== false, note)));
   // 📓 艾琳的筆記本（委託）：主視窗只負責打開
-  ipcMain.handle('pd:open', wrap((which, opts) => { pdOpen(which, opts && typeof opts === 'object' ? { book: opts.book, day: opts.day } : {}); return {}; }));
+  ipcMain.handle('pd:open', wrap((which, opts) => { pdOpen(which, opts && typeof opts === 'object' ? { book: opts.book, day: opts.day, tour: opts.tour === true } : {}); return {}; })); // tour＝🎓 新手教學帶一遍
   // 大視窗
   ipcMain.handle('pd:get', wrap(() => {
     const normal = findImage('normal');
@@ -1055,7 +1058,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('pd:commit', wrap(async () => {
     const v = engine.pdView();
     let file = null, title;
-    if (v && v.target && v.target.kind === 'new') {
+    if (v && v.target && v.target.kind === 'new' && v.tour) { // 🎓 新手教學寫第一份計畫：不跳存檔視窗，放在使用者資料夾的 plans/
+      const t = engine.pdTourFile(v.week.start);
+      file = t.file; title = t.title;
+    } else if (v && v.target && v.target.kind === 'new') {
       const hint = engine.pdNewFileHint(v.week.start);
       let made = false;
       if (!fs.existsSync(hint.dir)) { try { fs.mkdirSync(hint.dir, { recursive: true }); made = true; } catch (_) { /* 開不了就讓視窗自己選 */ } }

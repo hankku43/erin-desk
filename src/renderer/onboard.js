@@ -2,18 +2,20 @@
 // 跟 renderer.js 共用全域的 state、$、esc、head、run、toast、openPanel、renderPanel…（renderer.js 先載入）
 'use strict';
 
+// 11/9 重新設計：「計畫」那步改成用筆記本寫第一份週計畫（聚光燈帶一遍），作息之後多一步「雜貨舖」（送金幣、自己買鈴鐺撲滿、放上收入撲滿）
 const OB_STEPS = [
   { key: 'welcome', label: '歡迎' },
   { key: 'basics', label: '操作' },
   { key: 'ai', label: '大腦' },
-  { key: 'plan', label: '計畫' },
+  { key: 'plan', label: '筆記本' },
   { key: 'schedule', label: '作息' },
+  { key: 'shop', label: '雜貨舖' },
   { key: 'done', label: '完成' },
 ];
 const npcName = () => (state.view && state.view.npc && state.view.npc.name) || '艾琳';
 
 function obState() {
-  if (!state.ob) state.ob = { step: 'welcome', basics: {}, probe: null, probing: false, pulls: {}, choice: undefined, planMode: 'write', planDone: null, embed: false };
+  if (!state.ob) state.ob = { step: 'welcome', basics: {}, probe: null, probing: false, pulls: {}, choice: undefined, planMode: 'pd', planDone: null, embed: false };
   return state.ob;
 }
 function openOnboard(step) {
@@ -105,7 +107,7 @@ function renderOnboard(el, v) {
   const back = '<button class="btn ghost" data-ob-back>← 上一步</button>';
   if (ob.step === 'welcome') {
     body = say(`初次見面！${esc(name)}是星盾公會晨風鎮分會、三號櫃台的接待員。<br>從今天起，你的每一件工作都是一個「任務」：完成目標就能拿到星屑（經驗值）和金幣，${esc(name)}會幫你記著進度、準時提醒你。`)
-      + say(`接下來大概花 3 分鐘，一起把櫃台準備好吧！每一步都可以跳過，之後右鍵選單的「🎓 新手教學」可以再看一次。`);
+      + say(`接下來大概花 5 分鐘：先把櫃台準備好，再帶你用一次<b>📓 筆記本</b>和<b>🛒 雜貨舖</b>。每一步都可以跳過，之後右鍵選單的「🎓 新手教學」可以再看一次。`);
     foot = `<button class="btn ghost" data-ob-skipall>我很熟了，全部跳過</button><span class="spacer"></span><button class="btn gold" data-ob-next>開始 →</button>`;
   }
   if (ob.step === 'basics') {
@@ -171,37 +173,39 @@ function renderOnboard(el, v) {
   }
   if (ob.step === 'plan') {
     const modes = [
-      ['write', '📝', '一起寫'],
+      ['pd', '📓', '用筆記本寫'],
       ['ics', '📅', '匯入行事曆'],
       ['file', '📂', '選擇檔案'],
       ['sample', '👀', '看範例'],
     ];
     const tabs = `<div class="ob-modes">${modes.map(([k, ic, t]) => `<button class="ob-mode ${ob.planMode === k ? 'on' : ''}" data-ob-mode="${k}"><span>${ic}</span><b>${esc(t)}</b></button>`).join('')}</div>`;
-    let inner = '', action = '';
-    if (ob.planMode === 'write') {
-      const pick = (val, icon, nm) => `<label class="tp ${val} ${val === 'major' ? 'on' : ''}"><input type="radio" name="qfTier" value="${val}" ${val === 'major' ? 'checked' : ''}>${icon} ${nm}</label>`;
-      inner = `<div class="form ob-form">
-        <p class="ob-tip">跟${esc(name)}說這週的第一件事，填個名字和要完成的步驟就好：</p>
-        <div class="field">📜 第一個任務<input id="obQTitle" placeholder="例如：完成週報" maxlength="80"></div>
-        <div class="field">☑ 要完成哪些事（一行一個）<textarea id="obQObjs" rows="3" placeholder="整理資料&#10;寫初稿&#10;寄給主管"></textarea></div>
-        <div class="field-row"><div class="field">🏷 重要程度<div class="tier-pick">${pick('main', '👑', '主線')}${pick('major', '⚔️', '重要')}${pick('side', '🌿', '有空再做')}</div></div>
-        <div class="field">📅 截止日<input type="date" id="obQDue"><small class="fnote">留空＝這週內</small></div></div>
-        <div class="field">🗂 這週的名稱（選填）<input id="obPTitle" placeholder="留空會自動取名，例如「我的一週 10/5–10/9」" maxlength="60"></div></div>`;
-      action = '<button class="btn gold" data-ob-create>📜 建立，下一步 →</button>';
+    const nb = v.onboarding && v.onboarding.notebook;
+    let inner = '', action = '', done = !!ob.planDone;
+    if (ob.planMode === 'pd') {
+      done = !!nb;
+      const pend = (v.planDraft && v.planDraft.changes) || 0;
+      inner = nb
+        ? `<div class="ob-status ok">✔ 寫好了「${esc(nb.title)}」${nb.later ? '（到那週一就會換上）' : `・${v.quests.length} 個任務`}</div><p class="hint">以後從首頁的「📓 筆記本」打開，加任務、改計畫、排時段、勾步驟都在那裡。</p>`
+        : `<div class="ob-learn"><div><b>1</b>跟${esc(name)}說這週要做的事</div><div><b>2</b>變成一張張委託便利貼</div><div><b>3</b>翻到時刻簿排時間</div><div><b>4</b>寫進計畫檔</div></div>`
+          + (pend ? `<div class="ob-status warn">筆記本裡還有 ${pend} 處還沒寫進計畫檔</div>` : '')
+          + `<small class="ob-note">筆記本會開另一個大視窗，${esc(name)}會在裡面一步一步帶你（隨時可以跳過）。寫好之後回到這裡接著下一步。</small>`;
+      action = `<button class="btn gold" data-ob-pd>📓 ${pend ? '回到筆記本' : '打開筆記本，開始寫'}</button>`;
     } else if (ob.planMode === 'ics') {
-      inner = `<div class="ob-help"><p><b>Google 日曆</b>：電腦版右上角 ⚙ 設定 →「匯入與匯出」→「匯出」，下載後解壓縮會得到 .ics 檔。</p><p><b>Outlook</b>：行事曆 → 檔案 →「另存行事曆」，存成 .ics。</p><p>${esc(name)}會把這週的行程抄進「今日行程」，整天的活動會變成那天的主題。要做的事再到週任務板「＋ 新任務」登記。</p></div>`;
+      inner = `<div class="ob-help"><p><b>Google 日曆</b>：電腦版右上角 ⚙ 設定 →「匯入與匯出」→「匯出」，下載後解壓縮會得到 .ics 檔。</p><p><b>Outlook</b>：行事曆 → 檔案 →「另存行事曆」，存成 .ics。</p><p>${esc(name)}會把這週的行程抄進「今日行程」，整天的活動會變成那天的主題。要做的事再到週任務板「＋ 新任務」登記，或打開「📓 筆記本」用說的。</p></div>`;
       action = '<button class="btn gold" data-ob-ics>📥 選擇 .ics 檔</button>';
     } else if (ob.planMode === 'file') {
       inner = `<div class="ob-help"><p>選一個 .md（Markdown）檔，${esc(name)}會照裡面的「## 任務」和「- [ ] 目標」派任務給你。格式可以參考你資料夾裡的 <code>plans/_template.md</code>。</p></div>`;
       action = '<button class="btn gold" data-ob-choose>📂 選擇檔案</button>';
     } else {
-      inner = `<div class="ob-help"><p>範例是一間咖啡店準備秋季新品的一週：有任務、每天的時段和提醒。先玩玩看，之後右鍵選單「選擇週計畫檔…」或重跑新手教學就能換成自己的。</p></div>`;
+      inner = `<div class="ob-help"><p>範例是一間咖啡店準備秋季新品的一週：有任務、每天的時段和提醒。先玩玩看，之後右鍵選單「選擇週計畫檔…」或打開「📓 筆記本」就能換成自己的。</p></div>`;
       action = '<button class="btn gold" data-ob-sample>👀 用範例計畫</button>';
     }
-    const doneNote = ob.planDone ? `<div class="ob-status ok">✔ ${esc(ob.planDone)}</div>` : '';
-    body = say(`${esc(name)}會照你的「週計畫」派任務。選一種最順手的開始吧：`) + tabs + doneNote + inner;
-    foot = ob.planDone
-      ? `${back}<span class="spacer"></span><button class="btn ghost" data-ob-redo>再換一份</button><button class="btn gold" data-ob-next>下一步 →</button>`
+    const doneNote = ob.planMode !== 'pd' && ob.planDone ? `<div class="ob-status ok">✔ ${esc(ob.planDone)}</div>` : '';
+    body = say(ob.planMode === 'pd'
+      ? `${esc(name)}會照你的「週計畫」派任務。最簡單的寫法是用說的：打開筆記本，跟${esc(name)}說這週要做什麼，${esc(name)}幫你整理好。第一次用，${esc(name)}帶你寫一遍！`
+      : `${esc(name)}會照你的「週計畫」派任務。選一種最順手的開始吧：`) + tabs + doneNote + inner;
+    foot = done
+      ? `${back}<span class="spacer"></span>${ob.planMode === 'pd' ? '' : '<button class="btn ghost" data-ob-redo>再換一份</button>'}<button class="btn gold" data-ob-next>下一步 →</button>`
       : `${back}<span class="spacer"></span><button class="btn ghost" data-ob-next>先跳過</button>${action}`;
   }
   if (ob.step === 'schedule') {
@@ -217,6 +221,20 @@ function renderOnboard(el, v) {
       + `<div class="field ob-idle">💬 ${esc(name)}主動找你聊天（越熟越常來）<select id="obIdle">${opt(30, '常常（約半小時）')}${opt(45, '偶爾（約 45 分鐘）')}${opt(60, '很少（約 1 小時）')}${opt(0, '不要主動找我')}</select></div>`;
     foot = `${back}<span class="spacer"></span><button class="btn gold" data-ob-schedule>儲存，下一步 →</button>`;
   }
+  if (ob.step === 'shop') {
+    const inc = v.income || {}, o = v.onboarding || {};
+    const art = typeof Art !== 'undefined' && Art.ornament ? Art.ornament('piggy') : '🔔';
+    const card = `<div class="ob-gift"><div class="ob-gift-art">${art}</div><div><b>鈴鐺撲滿</b><span class="chip">${COIN}220・櫃台的擺設</span><small>放上櫃台、填了月薪，上班時間每隔一下就「叮」地掉一枚硬幣，看得到今天賺了多少（月薪只存在這台電腦，不會給 AI 看）。</small></div></div>`;
+    if (o.piggy) {
+      body = say(inc.on ? `鈴鐺撲滿已經在${esc(name)}腳邊叮叮地存錢了！點撲滿可以改月薪、上下班時間。` : `你已經有鈴鐺撲滿了！填了月薪，上班時間它就會叮叮地存錢。`) + card
+        + say(`其他東西也一樣：完成任務拿到的金幣，在<b>🛒 雜貨舖</b>買禮物送${esc(name)}、換櫃台的裝飾、抽星座卡。`);
+      foot = `${back}<span class="spacer"></span>${inc.on ? '' : '<button class="btn" data-ob-income>🔔 設定收入撲滿</button>'}<button class="btn gold" data-ob-next>下一步 →</button>`;
+    } else {
+      body = say(`完成任務拿到的金幣，可以在棉棉和朵朵的<b>🛒 雲朵雜貨舖</b>花掉：送${esc(name)}禮物、換櫃台的裝飾、抽星座卡。`) + card
+        + say(o.gift ? `見面禮已經給你了，去雜貨舖買撲滿吧！` : `今天${esc(name)}先送你 <b>220 金幣</b>當見面禮，剛好夠買一個鈴鐺撲滿！${esc(name)}帶你去買～`);
+      foot = `${back}<span class="spacer"></span><button class="btn ghost" data-ob-next>先跳過</button><button class="btn gold" data-ob-shop>${o.gift ? '🛒 帶我去雜貨舖' : '🎁 收下金幣，帶我去雜貨舖'}</button>`;
+    }
+  }
   if (ob.step === 'done') {
     const pr = ob.probe;
     const pl = (state.pulls || {})[v.llm.model];
@@ -227,8 +245,10 @@ function renderOnboard(el, v) {
         : pr && pr.ollama !== 'running' ? `${v.llm.model}（等 Ollama 開了會自動接上）` : v.llm.model;
     const s = v.schedule || {};
     const times = [s.lunch && `${s.lunch} 午餐`, s.back && `${s.back} 開工`, s.wrap && `${s.wrap} 日報`].filter(Boolean).join('、') || '不提醒';
+    const inc = v.income || {};
+    const bank = inc.on ? '放在櫃台上，上班時間會叮叮地存錢' : v.onboarding && v.onboarding.piggy ? '放在櫃台上（填了月薪才會存錢，點撲滿就能填）' : '還沒買（之後在雜貨舖的「🎨 裝飾」買）';
     body = say(`準備好了！從現在起，${esc(name)}就是你的專屬櫃台接待員。`)
-      + `<div class="ob-summary"><div>🤖 大腦：<b>${esc(aiTxt)}</b></div><div>📜 計畫：<b>${esc(v.planTitle || '（還沒有）')}</b>・${v.quests.length} 個任務</div><div>⏰ 提醒：<b>${esc(times)}</b></div></div>`
+      + `<div class="ob-summary"><div>🤖 大腦：<b>${esc(aiTxt)}</b></div><div>📜 計畫：<b>${esc(v.planTitle || '（還沒有）')}</b>・${v.quests.length} 個任務</div><div>⏰ 提醒：<b>${esc(times)}</b></div><div>🔔 撲滿：<b>${esc(bank)}</b></div></div>`
       + say(`週任務板最上面有 7 個「新手任務」，照著做一遍就會用所有功能，每完成一個都有小獎勵喔～`);
     foot = `${back}<span class="spacer"></span><button class="btn gold" data-ob-finish>⚔ 開始冒險！</button>`;
   }
@@ -300,19 +320,16 @@ async function onboardClick(e) {
     obGo(1); return true;
   }
   const md = t.closest('[data-ob-mode]'); if (md) { ob.planMode = md.dataset.obMode; ob.planDone = null; renderPanel(); return true; }
-  if (t.closest('[data-ob-redo]')) { ob.planDone = null; renderPanel(); return true; }
-  if (t.closest('[data-ob-create]')) {
-    const title = $('#obQTitle').value.trim();
-    if (!title) { toast('⚠ 先幫第一個任務取個名字吧'); $('#obQTitle').focus(); return true; }
-    const tierEl = document.querySelector('input[name="qfTier"]:checked');
-    const quest = { title, tier: tierEl ? tierEl.value : 'major', deadlineLabel: isoToLabel($('#obQDue').value), objectives: $('#obQObjs').value.split('\n').map((x) => x.trim()).filter(Boolean) };
-    const r = await api.setupCreatePlan({ title: $('#obPTitle').value.trim(), quest });
-    if (!r || !r.ok) { toast(`⚠ ${r && r.error ? r.error : '建立失敗'}`, 4000); return true; }
-    applyView(r.view);
-    ob.planDone = `已建立「${r.view.planTitle}」，第一個任務是「${title}」`;
-    toast(`📜 ${ob.planDone}`, 3500);
-    obGo(1); return true;
+  if (t.closest('[data-ob-pd]')) { await api.pdOpen('this', { tour: true }); return true; } // 📓 筆記本（另開大視窗，聚光燈在那邊帶）
+  if (t.closest('[data-ob-shop]')) { // 🛒 送見面禮 → 收起新手教學面板，聚光燈帶去雜貨舖買鈴鐺撲滿
+    const r = await api.setupShopGift();
+    if (r && r.view) applyView(r.view);
+    if (r && r.gift) toast(`🎁 收到 ${r.gift} 金幣！`, 2600);
+    shopTour();
+    return true;
   }
+  if (t.closest('[data-ob-income]')) { shopTour(); return true; } // 已經有撲滿：直接帶去填月薪
+  if (t.closest('[data-ob-redo]')) { ob.planDone = null; renderPanel(); return true; }
   if (t.closest('[data-ob-ics]')) {
     const r = await api.setupImportIcs();
     if (!r || !r.ok) { toast(`⚠ ${r && r.error ? r.error : '匯入失敗'}`, 4000); return true; }
@@ -343,6 +360,35 @@ async function onboardClick(e) {
   }
   if (t.closest('[data-ob-finish]')) { await obFinish(); return true; }
   return false;
+}
+// 聚光燈對話框的頭像：從平常的立繪裁出臉（立繪 1093×1200，臉的中心約 (515,335)）
+function coachFace() {
+  const c = state.character || {};
+  const src = (c.images && c.images.normal) || '';
+  return src ? { face: src, faceCrop: { w: 1093, h: 1200, cx: 515, cy: 335, span: 250 } } : { face: c.mini };
+}
+// ---- 🛒 雜貨舖那步：聚光燈帶著買鈴鐺撲滿 → 填月薪 → 看撲滿掉硬幣 → 回到新手教學的「完成」 ----
+function shopTour() {
+  if (typeof Coach === 'undefined') { openShop('decor'); return; }
+  const inc = () => (state.view && state.view.income) || {};
+  const owned = () => !!inc().unlocked;
+  let salarySeen = false;
+  closePanel();
+  if ($('#dialog').classList.contains('hidden')) openDialog();
+  Coach.run([
+    { id: 'shopBtn', target: '#choices [data-act="shop"]', scope: '#dialog', skipIf: owned,
+      text: `金幣在<b>🛒 雜貨舖</b>花。點這裡打開<small>點左下角狀態欄的金幣也可以</small>`, wait: () => state.panel === 'shop' },
+    { id: 'decorTab', target: '#panel [data-sp-tab="decor"]', scope: '#panel', skipIf: owned, ensure: () => { if (!state.panel) openShop('decor'); },
+      text: '撲滿是櫃台的擺設，在<b>「🎨 裝飾」</b>這一頁', wait: () => state.panel === 'shop' && state.sp && state.sp.tab === 'decor' },
+    { id: 'buy', target: '#panel [data-sp-buy="piggy"]', scope: '#panel', skipIf: owned, ensure: () => { if (!state.panel) openShop('decor'); },
+      text: '找到了！<b>鈴鐺撲滿</b>，按「買」<small>買了會直接放上櫃台；拿到別的擺設也可以隨時換回來</small>', wait: owned },
+    { id: 'salary', target: () => { const i = $('#icMonthly'); return i && state.panel === 'income' ? i.closest('.field') : null; }, scope: '#panel', block: false, place: 'below-scope',
+      enter: () => { if (state.panel !== 'income' && state.panel !== 'shop') openPanel('income'); },
+      text: `撲滿放上櫃台了！<b>填你的月薪</b>，按「🔔 放上撲滿」，上班時間它就會叮叮地存錢。<small>月薪只存在這台電腦，不會給 AI 看；上下班、午休、多久掉一枚都可以改。不想填就按「取消」，撲滿當擺設也很可愛。</small>`,
+      wait: () => { if (state.panel === 'income') { salarySeen = true; return false; } return salarySeen; } },
+    { id: 'bank', target: '#incomeBank', scope: null, skipIf: () => !inc().on, wait: 'next', place: 'above',
+      text: `撲滿在這裡！上班時間每隔一下就「叮」地掉一枚硬幣，下面寫著今天賺了多少。<small>點撲滿可以改設定；縮成小貓時會先收起來。</small>` },
+  ], { ...coachFace(), tipWidth: 290, onEnd: (why) => { if (why !== 'replaced') { state.ob = state.ob || obState(); openOnboard('done'); } } });
 }
 async function obFinish() {
   const r = await api.setupFinish();

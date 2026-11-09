@@ -96,6 +96,7 @@ class Engine {
     this.lastTouch = this.now().getTime(); // 冒險者最後一次碰艾琳的視窗（主動聊天看這個決定要不要開口）
     // 新手引導：第一次用的人才需要；已經在用的存檔直接當作完成
     if (!this.state.onboarding) { this.state.onboarding = { done: !this.isFreshUser() }; this.saveState(); }
+    this.incomeMigrate(); // 🔔 收入撲滿改成「買了鈴鐺撲滿才能用」之前就在用的：直接送一個
     this.loadPlan();
   }
 
@@ -507,7 +508,8 @@ class Engine {
       divination: this.divineInfo(),
       fortune: this.fortuneToday(),
       affection: { cold: this.isCold(), fond: this.affOn() && this.affStage() >= 4, shows: this.showInfo() }, // 好感度本身不給畫面看；fond＝很熟了（待機會冒 ♡）；shows＝💗 頭上「!」要演哪一階、回憶相簿
-      onboarding: { needed: !(this.state.onboarding && this.state.onboarding.done), start: this.state.opening && this.state.opening.done ? 'basics' : 'welcome' }, // 演過開場就跳過「歡迎」那步
+      onboarding: { needed: !(this.state.onboarding && this.state.onboarding.done), start: this.state.opening && this.state.opening.done ? 'basics' : 'welcome', // 演過開場就跳過「歡迎」那步
+        notebook: (this.state.onboarding && this.state.onboarding.notebook) || null, gift: !!(this.state.obGifts && this.state.obGifts.piggy), piggy: this.incomeUnlocked() }, // 🎓 筆記本那步寫好了沒、雜貨舖那步的見面禮給過了沒、有沒有鈴鐺撲滿
       opening: { done: !!(this.state.opening && this.state.opening.done) },
       tutorial: this.tutorialInfo(),
       schedule: this.scheduleInfo(),
@@ -1234,6 +1236,17 @@ class Engine {
     return this.settle({ lines: [...g.lines, intro], view: this.view() });
   }
   restartOnboarding() { this.state.onboarding = { done: false }; this.saveState(); return { view: this.view() }; }
+  // 🎓 新手教學「雜貨舖」：送剛好夠買鈴鐺撲滿的金幣，讓冒險者自己走一次買東西（只送一次；已經有撲滿就不送）
+  obShopGift() {
+    if (this.incomeUnlocked()) return { owned: true, view: this.view() };
+    this.state.obGifts = this.state.obGifts || {};
+    if (this.state.obGifts.piggy) return { already: true, view: this.view() };
+    const price = S.ORN.piggy.price;
+    this.state.obGifts.piggy = this.now().toISOString();
+    const reward = G.grant(this.state, { xp: 0, gold: price }, `${this.config.npc.name}的見面禮（新手教學）`, this.config.rewards, this.now());
+    this.saveState();
+    return { gift: price, reward, view: this.view() };
+  }
   // 🎬 開場演完（或跳過）：接待員的名字寫進 config（自稱跟著變）、冒險者登記的名字和序章選的那句存進存檔
   // r：{ name, player, blank, echo, skipped }；keep＝重看時直接關掉，什麼都不改
   // ✏️ 接待員的名字寫進 config.json：自稱跟著變（範例設定的 selfName 寫死成艾琳）、口頭禪裡的名字也換；角色設定讀進來時會換成新名字
@@ -2317,10 +2330,18 @@ class Engine {
       else if (!path.relative(this.userDir, pdir).startsWith('..')) dir = pdir;
       const n2 = swap(path.basename(cur));
       if (n2) name = n2;
-      const t2 = this.plan && this.plan.title ? swap(this.plan.title) : null;
+      const sample = /^(week_sample|範例)/.test(path.basename(cur)); // 還在用範例計畫：標題不要照抄範例的（「秋季新品上市」）
+      const t2 = this.plan && this.plan.title && !sample ? swap(this.plan.title) : null;
       if (t2) title = t2;
     }
     return { dir, name, title, defaultPath: path.join(dir, name) };
+  }
+  // 🎓 新手教學寫第一份計畫：不跳存檔視窗，放在預設的位置（同名的檔案已經有了就加 (2)…，不覆蓋）
+  pdTourFile(start) {
+    const hint = this.pdNewFileHint(start);
+    let file = hint.defaultPath;
+    for (let i = 2; fs.existsSync(file) && i < 50; i++) file = path.join(hint.dir, `${path.basename(hint.name, '.md')} (${i}).md`);
+    return { file, title: hint.title };
   }
   pdView(start) {
     const s = start || this.state.pdWeek;
@@ -2340,6 +2361,7 @@ class Engine {
     return {
       ...v, today, nowHM: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`, book: this.state.pdBook === 'time' ? 'time' : 'quests', bookDay: this.state.pdBookDay || null,
       handFont: this.pdCfg().handFont !== false, // ✍ 手寫字型（芫荽 Iansui）
+      tour: !!this.pdTour, // 🎓 從新手教學打開：聚光燈帶一遍
       weeks, canPlay, ai: this.aiOn(), target: f ? { kind: f.kind, name: path.basename(f.file) } : { kind: 'new', name: hint.name, dir: path.basename(hint.dir) },
     };
   }
@@ -2392,7 +2414,9 @@ class Engine {
     return { steps };
   }
   // 打開筆記本：沒說哪一週＝週一～三這週、週四以後下週；之前打開過的那週優先
-  pdOpen(which, { book, day } = {}) {
+  // tour＝從新手教學打開（聚光燈帶一遍；這一週還沒有計畫檔時直接寫進預設的位置，不跳存檔視窗）
+  pdOpen(which, { book, day, tour } = {}) {
+    if (tour) { this.pdTour = true; which = which || 'this'; book = 'quests'; }
     const prev = this.state.pdWeek, pd = prev && this.pdDrafts()[prev];
     const start = which ? this.pdStartOf(which) : prev && prev >= PD.mondayOf(this.pdToday()) && pd && PD.changes(pd) ? prev : this.pdStartOf(); // 上次那頁還有沒寫進去的：翻回那頁
     this.state.pdWeek = start;
@@ -2522,6 +2546,7 @@ class Engine {
   }
   // 收起筆記本：修改都留著（下次接著）
   pdPause() {
+    this.pdTour = false;
     const d = this.pdCur();
     const n = d ? PD.changes(d) : 0;
     return { lines: [this.pdLine(n ? 'pd_paused' : 'pd_closed', { n })], view: this.view() };
@@ -2660,6 +2685,10 @@ class Engine {
       this.workDone = true;
     }
     for (const k of Object.keys(this.state.pdDone)) if (k < PD.addDays(today, -120)) delete this.state.pdDone[k];
+    if (this.pdTour) { // 🎓 新手教學的筆記本那步：寫好了（新手教學面板會打勾）
+      this.pdTour = false;
+      if (this.state.onboarding && !this.state.onboarding.done) this.state.onboarding.notebook = { at: this.now().toISOString(), file: path.basename(out), title: ((switched || (f && f.kind === 'current')) && this.plan && this.plan.title) || title || path.basename(out, '.md'), later };
+    }
     // 寫進去了：這一週的草稿重新從檔案讀（還沒解決的「不確定」留著）
     const unsure = d.unsure, log = d.log.slice(-10);
     delete this.pdDrafts()[d.week.start];
@@ -2990,15 +3019,24 @@ class Engine {
     }
     return { days, past };
   }
+  // 買了鈴鐺撲滿（雜貨舖的擺設）才能用；改成這樣之前就在用的存檔直接送一個（不換上擺設）
+  incomeUnlocked() { return !!(this.state.shop && this.state.shop.owned && this.state.shop.owned.piggy); }
+  incomeMigrate() {
+    const c = this.incomeCfg();
+    if (!c.enabled || !(Number(c.monthly) > 0) || this.incomeUnlocked() || !this.state.shop) return;
+    this.state.shop.owned.piggy = true;
+    this.saveState();
+  }
   incomeView() {
     const c = this.incomeCfg();
     const today = G.todayISO(this.now());
     const off = this.dayOff(today);
     const workday = !off.off || (off.kind === 'leave' && !!c.countLeave);
-    const on = !!c.enabled && Number(c.monthly) > 0;
+    const unlocked = this.incomeUnlocked();
+    const on = unlocked && !!c.enabled && Number(c.monthly) > 0;
     const mo = this.incomeMonth();
     return {
-      on, set: Number(c.monthly) > 0, monthly: Number(c.monthly) || 0, start: c.start, end: c.end, lunch: this.incomeLunch(), lunchStart: c.lunchStart || '', lunchEnd: c.lunchEnd || '', monthDays: mo.days, monthPastDays: mo.past, totalMode: c.totalMode === 'month' ? 'month' : 'day',
+      on, unlocked, set: Number(c.monthly) > 0, monthly: Number(c.monthly) || 0, start: c.start, end: c.end, lunch: this.incomeLunch(), lunchStart: c.lunchStart || '', lunchEnd: c.lunchEnd || '', monthDays: mo.days, monthPastDays: mo.past, totalMode: c.totalMode === 'month' ? 'month' : 'day',
       interval: INC.INTERVALS.includes(Number(c.interval)) ? Number(c.interval) : 1, countLeave: !!c.countLeave, showTotal: c.showTotal !== false,
       date: today, workday, dayKind: off.kind || null, dayName: off.name || null,
     };
@@ -3008,6 +3046,7 @@ class Engine {
   // 設定（面板存的）：enabled＝false 只是收起來，月薪留著
   setIncome(f = {}) {
     if (f.enabled === false && !f.monthly) { this.saveConfigPatch({ income: { enabled: false } }); return { view: this.view() }; }
+    if (f.enabled !== false && !this.incomeUnlocked()) throw new Error('先到雲朵雜貨舖買「鈴鐺撲滿」，才能放上收入撲滿');
     const r = INC.normalize(f);
     if (!r.ok) throw new Error(r.error);
     this.saveConfigPatch({ income: r.cfg });

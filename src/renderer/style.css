@@ -751,6 +751,17 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .ob-mode b { font-size: var(--fs-s); }
 .ob-mode.on { border-color: var(--gold); background: var(--gold-soft); }
 .ob-form, .ob-help { background: var(--paper-2); border: 2px dashed var(--line); border-radius: var(--r-m); padding: 9px 10px 6px; }
+.ob-modes .ob-mode b { white-space: nowrap; }
+/* 🎓 筆記本那步：會學到的四件事 */
+.ob-learn { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 2px 0 8px; }
+.ob-learn div { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border: 2px dashed var(--line); border-radius: var(--r-m); background: var(--paper-2); font-size: var(--fs-s); font-weight: 700; line-height: 1.35; }
+.ob-learn b { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--navy); color: var(--head-ink); font-size: var(--fs-xs); display: grid; place-items: center; }
+/* 🎓 雜貨舖那步：鈴鐺撲滿的卡片 */
+.ob-gift { display: flex; gap: 10px; align-items: center; padding: 8px 10px; margin: 4px 0 8px; border: 2px solid var(--gold); border-radius: var(--r-m); background: linear-gradient(135deg, var(--gold-wash), var(--surface)); }
+.ob-gift-art { flex: none; width: 64px; height: 64px; display: grid; place-items: center; }
+.ob-gift-art svg { width: 64px; height: 64px; }
+.ob-gift b { font-size: var(--fs-l); margin-right: 6px; }
+.ob-gift small { display: block; margin-top: 3px; font-size: var(--fs-s); line-height: 1.55; color: var(--ink-soft); }
 .ob-help p { margin: 0 0 6px; font-size: var(--fs-s); line-height: 1.6; }
 .ob-time { display: grid; grid-template-columns: 20px 1fr 110px; align-items: center; gap: 6px; padding: 6px 8px; margin: 4px 0; border: 2px solid var(--line); border-radius: var(--r-m); background: var(--surface); font-size: var(--fs-m); font-weight: 700; }
 .ob-time input[type="time"] { border: 2px solid var(--line); border-radius: var(--r-m); padding: 3px 6px; font: inherit; font-weight: 400; }

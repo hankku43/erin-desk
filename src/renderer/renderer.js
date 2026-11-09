@@ -598,7 +598,7 @@ function applyView(v) {
   // 計畫檔的問題：同一句只提醒一次（以前每次畫面更新都再跳一次，10/14 C）；問題解決了再出現才會再說
   if (!v.planError) state.lastPlanError = null;
   else if (v.planError !== state.lastPlanError && !(v.onboarding && v.onboarding.needed) && state.panel !== 'onboard') { toast(`⚠ ${v.planError}`, 6000); state.lastPlanError = v.planError; }
-  if (state.panel && !FORM_PANELS.has(state.panel)) renderPanel();
+  if (state.panel && (!FORM_PANELS.has(state.panel) || (state.panel === 'onboard' && state.ob && ['plan', 'shop', 'done'].includes(state.ob.step)))) renderPanel(); // 🎓 新手教學的筆記本、雜貨舖那步沒有要打字的欄位：筆記本寫好、金幣變了要跟著更新
 }
 // 日期小工具：<input type="date"> 的值 ↔ 計畫檔裡的 M/D
 function isoToLabel(isoDate) {
@@ -1950,6 +1950,7 @@ api.on('ui:open', (kind) => {
   if (kind === 'notebook') { openNotebook(); return; }
   if (kind === 'journal') { openJournal(); return; }
   if (kind === 'shop') { openShop(); return; }
+  if (kind === 'shopPiggy') { openShopPiggy(); return; } // 🔔 還沒買鈴鐺撲滿：帶去雜貨舖
   if (kind === 'collection') { openCollection('ach'); return; }
   if (kind === 'pdNote') { openPdNote(); return; }
   openPanel(kind); if (kind === 'daily') run(() => api.daily(), { talk: true });

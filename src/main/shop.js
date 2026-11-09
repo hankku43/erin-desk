@@ -40,7 +40,7 @@ const ORNAMENTS = [
   { id: 'lantern', slot: 'hang', name: '點星祭燈籠', price: 260, desc: '上面可以寫一個願望。' },
   { id: 'bluebell', slot: 'desk', name: '藍鈴花盆栽', price: 160, desc: '要記得澆水，艾琳會幫忙。' },
   { id: 'pillow', slot: 'desk', name: '魚形麵包抱枕', price: 200, desc: '軟軟的，看起來很好吃，不能吃。' },
-  { id: 'piggy', slot: 'desk', name: '鈴鐺撲滿', price: 220, desc: '搖起來的聲音是世界上第二好聽的聲音。' },
+  { id: 'piggy', slot: 'desk', name: '鈴鐺撲滿', price: 220, desc: '🔔 填了月薪，上班時間會叮叮地存錢（收入撲滿）。搖起來的聲音是世界上第二好聽的聲音。' },
   { id: 'pigeon', slot: 'desk', name: '三號鴿子', price: 240, desc: '公會閣樓的傳信鴿。很愛在窗台上睡覺。' },
   { id: 'sealbox', slot: 'desk', name: '蠟封章木盒', price: 300, desc: '放蠟封章收藏的木盒，打開會有一點點蠟的味道。' },
 ];

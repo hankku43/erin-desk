@@ -340,7 +340,7 @@ function renderConfirm() {
   if (!S.confirm) { el.classList.add('hidden'); syncAlerts(); return; }
   S.warnOpen = false; renderWarns();
   const d = S.d, t = d.target || {};
-  const msg = t.kind === 'new' ? `這一週還沒有計畫檔：要寫成新檔嗎？（下一步選要存在哪裡，建議 ${t.dir}\\${t.name}）` : `把 ${d.changes} 處修改寫進「${t.name}」？（寫之前會先備份）`;
+  const msg = t.kind === 'new' ? (d.tour ? `這一週還沒有計畫檔：寫成新檔「${t.name}」（放在你資料夾的 ${t.dir} 裡）` : `這一週還沒有計畫檔：要寫成新檔嗎？（下一步選要存在哪裡，建議 ${t.dir}\\${t.name}）`) : `把 ${d.changes} 處修改寫進「${t.name}」？（寫之前會先備份）`;
   const more = [];
   if (d.checks.length) more.push(`還有 ${d.checks.length} 個紅筆圈起來的地方`);
   if (d.unsure.length) more.push(`${d.unsure.length} 件不確定的不會寫進去`);
@@ -635,6 +635,7 @@ document.addEventListener('click', async (e) => {
     if (!r || !r.ok) { say(`嗯……寫不進去：${(r && r.error) || '不知道為什麼'}。筆記本還在，再試一次看看？`, 'worried'); return; }
     stampFx();
     apply(r);
+    S.tourCommitted = true; // 🎓 新手教學：寫好了就往下一步
     setTimeout(() => { sayLine(r.lines); face('happy'); if (r.reward) floatReward(r.reward); }, 900);
     return;
   }
@@ -805,6 +806,35 @@ function stampFx() {
   face('stamp');
   clearTimeout(S.stampT); S.stampT = setTimeout(() => el.classList.add('hidden'), 2000);
 }
+// ---- 🎓 新手教學：聚光燈帶一遍（說一句 → 便利貼 → 時刻簿 → 寫進計畫檔 → 回櫃台）----
+function startTour() {
+  if (S.tourOn || typeof Coach === 'undefined' || !S.d) return;
+  S.tourOn = true; S.tourCommitted = false;
+  const n0 = (S.d.log || []).length;
+  const fresh = () => ['quests', 'rows', 'reminders'].some((k) => (S.d[k] || []).some((x) => x.st === 'new'));
+  const newest = () => { // 剛記下的那一項（看得到的那個）
+    const L = (S.d.log || [])[S.d.log.length - 1];
+    for (const id of [...((L && L.ids) || [])].reverse()) { const el = document.querySelector(`[data-edit="${CSS.escape(id)}"]`); if (el && el.getBoundingClientRect().width) return el; }
+    return document.querySelector('.sticky.st-new') || null;
+  };
+  Coach.run([
+    { id: 'say', target: '#sayForm', place: 'above', wait: () => (S.d.log || []).length > n0 && fresh(),
+      text: `這週要做什麼，跟${esc(S.name)}說就好！打一句試試，按 Enter。<small>例如「週五前交週報，要先整理資料、寫初稿」；一次說好幾件、整段貼上都可以</small>` },
+    { id: 'note', target: newest, wait: 'next',
+      text: `${esc(S.name)}把這句記成<b>委託便利貼</b>了！鉛筆的＝還沒寫進計畫檔。<small>點便利貼可以改名稱、截止日、步驟；記錯了，按下面那句旁邊的 ✕ 收回。還有別的事，繼續說就好</small>` },
+    { id: 'time', target: '#tabs .bm-t', place: 'left', wait: () => S.book === 'time',
+      text: `右邊的書籤翻到<b>🕘 時刻簿</b>：每天幾點做什麼，排在這裡。點一下看看` },
+    { id: 'tray', target: () => document.querySelector('#pageTime .tray') || document.querySelector('#timeArea'), place: 'left', wait: 'next',
+      text: `右邊的委託可以<b>拖到時間上</b>排一格；點空白的地方也能加一格。<small>直接說「週二下午兩點到三點開會」也會記到這裡</small>` },
+    { id: 'commit', target: '#bCommit', wait: () => S.confirm || S.tourCommitted,
+      text: `說完、排好了，就按<b>「✔ 寫進計畫檔」</b>。櫃台的週任務板和今日行程會照這份派任務給你` },
+    { id: 'go', target: '#confirm [data-go]', wait: () => S.tourCommitted, skipIf: () => S.tourCommitted,
+      text: `再按<b>「✔ 寫進去」</b>就好了` },
+    { id: 'stamp', target: null, scope: null, tip: false, wait: () => { const st = $('#stamp'); return !st || st.classList.contains('hidden'); } }, // 蓋章動畫演完再說話，才不會被章蓋住
+    { id: 'end', target: null, wait: 'next', next: '回到櫃台 →',
+      text: `寫好了，蓋章！<br>以後從首頁的<b>📓 筆記本</b>打開，加任務、改計畫、勾步驟都在這裡。<small>接下來回櫃台，把作息和雜貨舖也準備好</small>` },
+  ], { face: ART('thumb_3.webp'), tipWidth: 340, onEnd: (why) => { S.tourOn = false; if (why === 'done') window.pd.close(); } });
+}
 document.addEventListener('keydown', (e) => {
   if (e.isComposing) return;
   if (e.key === 'Escape') { if (S.pop) closePop(); else if (S.confirm) { S.confirm = false; renderConfirm(); } else if (S.menu) { S.menu = false; $('#moreMenu').classList.add('hidden'); } else if (S.warnOpen) { S.warnOpen = false; renderWarns(); } return; }
@@ -927,4 +957,5 @@ document.addEventListener('mouseover', (e) => {
   if (r.lines && r.lines.length) sayLine(r.lines); else say(`這週的計畫長這樣，要加、要改都跟${S.name}說～`, 'happy');
   if (S.d && !S.d.ai) setTimeout(() => { $('#say').textContent += '（AI 現在沒開：用規則記，也可以點每一項自己改）'; }, 50);
   setTimeout(() => $('#sayInput').focus(), 300);
+  if (S.d && S.d.tour) setTimeout(startTour, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 300 : 1900); // 🎓 從新手教學打開：等翻開的過場演完
 })();

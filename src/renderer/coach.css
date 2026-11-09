@@ -1,0 +1,33 @@
+/* 🔦 聚光燈教學（coach.js）：主視窗、筆記本大視窗共用 */
+.coach { position: fixed; inset: 0; z-index: 35; pointer-events: none; font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC", sans-serif; }
+.coach.hidden { display: none; }
+.co-scope { position: fixed; overflow: hidden; pointer-events: none; border-radius: 14px; }
+.co-hole { position: absolute; border-radius: 10px; box-shadow: 0 0 0 4000px rgba(14, 18, 40, .58); transition: left .25s, top .25s, width .25s, height .25s; }
+.co-hole.none { box-shadow: 0 0 0 4000px rgba(14, 18, 40, .45); }
+.co-ring { position: fixed; border-radius: 10px; border: 3px solid #ffd66b; box-shadow: 0 0 0 3px rgba(255, 214, 107, .35), 0 0 18px rgba(255, 200, 60, .9); pointer-events: none; animation: coRing 1.3s ease-in-out infinite; transition: left .25s, top .25s, width .25s, height .25s; }
+@keyframes coRing { 50% { box-shadow: 0 0 0 7px rgba(255, 214, 107, .18), 0 0 26px rgba(255, 200, 60, 1); } }
+.co-block { position: fixed; pointer-events: auto; background: transparent; cursor: not-allowed; }
+.co-tip { position: fixed; pointer-events: auto; display: flex; gap: 10px; align-items: flex-start; box-sizing: border-box; padding: 10px 12px 9px; border-radius: 14px;
+  background: #fffdf7; color: #2a2d4a; border: 2.5px solid #34437a; box-shadow: 0 10px 26px rgba(14, 18, 40, .4), inset 0 0 0 3px #fff7e6; animation: coIn .28s cubic-bezier(.3, 1.5, .5, 1) both; transition: left .25s, top .25s; }
+.co-tip::after { content: ''; position: absolute; left: var(--ax, 50%); width: 14px; height: 14px; margin-left: -7px; background: #fffdf7; border: 2.5px solid #34437a; transform: rotate(45deg); display: none; }
+.co-tip[data-side="down"]::after { display: block; top: -9px; border-right: 0; border-bottom: 0; }
+.co-tip[data-side="up"]::after { display: block; bottom: -9px; border-left: 0; border-top: 0; }
+.co-tip.nudge { animation: coNudge .4s; }
+@keyframes coIn { from { opacity: 0; transform: translateY(8px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes coNudge { 20% { translate: -6px 0; } 40% { translate: 6px 0; } 60% { translate: -4px 0; } 80% { translate: 3px 0; } }
+.co-face { flex: none; width: 46px; height: 46px; border-radius: 50%; overflow: hidden; background: #e4f2ff; border: 2px solid #f0b23a; display: grid; place-items: center; font-size: 26px; }
+.co-face { position: relative; }
+.co-face img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 12%; }
+.co-face img.crop { position: absolute; max-width: none; object-fit: fill; }
+.co-body { flex: 1; min-width: 0; }
+.co-text { font-size: 14px; line-height: 1.6; font-weight: 600; }
+.co-text b { color: #a05a00; }
+.co-text small { display: block; font-weight: 500; font-size: 12px; color: #6c6f8e; margin-top: 2px; }
+.co-btns { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.co-grow { flex: 1; }
+.co-count { font-size: 12px; color: #8a8ca6; font-weight: 700; }
+.co-skip { background: none; border: 0; padding: 2px 0; font-size: 12px; font-weight: 600; font-family: inherit; color: #8a8ca6; text-decoration: underline; cursor: pointer; }
+.co-skip:hover { color: #34437a; }
+.co-next { padding: 5px 14px 6px; border-radius: 10px; border: 2px solid #c98a15; background: linear-gradient(180deg, #ffe39a, #f0b23a); color: #4a2e00; font-size: 13px; font-weight: 800; font-family: inherit; cursor: pointer; box-shadow: 0 2px 0 #c98a15; }
+.co-next.hidden { display: none; }
+@media (prefers-reduced-motion: reduce) { .co-ring, .co-tip { animation: none; } .co-hole, .co-ring, .co-tip { transition: none; } }

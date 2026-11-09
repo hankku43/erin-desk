@@ -5146,6 +5146,8 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   let now = new Date(2026, 10, 11, 14, 0); // 週三
   const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => now });
   assert.ok(!E.view().income.on && !E.view().income.set, '預設關著');
+  assert.throws(() => E.setIncome({ monthly: 48000 }), /鈴鐺撲滿/, '還沒買鈴鐺撲滿：不能打開（11/9）');
+  E.state.shop.owned.piggy = true; // 買了撲滿（雜貨舖、新手教學的流程在「新手教學：筆記本與雜貨舖」測試）
   assert.throws(() => E.setIncome({ monthly: 'x' }), /月薪/);
   E.setIncome({ monthly: 48000, start: '09:00', end: '18:00', interval: 5 });
   let iv = E.view().income;
@@ -5184,3 +5186,100 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('收入撲滿測試通過 ✔');
 })();
+
+// ---------- 🎓 新手教學（11/9 重新設計）：筆記本那步（聚光燈、第一份計畫不跳存檔視窗）、雜貨舖那步（見面禮、買鈴鐺撲滿＝解鎖收入撲滿） ----------
+(() => {
+  const root = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
+  // 1. 畫面：七個步驟、聚光燈兩個視窗都載入、舊的「一起寫」表單拿掉
+  const ob = read('src/renderer/onboard.js');
+  const steps = [...ob.slice(ob.indexOf('const OB_STEPS'), ob.indexOf('];', ob.indexOf('const OB_STEPS'))).matchAll(/key: '(\w+)'/g)].map((m) => m[1]);
+  assert.deepStrictEqual(steps, ['welcome', 'basics', 'ai', 'plan', 'schedule', 'shop', 'done']);
+  assert.ok(/planMode: 'pd'/.test(ob) && /api\.pdOpen\('this', \{ tour: true \}\)/.test(ob) && !/obQTitle/.test(ob), '筆記本那步：預設用筆記本寫、舊表單拿掉');
+  assert.ok(/api\.setupShopGift\(\)/.test(ob) && /data-sp-buy="piggy"/.test(ob) && /#icMonthly/.test(ob), '雜貨舖那步：見面禮、指著鈴鐺撲滿、填月薪');
+  for (const [html, after] of [['src/renderer/index.html', 'onboard.js'], ['src/renderer/plandraft.html', 'plandraft.js']]) {
+    const h = read(html);
+    assert.ok(h.includes('href="coach.css"') && h.indexOf('src="coach.js"') > 0 && h.indexOf('src="coach.js"') < h.indexOf(`src="${after}"`), html + ' 載入聚光燈');
+  }
+  const coach = read('src/renderer/coach.js');
+  assert.ok(/data-hit/.test(coach) && /跳過教學/.test(coach), '聚光燈：透明視窗點得到（data-hit）、可以跳過');
+  const pd = read('src/renderer/plandraft.js');
+  assert.ok(/function startTour/.test(pd) && /S\.d\.tour/.test(pd) && /thumb_3\.webp/.test(pd), '筆記本的聚光燈');
+  assert.ok(fs.existsSync(path.join(root, 'assets', 'stageup', 'thumb_3.webp')), '筆記本聚光燈的頭像');
+  // 2. 引擎
+  const os = require('os');
+  const { Engine } = require('../src/main/engine');
+  const S = require('../src/main/shop');
+  const mk = (cfg = {}) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-ob2-'));
+    fs.mkdirSync(path.join(dir, 'plans'));
+    fs.copyFileSync(path.join(root, 'plans', 'week_sample.md'), path.join(dir, 'plans', 'week_sample.md'));
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plans/week_sample.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: path.join(root, 'lore', '艾琳.md'), embeddings: false }, achievements: { enabled: false }, streak: { enabled: false }, ...cfg }));
+    fs.mkdirSync(path.join(dir, 'data'));
+    const E = new Engine({ appDir: dir, userDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(2026, 10, 10, 10, 0) });
+    return { dir, E };
+  };
+  // 見面禮：剛好夠買鈴鐺撲滿，只送一次；買了才解鎖收入撲滿
+  let { dir, E } = mk();
+  E.state.onboarding = { done: false };
+  assert.ok(!E.incomeUnlocked() && !E.view().income.unlocked && !E.view().onboarding.gift && !E.view().onboarding.piggy, '一開始沒有撲滿');
+  assert.throws(() => E.setIncome({ monthly: 48000 }), /鈴鐺撲滿/);
+  const g0 = E.state.player.gold;
+  let r = E.obShopGift();
+  assert.ok(r.gift === S.ORN.piggy.price && E.state.player.gold === g0 + 220 && r.view.onboarding.gift, '見面禮 220');
+  r = E.obShopGift();
+  assert.ok(r.already && E.state.player.gold === g0 + 220, '只送一次');
+  E.restartOnboarding();
+  assert.ok(E.obShopGift().already && E.state.player.gold === g0 + 220, '重看新手教學也不再送');
+  r = E.buyDecor('piggy');
+  assert.ok(E.incomeUnlocked() && E.state.shop.equip.desk === 'piggy' && E.state.player.gold === g0 && r.view.income.unlocked && !r.view.income.on && r.view.onboarding.piggy, '買了：擺上櫃台、解鎖（還沒填月薪）');
+  E.setIncome({ monthly: 48000 });
+  assert.ok(E.view().income.on, '填了月薪就開始存錢');
+  assert.ok(E.obShopGift().owned, '已經有撲滿：不送');
+  delete E.state.shop.owned.piggy;
+  assert.ok(!E.view().income.on && !E.view().income.unlocked, '沒有撲滿：設定留著但不顯示');
+  fs.rmSync(dir, { recursive: true, force: true });
+  // 改成要買撲滿之前就在用收入撲滿的：直接送一個（不換掉擺設）
+  ({ dir, E } = mk({ income: { enabled: true, monthly: 40000 } }));
+  assert.ok(E.incomeUnlocked() && E.view().income.on && E.state.shop.equip.desk === null, '舊的收入撲滿：送一個撲滿');
+  fs.rmSync(dir, { recursive: true, force: true });
+  ({ dir, E } = mk({ income: { enabled: false, monthly: 40000 } }));
+  assert.ok(!E.incomeUnlocked(), '填過月薪但收起來的：不送');
+  fs.rmSync(dir, { recursive: true, force: true });
+  // 筆記本那步：tour 打開、第一份計畫不跳存檔視窗（預設位置、不覆蓋）、寫好記在 onboarding.notebook
+  ({ dir, E } = mk());
+  E.state.onboarding = { done: false };
+  r = E.pdOpen(null, { tour: true });
+  assert.ok(E.pdTour && r.planDraft.tour && r.planDraft.week.start === '2026-11-09' && E.state.pdBook === 'quests', 'tour：這週、委託簿');
+  assert.strictEqual(r.planDraft.target.kind, 'new', '範例計畫不是這週的：要寫新檔');
+  const hint = E.pdNewFileHint('2026-11-09');
+  assert.ok(!/秋季新品|本週工作計畫/.test(hint.title) && /我的一週/.test(hint.title), '用範例計畫時，新的一週不照抄範例的標題：' + hint.title);
+  fs.writeFileSync(hint.defaultPath, '# 別人的檔案\n');
+  const tf = E.pdTourFile('2026-11-09');
+  assert.ok(tf.file !== hint.defaultPath && /\(2\)\.md$/.test(tf.file) && path.dirname(tf.file) === path.join(dir, 'plans'), '同名的已經有了：加 (2)，不覆蓋');
+  E.pdSay('週五前交週報，要先整理資料、寫初稿');
+  return E.pdCommit(tf).then((c) => {
+    assert.ok(c.file === tf.file && fs.readFileSync(hint.defaultPath, 'utf8') === '# 別人的檔案\n', '寫進新檔、別人的檔案沒動');
+    const nb = E.state.onboarding.notebook;
+    assert.ok(nb && /我的一週/.test(nb.title) && !E.pdTour && E.view().onboarding.notebook, '記下筆記本那步寫好了：' + JSON.stringify(nb));
+    assert.ok(E.plan.quests.some((q) => /週報/.test(q.title)), '換上新的計畫');
+    // 平常打開（不是新手教學）沒有 tour；收起來也清掉
+    E.pdOpen('this', {});
+    assert.ok(!E.pdView().tour, '平常打開：沒有聚光燈');
+    E.pdOpen('this', { tour: true }); E.pdPause();
+    assert.ok(!E.pdTour, '收起筆記本：tour 結束');
+    // 新手教學做完之後再寫：不記
+    E.state.onboarding = { done: true };
+    E.pdTour = true; E.pdSay('週四下午三點開會');
+    return E.pdCommit({}).then(() => {
+      assert.ok(!E.state.onboarding.notebook, '新手教學做完了：不記');
+      fs.rmSync(dir, { recursive: true, force: true });
+      // 3. 選單、主程式、說明
+      const mainJs = read('src/main/main.js');
+      assert.ok(/engine\.incomeUnlocked\(\)/.test(mainJs) && /open\('shopPiggy'\)/.test(mainJs) && /setup:shopGift/.test(mainJs) && /v\.tour/.test(mainJs), '主程式：選單、見面禮、新手教學不跳存檔視窗');
+      assert.ok(/openShopPiggy/.test(read('src/renderer/piggy.js')) && /shopPiggy/.test(read('src/renderer/renderer.js')), '還沒買撲滿：帶去雜貨舖');
+      assert.ok(/鈴鐺撲滿/.test(read('README.md').slice(read('README.md').indexOf('### 🔔 收入撲滿'))), 'README');
+      console.log('新手教學：筆記本與雜貨舖測試通過 ✔');
+    });
+  });
+})().catch((e) => { console.error(e); process.exit(1); });

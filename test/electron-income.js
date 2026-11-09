@@ -6,6 +6,7 @@ const BG = process.env.SHOT_BG || 'linear-gradient(135deg,#5b7fa6,#9bb7cf)';
 
 module.exports = ({ win, engine }) => {
   engine.state.onboarding = { ...(engine.state.onboarding || {}), done: true };
+  engine.state.shop.owned.piggy = true; // 買過鈴鐺撲滿（11/9 起收入撲滿要先買撲滿；沒買的流程在 electron-onboard-tour.js）
   engine.config.reminders = { ...(engine.config.reminders || {}), items: [] }; // 沒有午休：整段都算
   engine.config.window.idleChatterMinutes = 0;
   engine.dayOff = () => ({ off: false, kind: null }); // 測試哪天跑都當上班日

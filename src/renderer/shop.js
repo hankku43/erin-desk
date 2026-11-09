@@ -82,7 +82,17 @@ async function shopClick(e) {
   if (t.closest('[data-close]')) { closePanel(); return true; }
   const tab = t.closest('[data-sp-tab]'); if (tab) { sp.tab = tab.dataset.spTab; sp.compact = true; renderPanel(); const b = document.querySelector('#panel .panel-body'); if (b) b.scrollTop = 0; return true; }
   const gift = t.closest('[data-sp-gift]'); if (gift) { await shopAct(() => api.shopGift(gift.dataset.spGift), { talk: true }); return true; }
-  const buy = t.closest('[data-sp-buy]'); if (buy) { await shopAct(() => api.shopBuy(buy.dataset.spBuy)); return true; }
+  const buy = t.closest('[data-sp-buy]');
+  if (buy) {
+    const id = buy.dataset.spBuy;
+    const r = await shopAct(() => api.shopBuy(id));
+    // 🔔 買了鈴鐺撲滿＝解鎖收入撲滿：還沒填月薪就接著打開設定（雙胞胎的話先看一下）
+    if (id === 'piggy' && r && r.ok && !r.poor) {
+      const inc = (state.view && state.view.income) || {};
+      if (inc.unlocked && !inc.on) { if (!(window.Coach && Coach.active())) toast('🔔 鈴鐺撲滿放上櫃台了！填了月薪，上班時間它就會存錢', 3600); setTimeout(() => { if (state.panel === 'shop') openPanel('income'); }, 1300); }
+    }
+    return true;
+  }
   const eq = t.closest('[data-sp-equip]'); if (eq) { const [slot, id] = eq.dataset.spEquip.split(':'); await shopAct(() => api.shopEquip(slot, id)); return true; }
   const off = t.closest('[data-sp-off]'); if (off) { await shopAct(() => api.shopEquip(off.dataset.spOff, null)); return true; }
   // 抽卡：結果先畫在面板裡，上面蓋一層朵朵發牌、翻牌的演出（點一下跳過）
