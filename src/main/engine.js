@@ -3041,7 +3041,7 @@ class Engine {
       date: today, workday, dayKind: off.kind || null, dayName: off.name || null,
     };
   }
-  // 撲滿下面寫今天的還是這個月的（撲滿上的「日／月」按鈕）
+  // 撲滿下面寫今天的還是這個月的（撲滿下面牌子上的「今日／本月」書籤）
   setIncomeMode(mode) { this.saveConfigPatch({ income: { totalMode: mode === 'month' ? 'month' : 'day' } }); return { view: this.view() }; }
   // 設定（面板存的）：enabled＝false 只是收起來，月薪留著
   setIncome(f = {}) {

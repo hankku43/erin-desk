@@ -23,21 +23,26 @@
     if (b) return b;
     b = document.createElement('button');
     b.id = 'incomeBank'; b.type = 'button';
-    b.innerHTML = `<span class="ib-art">${bankArt()}</span><span class="ib-mode" role="button" data-tip="切換：今天的累計／這個月的累計"></span><span class="ib-total"></span>`;
+    // 撲滿下面的小牌子：上面兩張書籤「今日／本月」（跟筆記本的書籤同一套），下面寫累計
+    b.innerHTML = `<span class="ib-art">${bankArt()}</span><span class="ib-tag"><span class="ib-tabs"><span class="ib-tab" data-mode="day" role="button">今日</span><span class="ib-tab" data-mode="month" role="button">本月</span></span><span class="ib-total"></span></span>`;
     b.addEventListener('mousedown', (e) => e.stopPropagation()); // 不算點她、不拖視窗
     b.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (e.target.closest('.ib-mode')) { toggleMode(); return; } // 撲滿上的「日／月」：切換下面寫的累計
+      const tab = e.target.closest('.ib-tab');
+      if (tab) { setMode(tab.dataset.mode); return; } // 點書籤：換成那一個
+      if (e.target.closest('.ib-total')) { const v = state.view && state.view.income; setMode(v && v.totalMode === 'month' ? 'day' : 'month'); return; } // 點牌子：換另一個
       openPanel('income');
     });
     $('#npcWrap').appendChild(b);
     return b;
   }
 
-  // 「日／月」按鈕：先換畫面，再存設定（下次打開還是這個）
-  async function toggleMode() {
+  // 「今日／本月」書籤：先換畫面，再存設定（下次打開還是這個）
+  async function setMode(mode) {
     const v = state.view && state.view.income; if (!v) return;
-    v.totalMode = v.totalMode === 'month' ? 'day' : 'month';
+    mode = mode === 'month' ? 'month' : 'day';
+    if ((v.totalMode === 'month' ? 'month' : 'day') === mode) return;
+    v.totalMode = mode;
     sync();
     const b = $('#incomeBank .ib-total'); if (b) { b.classList.remove('flip'); void b.offsetWidth; b.classList.add('flip'); }
     try { const r = await api.incomeMode(v.totalMode); if (r && r.ok && r.view) applyView(r.view); } catch (_) { /* 存不了就只換這次 */ }
@@ -49,7 +54,7 @@
     lines.push(`這個月到現在 NT$${Math.floor(mo).toLocaleString('en-US')}（之前 ${v.monthPastDays || 0} 個工作天＋今天）`);
     lines.push(`時薪 NT$${Income.fmt(Income.hourly(v))}＝月薪 ÷（這個月 ${v.monthDays} 個工作天 × 每天 ${hrText(Income.workSecOf(v))}）`);
     lines.push(`${Income.INTERVAL_LABEL[v.interval] || ''}掉一枚`);
-    lines.push('（點一下：設定）');
+    lines.push(v.showTotal ? '（點撲滿：設定；點下面的牌子：換今日／本月）' : '（點一下：設定）');
     return lines.join('\n');
   }
 
@@ -66,18 +71,22 @@
     t.lunch = !!(v.lunch && !t.off && Income.mm(v.lunch[0]) <= now.getHours() * 60 + now.getMinutes() && now.getHours() * 60 + now.getMinutes() < Income.mm(v.lunch[1]));
     b.classList.toggle('rest', !t.working);
     b.classList.toggle('lunch', t.lunch);
-    const tot = b.querySelector('.ib-total');
     const isMonth = v.totalMode === 'month';
     const mo = Income.month(v, now);
     const amt = isMonth ? mo : t.earned;
-    // 只寫整數（11/9 使用者要求）；每一枚多少看旁邊飄的「+0.06」。今天休假時「日」寫休假，「月」照樣寫這個月的
-    tot.textContent = !isMonth && t.off ? '休假' : `${isMonth ? '本月' : '今日'} NT$${Math.floor(amt).toLocaleString('en-US')}`;
-    tot.classList.toggle('month', isMonth);
-    tot.classList.toggle('hidden', !v.showTotal && !(t.off && !isMonth));
-    const md = b.querySelector('.ib-mode');
-    md.textContent = isMonth ? '月' : '日';
-    md.classList.toggle('month', isMonth);
-    md.classList.toggle('hidden', !v.showTotal);
+    // 只寫整數（11/9 使用者要求）；每一枚多少看旁邊飄的「+0.06」。今天休假時「今日」寫休假，「本月」照樣寫這個月的
+    const tag = b.querySelector('.ib-tag'), tot = b.querySelector('.ib-total');
+    const html = !isMonth && t.off ? '休假' : `<small>NT$</small>${Math.floor(amt).toLocaleString('en-US')}`;
+    if (tot.innerHTML !== html) tot.innerHTML = html;
+    tag.classList.toggle('month', isMonth); // 本月＝淡紫色
+    tag.classList.toggle('hidden', !v.showTotal && !(t.off && !isMonth));
+    tag.classList.toggle('no-tabs', !v.showTotal); // 不寫累計（只剩「休假」）時不要書籤
+    tag.querySelectorAll('.ib-tab').forEach((x) => {
+      const on = (x.dataset.mode === 'month') === isMonth;
+      x.classList.toggle('on', on);
+      if (on) delete x.dataset.tip; else x.dataset.tip = x.dataset.mode === 'month' ? '換成這個月的累計' : '換成今天的累計';
+    });
+
     b.dataset.tip = tipText(v, t, mo);
     if (P.every !== v.interval) startTimer(v.interval);
   }

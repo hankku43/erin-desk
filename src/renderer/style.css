@@ -921,26 +921,35 @@ body.mini #teaCup, #npcWrap.transforming #teaCup, #npcWrap.shrinking #teaCup { d
 #incomeBank { position: absolute; left: var(--bank-left, 0px); bottom: 14px; width: 70px; height: 78px; padding: 0; border: 0; background: none; cursor: pointer; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; animation: dPop .45s cubic-bezier(.3, 1.6, .5, 1) both; }
 #incomeBank .ib-art { width: 68px; height: 68px; display: block; filter: drop-shadow(0 3px 3px rgba(20, 24, 60, .3)); transform-origin: 50% 100%; }
 #incomeBank .ib-art svg, #incomeBank .ib-art img { width: 100%; height: 100%; display: block; object-fit: contain; object-position: 50% 100%; transform: scale(1.3); transform-origin: 50% 100%; }
-#incomeBank .ib-total { position: absolute; bottom: -12px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 12px; font-weight: 800; line-height: 15px; padding: 0 6px; border-radius: 8px; color: #6b4a07; background: rgba(255, 244, 205, .95); border: 1.5px solid #d9a93a; box-shadow: 0 1px 2px rgba(20, 24, 60, .25); font-variant-numeric: tabular-nums; }
-#incomeBank .ib-total.hidden { display: none; }
-#incomeBank .ib-total.month { background: rgba(232, 240, 255, .96); border-color: #6f8fd8; color: #2b3f7a; }
+/* 撲滿下面的小牌子：兩張書籤「今日／本月」（跟筆記本的書籤一樣）＋累計；今日＝奶油金、本月＝淡紫（11/9 改版） */
+#incomeBank .ib-tag { --tg-bg: #fffaf0; --tg-line: #c9962e; --tg-ink: #6b4a07; position: absolute; left: 2px; bottom: -13px; z-index: 3; padding-top: 17px; text-align: left; }
+#incomeBank .ib-tag.month { --tg-bg: #f4f2ff; --tg-line: #8c84d6; --tg-ink: #3d3680; }
+#incomeBank .ib-tag.hidden { display: none; }
+#incomeBank .ib-tag.no-tabs { padding-top: 0; }
+#incomeBank .ib-tag.no-tabs .ib-tabs { display: none; }
+#incomeBank .ib-tabs { position: absolute; top: 0; left: 5px; display: flex; gap: 3px; }
+#incomeBank .ib-tab { display: block; white-space: nowrap; font-size: 12px; font-weight: 900; line-height: 1; padding: 2px 5px 4px; border-radius: 6px 6px 0 0; border: 1.5px solid; border-bottom: 0; cursor: pointer; transform: translateY(1px); transition: transform .18s, filter .18s;
+  background: #ecdcae; border-color: #c9962e; color: #9a7a35; }
+#incomeBank .ib-tab[data-mode="month"] { background: #e2def8; border-color: #8c84d6; color: #7a72c2; }
+#incomeBank .ib-tab:not(.on):hover { transform: translateY(-1px); filter: brightness(1.06); }
+#incomeBank .ib-tab.on { position: relative; z-index: 1; transform: none; background: var(--tg-bg); color: var(--tg-ink); cursor: default; }
+#incomeBank .ib-total { position: relative; display: block; box-sizing: border-box; min-width: 86px; text-align: center; white-space: nowrap; font-size: 13px; font-weight: 900; line-height: 16px; padding: 1px 8px 2px; border-radius: 4px 10px 10px 10px; color: var(--tg-ink);
+  background: var(--tg-bg); border: 1.5px solid var(--tg-line); box-shadow: 0 1px 3px rgba(20, 24, 60, .3), inset 0 0 0 1.5px rgba(255, 255, 255, .6); font-variant-numeric: tabular-nums; cursor: pointer; transition: background .25s, border-color .25s, color .25s; }
+#incomeBank .ib-total small { font-size: 12px; font-weight: 700; margin-right: 1px; opacity: .65; }
+#incomeBank .ib-tag.no-tabs .ib-total { border-radius: 10px; }
 #incomeBank .ib-total.flip { animation: ibFlip .35s ease-out; }
-#incomeBank .ib-mode { position: absolute; top: 2px; right: -4px; z-index: 3; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 900; line-height: 1; color: #6b4a07; background: #fff4cd; border: 1.5px solid #d9a93a; box-shadow: 0 1px 3px rgba(20, 24, 60, .35); cursor: pointer; transition: transform .15s; }
-#incomeBank .ib-mode:hover { transform: scale(1.12); }
-#incomeBank .ib-mode.month { color: #2b3f7a; background: #e8f0ff; border-color: #6f8fd8; }
-#incomeBank .ib-mode.hidden { display: none; }
-@keyframes ibFlip { 0% { transform: translateX(-50%) rotateX(90deg); } 100% { transform: translateX(-50%) rotateX(0); } }
+@keyframes ibFlip { 0% { transform: rotateX(90deg); } 100% { transform: rotateX(0); } }
 #incomeBank.rest .ib-art { filter: drop-shadow(0 3px 3px rgba(20, 24, 60, .3)) saturate(.6) brightness(.95); }
 #incomeBank.ding .ib-art { animation: ibDing .5s ease-out .38s; }
 #incomeBank .ib-coin { position: absolute; left: 50%; top: -6px; width: 18px; height: 18px; margin-left: -9px; animation: ibCoin .55s cubic-bezier(.5, 0, .9, .6) both; pointer-events: none; }
 #incomeBank .ib-plus { position: absolute; left: 70px; top: 28px; white-space: nowrap; font-size: 13px; font-weight: 900; color: #9a6400; text-shadow: 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff, 1px 1px 0 #fff, -1px -1px 0 #fff; animation: ibPlus 1.3s ease-out .35s both; pointer-events: none; font-variant-numeric: tabular-nums; }
-body.bank-on #teaCup { left: calc(var(--bank-left, 0px) + 68px); }
+body.bank-on #teaCup { left: calc(var(--bank-left, 0px) + 92px); } /* 撲滿下面的牌子右邊 */
 body.bank-is-desk #decor .d-desk { visibility: hidden; }
 body.mini #incomeBank, #npcWrap.transforming #incomeBank, #npcWrap.shrinking #incomeBank { display: none; }
 @keyframes ibCoin { 0% { opacity: 0; transform: translateY(-26px) rotate(-20deg); } 25% { opacity: 1; } 85% { opacity: 1; transform: translateY(14px) rotate(0); } 100% { opacity: 0; transform: translateY(18px) scaleY(.4); } }
 @keyframes ibDing { 0% { transform: none; } 30% { transform: scale(1.08, .92) rotate(-4deg); } 60% { transform: scale(.97, 1.04) rotate(3deg); } 100% { transform: none; } }
 @keyframes ibPlus { 0% { opacity: 0; transform: translateY(6px) scale(.8); } 20% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-22px); } }
-@media (prefers-reduced-motion: reduce) { #incomeBank .ib-coin, #incomeBank.ding .ib-art { animation: none; } #incomeBank .ib-coin { display: none; } }
+@media (prefers-reduced-motion: reduce) { #incomeBank .ib-coin, #incomeBank.ding .ib-art, #incomeBank .ib-total.flip { animation: none; } #incomeBank .ib-coin { display: none; } #incomeBank .ib-tab, #incomeBank .ib-total { transition: none; } }
 @keyframes tcSteam { 0% { opacity: 0; transform: translateY(6px) scaleY(.6); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-10px) scaleY(1.1); } }
 @keyframes tcBye { to { opacity: 0; transform: translate(40px, -60px) scale(.5); } }
 @media (prefers-reduced-motion: reduce) { #teaCup, #teaCup .tc-steam { animation: none; } }

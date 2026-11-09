@@ -57,24 +57,38 @@ module.exports = ({ win, engine }) => {
       const t2 = await js(`document.querySelector('#incomeBank .ib-total').textContent`);
       const n = (x) => Number(String(x).replace(/[^\d.]/g, ''));
       const e1 = await js(`Income.today(state.view.income, new Date()).earned`);
-      assert(/^今日 NT\$[\d,]+$/.test(t1) && /^今日 NT\$[\d,]+$/.test(t2) && n(t2) >= n(t1), `撲滿下面只寫整數：${t1} → ${t2}`);
+      assert(/^NT\$[\d,]+$/.test(t1) && /^NT\$[\d,]+$/.test(t2) && n(t2) >= n(t1), `撲滿下面只寫整數：${t1} → ${t2}`);
       assert(n(t2) === Math.floor(e1) || n(t2) === Math.floor(e1) + 1, `整數＝今天賺的無條件捨去：${t2} vs ${e1}`);
       const tip = await js(`document.querySelector('#incomeBank').dataset.tip`);
       assert(/今天賺了 NT\$/.test(tip) && tip.includes(`月薪 ÷（這個月 ${md} 個工作天 × 每天`), '滑過：' + tip);
-      // 2b. 撲滿上的「日／月」按鈕：切換下面寫今天的還是這個月的（存起來）
-      assert((await js(`document.querySelector('#incomeBank .ib-mode').textContent`)) === '日' && /^今日 NT\$[\d,]+$/.test(await js(`document.querySelector('#incomeBank .ib-total').textContent`)), '預設寫今日');
-      await js(`document.querySelector('#incomeBank .ib-mode').click(); 0`); await wait(500);
+      // 2b. 撲滿下面牌子上的兩張書籤「今日／本月」：切換下面寫今天的還是這個月的（存起來）；本月是淡紫色
+      const tabOn = () => js(`(document.querySelector('#incomeBank .ib-tab.on')||{}).textContent||''`);
+      assert((await tabOn()) === '今日' && !(await js(`document.querySelector('#incomeBank .ib-tag').classList.contains('month')`)), '預設寫今日');
+      const tagBox = await js(`(()=>{const t=document.querySelector('#incomeBank .ib-tag').getBoundingClientRect(),a=[...document.querySelectorAll('#incomeBank .ib-tab')].map((x)=>x.getBoundingClientRect()),h=document.querySelector('#hud').getBoundingClientRect();return {l:t.left,r:t.right,b:t.bottom,hr:h.right,W:innerWidth,H:innerHeight,tabs:a.map((x)=>[x.width,x.height])};})()`);
+      assert(tagBox.l >= tagBox.hr && tagBox.b <= tagBox.H && tagBox.tabs.every(([w, h]) => w >= 26 && h >= 14), '牌子不壓到狀態欄、在視窗裡、書籤夠大好點：' + JSON.stringify(tagBox));
+      assert(/換成這個月/.test(await js(`document.querySelector('#incomeBank .ib-tab[data-mode="month"]').dataset.tip`)), '沒選的書籤滑過有說明');
+      await js(`document.querySelector('#incomeBank .ib-tab[data-mode="month"]').click(); 0`); await wait(500);
       const mt = await js(`document.querySelector('#incomeBank .ib-total').textContent`);
-      assert((await js(`document.querySelector('#incomeBank .ib-mode').textContent`)) === '月' && /^本月 NT\$[\d,]+$/.test(mt) && engine.config.income.totalMode === 'month' && await js(`state.panel === null`), '點「日」換成本月、不開設定：' + mt);
+      assert((await tabOn()) === '本月' && /^NT\$[\d,]+$/.test(mt) && engine.config.income.totalMode === 'month' && await js(`state.panel === null`), '點「本月」書籤換成本月、不開設定：' + mt);
+      assert(await js(`document.querySelector('#incomeBank .ib-tag').classList.contains('month') && getComputedStyle(document.querySelector('#incomeBank .ib-total')).borderTopColor === 'rgb(140, 132, 214)'`), '本月是淡紫色');
+      await js(`document.querySelector('#incomeBank .ib-tab[data-mode="month"]').click(); 0`); await wait(300);
+      assert(engine.config.income.totalMode === 'month' && await js(`state.panel === null`), '再點同一張書籤不會換回去');
       const iv2 = engine.view().income;
       const expect = Math.floor(await js(`Income.month(state.view.income, new Date())`));
       assert(n(mt) === expect || n(mt) === expect - 1, `本月＝之前 ${iv2.monthPastDays} 天＋今天：${mt} vs ${expect}`);
       assert(n(mt) >= n(t2), '本月 ≥ 今日');
       await shot('i02b_month');
       wc.send('view:update', { view: engine.view() }); await wait(300);
-      assert(/^本月/.test(await js(`document.querySelector('#incomeBank .ib-total').textContent`)), '畫面更新後還是本月');
-      await js(`document.querySelector('#incomeBank .ib-mode').click(); 0`); await wait(400);
-      assert(/^今日/.test(await js(`document.querySelector('#incomeBank .ib-total').textContent`)) && engine.config.income.totalMode === 'day', '再點換回今日');
+      assert((await tabOn()) === '本月', '畫面更新後還是本月');
+      await js(`document.querySelector('#incomeBank .ib-total').click(); 0`); await wait(400);
+      assert((await tabOn()) === '今日' && engine.config.income.totalMode === 'day' && await js(`state.panel === null`), '點牌子本身也會換（換回今日）、不開設定');
+      await js(`document.querySelector('#incomeBank .ib-art').click(); 0`); await wait(300);
+      assert(await js(`state.panel === 'income'`), '點鈴鐺本身打開設定');
+      await js(`closePanel(); 0`); await wait(200);
+      // 不寫累計：書籤和牌子都收起來
+      await js(`state.view.income.showTotal = false; Piggy.sync(); 0`);
+      assert(await js(`getComputedStyle(document.querySelector('#incomeBank .ib-tag')).display === 'none'`), '不寫累計：牌子收起來');
+      await js(`state.view.income.showTotal = true; Piggy.sync(); 0`);
       // 3. 擺設是別的東西 → 撲滿在它右邊；奶茶再往右
       engine.state.shop.equip.desk = 'pigeon'; wc.send('view:update', { view: engine.view() }); await wait(500);
       const pos = await js(`(()=>{const b=document.querySelector('#incomeBank').getBoundingClientRect(),d=document.querySelector('#decor .d-desk').getBoundingClientRect();return {b:b.left,d:d.left,dr:d.right};})()`);
