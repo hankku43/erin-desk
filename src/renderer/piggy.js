@@ -23,17 +23,30 @@
     if (b) return b;
     b = document.createElement('button');
     b.id = 'incomeBank'; b.type = 'button';
-    b.innerHTML = `<span class="ib-art">${bankArt()}</span><span class="ib-total"></span>`;
+    b.innerHTML = `<span class="ib-art">${bankArt()}</span><span class="ib-mode" role="button" data-tip="切換：今天的累計／這個月的累計"></span><span class="ib-total"></span>`;
     b.addEventListener('mousedown', (e) => e.stopPropagation()); // 不算點她、不拖視窗
-    b.addEventListener('click', (e) => { e.stopPropagation(); openPanel('income'); });
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.target.closest('.ib-mode')) { toggleMode(); return; } // 撲滿上的「日／月」：切換下面寫的累計
+      openPanel('income');
+    });
     $('#npcWrap').appendChild(b);
     return b;
   }
 
-  function tipText(v, t) {
+  // 「日／月」按鈕：先換畫面，再存設定（下次打開還是這個）
+  async function toggleMode() {
+    const v = state.view && state.view.income; if (!v) return;
+    v.totalMode = v.totalMode === 'month' ? 'day' : 'month';
+    sync();
+    const b = $('#incomeBank .ib-total'); if (b) { b.classList.remove('flip'); void b.offsetWidth; b.classList.add('flip'); }
+    try { const r = await api.incomeMode(v.totalMode); if (r && r.ok && r.view) applyView(r.view); } catch (_) { /* 存不了就只換這次 */ }
+  }
+  function tipText(v, t, mo) {
     const lines = ['🔔 收入撲滿'];
     if (t.off) lines.push(v.dayKind === 'leave' ? '今天請假，不算' : `今天${v.dayName || '休假'}，不算`);
     else lines.push(`今天賺了 NT$${Income.fmt(t.earned)}（上班 ${Income.durText(t.worked)}${t.lunch ? '，午休中不進帳' : ''}）`);
+    lines.push(`這個月到現在 NT$${Math.floor(mo).toLocaleString('en-US')}（之前 ${v.monthPastDays || 0} 個工作天＋今天）`);
     lines.push(`時薪 NT$${Income.fmt(Income.hourly(v))}＝月薪 ÷（這個月 ${v.monthDays} 個工作天 × 每天 ${hrText(Income.workSecOf(v))}）`);
     lines.push(`${Income.INTERVAL_LABEL[v.interval] || ''}掉一枚`);
     lines.push('（點一下：設定）');
@@ -54,9 +67,18 @@
     b.classList.toggle('rest', !t.working);
     b.classList.toggle('lunch', t.lunch);
     const tot = b.querySelector('.ib-total');
-    tot.textContent = t.off ? '休假' : `NT$${Math.floor(t.earned).toLocaleString('en-US')}`; // 只寫整數（11/9 使用者要求）；每一枚多少看旁邊飄的「+0.06」
-    tot.classList.toggle('hidden', !v.showTotal && !t.off);
-    b.dataset.tip = tipText(v, t);
+    const isMonth = v.totalMode === 'month';
+    const mo = Income.month(v, now);
+    const amt = isMonth ? mo : t.earned;
+    // 只寫整數（11/9 使用者要求）；每一枚多少看旁邊飄的「+0.06」。今天休假時「日」寫休假，「月」照樣寫這個月的
+    tot.textContent = !isMonth && t.off ? '休假' : `${isMonth ? '本月' : '今日'} NT$${Math.floor(amt).toLocaleString('en-US')}`;
+    tot.classList.toggle('month', isMonth);
+    tot.classList.toggle('hidden', !v.showTotal && !(t.off && !isMonth));
+    const md = b.querySelector('.ib-mode');
+    md.textContent = isMonth ? '月' : '日';
+    md.classList.toggle('month', isMonth);
+    md.classList.toggle('hidden', !v.showTotal);
+    b.dataset.tip = tipText(v, t, mo);
     if (P.every !== v.interval) startTimer(v.interval);
   }
 

@@ -56,10 +56,24 @@ module.exports = ({ win, engine }) => {
       const t2 = await js(`document.querySelector('#incomeBank .ib-total').textContent`);
       const n = (x) => Number(String(x).replace(/[^\d.]/g, ''));
       const e1 = await js(`Income.today(state.view.income, new Date()).earned`);
-      assert(/^NT\$[\d,]+$/.test(t1) && /^NT\$[\d,]+$/.test(t2) && n(t2) >= n(t1), `撲滿下面只寫整數：${t1} → ${t2}`);
+      assert(/^今日 NT\$[\d,]+$/.test(t1) && /^今日 NT\$[\d,]+$/.test(t2) && n(t2) >= n(t1), `撲滿下面只寫整數：${t1} → ${t2}`);
       assert(n(t2) === Math.floor(e1) || n(t2) === Math.floor(e1) + 1, `整數＝今天賺的無條件捨去：${t2} vs ${e1}`);
       const tip = await js(`document.querySelector('#incomeBank').dataset.tip`);
       assert(/今天賺了 NT\$/.test(tip) && tip.includes(`月薪 ÷（這個月 ${md} 個工作天 × 每天`), '滑過：' + tip);
+      // 2b. 撲滿上的「日／月」按鈕：切換下面寫今天的還是這個月的（存起來）
+      assert((await js(`document.querySelector('#incomeBank .ib-mode').textContent`)) === '日' && /^今日 NT\$[\d,]+$/.test(await js(`document.querySelector('#incomeBank .ib-total').textContent`)), '預設寫今日');
+      await js(`document.querySelector('#incomeBank .ib-mode').click(); 0`); await wait(500);
+      const mt = await js(`document.querySelector('#incomeBank .ib-total').textContent`);
+      assert((await js(`document.querySelector('#incomeBank .ib-mode').textContent`)) === '月' && /^本月 NT\$[\d,]+$/.test(mt) && engine.config.income.totalMode === 'month' && await js(`state.panel === null`), '點「日」換成本月、不開設定：' + mt);
+      const iv2 = engine.view().income;
+      const expect = Math.floor(await js(`Income.month(state.view.income, new Date())`));
+      assert(n(mt) === expect || n(mt) === expect - 1, `本月＝之前 ${iv2.monthPastDays} 天＋今天：${mt} vs ${expect}`);
+      assert(n(mt) >= n(t2), '本月 ≥ 今日');
+      await shot('i02b_month');
+      wc.send('view:update', { view: engine.view() }); await wait(300);
+      assert(/^本月/.test(await js(`document.querySelector('#incomeBank .ib-total').textContent`)), '畫面更新後還是本月');
+      await js(`document.querySelector('#incomeBank .ib-mode').click(); 0`); await wait(400);
+      assert(/^今日/.test(await js(`document.querySelector('#incomeBank .ib-total').textContent`)) && engine.config.income.totalMode === 'day', '再點換回今日');
       // 3. 擺設是別的東西 → 撲滿在它右邊；奶茶再往右
       engine.state.shop.equip.desk = 'pigeon'; wc.send('view:update', { view: engine.view() }); await wait(500);
       const pos = await js(`(()=>{const b=document.querySelector('#incomeBank').getBoundingClientRect(),d=document.querySelector('#decor .d-desk').getBoundingClientRect();return {b:b.left,d:d.left,dr:d.right};})()`);

@@ -5121,6 +5121,10 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(INC.today({ ...v, workday: false }, at(14)).off && INC.today({ ...v, workday: false }, at(14)).earned === 0, '休假不算');
   assert.strictEqual(INC.today({ ...v, date: '2026-11-08' }, at(14)).earned, 0, '日期不對（過了午夜還沒更新）：當 0');
   assert.strictEqual(INC.today({ ...v, on: false }, at(14)).earned, 0);
+  // 本月累計：之前的工作天每天上滿（8 小時 × 300＝2400）＋今天到現在
+  assert.ok(close(INC.month({ ...v, monthPastDays: 5 }, at(14)), 5 * 2400 + 1200), '本月＝5 天 × 2400＋今天 1200');
+  assert.ok(close(INC.month({ ...v, monthPastDays: 5, workday: false }, at(14)), 12000), '今天休假：只算之前的');
+  assert.strictEqual(INC.month({ ...v, monthPastDays: 5, date: '2026-10-31' }, at(14)), 0, '換月了還沒更新：當 0');
   // 金額寫法
   assert.deepStrictEqual([INC.fmt(0.0556), INC.fmt(3.33), INC.fmt(1234.5)], ['0.06', '3.3', '1,235']);
   assert.deepStrictEqual([INC.fmtBy(530.917, 0.056), INC.fmtBy(530.917, 3.3), INC.fmtBy(530.917, 200)], ['530.92', '530.9', '531']);
@@ -5153,7 +5157,16 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.setIncome({ monthly: 48000, start: '09:00', end: '18:00', lunchStart: '12:30', lunchEnd: '13:30', interval: 5 });
   assert.deepStrictEqual(E.view().income.lunch, ['12:30', '13:30'], '午休可以自己改');
   E.state.leave = { '2026-11-12': '特休' }; assert.strictEqual(E.view().income.monthDays, 21, '請假不扣工作天數');
+  // 本月累計要的「之前的工作天」：11/11 之前有 11/2～6、11/9、11/10＝7 天；請假那天（countLeave 關著）不算
+  assert.strictEqual(E.view().income.monthPastDays, 7, '11/11 之前 7 個工作天');
+  E.state.leave = { '2026-11-05': '特休' }; assert.strictEqual(E.view().income.monthPastDays, 6, '之前請假那天不算');
+  E.setIncome({ monthly: 48000, start: '09:00', end: '18:00', interval: 5, countLeave: true }); assert.strictEqual(E.view().income.monthPastDays, 7, '勾了請假也算：照算');
   E.state.leave = {};
+  // 撲滿上的「日／月」：存起來，存設定不會蓋掉
+  assert.strictEqual(E.view().income.totalMode, 'day', '預設今日');
+  E.setIncomeMode('month'); assert.strictEqual(E.view().income.totalMode, 'month');
+  E.setIncome({ monthly: 50000, start: '09:00', end: '18:00', interval: 5 }); assert.strictEqual(E.view().income.totalMode, 'month', '改設定不會換回今日');
+  E.setIncomeMode('x'); assert.strictEqual(E.view().income.totalMode, 'day');
   now = new Date(2026, 10, 14, 14, 0); assert.ok(!E.view().income.workday && E.view().income.dayKind === 'weekend', '週六不算');
   now = new Date(2026, 9, 10, 14, 0); assert.ok(!E.view().income.workday, '國慶日不算');
   now = new Date(2026, 10, 12, 14, 0); E.state.leave = { '2026-11-12': '特休' };

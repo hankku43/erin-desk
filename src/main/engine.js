@@ -2975,12 +2975,20 @@ class Engine {
     return c.lunchStart && c.lunchEnd && INC.mm(c.lunchEnd) > INC.mm(c.lunchStart) ? [c.lunchStart, c.lunchEnd] : null;
   }
   // 這個月的工作天數：扣掉週末、國定假日（補班日算），請假不扣（還是這個月的工作天）
-  incomeMonthDays(now = this.now()) {
+  incomeMonthDays(now = this.now()) { return this.incomeMonth(now).days; }
+  // days＝這個月的工作天數；past＝今天以前、有算錢的工作天（請假那天看 countLeave）＝本月累計用
+  incomeMonth(now = this.now()) {
     const y = now.getFullYear(), m = now.getMonth(), n = new Date(y, m + 1, 0).getDate();
     const opts = { ...this.calOpts(), leave: {}, restDays: (this.config.streak || {}).restDays || CAL.DEFAULTS.restDays };
-    let c = 0;
-    for (let d = 1; d <= n; d++) if (!CAL.dayInfo(G.todayISO(new Date(y, m, d)), opts).off) c++;
-    return c;
+    const leave = this.state.leave || {}, countLeave = !!this.incomeCfg().countLeave;
+    let days = 0, past = 0;
+    for (let d = 1; d <= n; d++) {
+      const iso = G.todayISO(new Date(y, m, d));
+      if (CAL.dayInfo(iso, opts).off) continue;
+      days++;
+      if (d < now.getDate() && (countLeave || !leave[iso])) past++;
+    }
+    return { days, past };
   }
   incomeView() {
     const c = this.incomeCfg();
@@ -2988,12 +2996,15 @@ class Engine {
     const off = this.dayOff(today);
     const workday = !off.off || (off.kind === 'leave' && !!c.countLeave);
     const on = !!c.enabled && Number(c.monthly) > 0;
+    const mo = this.incomeMonth();
     return {
-      on, set: Number(c.monthly) > 0, monthly: Number(c.monthly) || 0, start: c.start, end: c.end, lunch: this.incomeLunch(), lunchStart: c.lunchStart || '', lunchEnd: c.lunchEnd || '', monthDays: this.incomeMonthDays(),
+      on, set: Number(c.monthly) > 0, monthly: Number(c.monthly) || 0, start: c.start, end: c.end, lunch: this.incomeLunch(), lunchStart: c.lunchStart || '', lunchEnd: c.lunchEnd || '', monthDays: mo.days, monthPastDays: mo.past, totalMode: c.totalMode === 'month' ? 'month' : 'day',
       interval: INC.INTERVALS.includes(Number(c.interval)) ? Number(c.interval) : 1, countLeave: !!c.countLeave, showTotal: c.showTotal !== false,
       date: today, workday, dayKind: off.kind || null, dayName: off.name || null,
     };
   }
+  // 撲滿下面寫今天的還是這個月的（撲滿上的「日／月」按鈕）
+  setIncomeMode(mode) { this.saveConfigPatch({ income: { totalMode: mode === 'month' ? 'month' : 'day' } }); return { view: this.view() }; }
   // 設定（面板存的）：enabled＝false 只是收起來，月薪留著
   setIncome(f = {}) {
     if (f.enabled === false && !f.monthly) { this.saveConfigPatch({ income: { enabled: false } }); return { view: this.view() }; }

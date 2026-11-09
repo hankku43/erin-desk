@@ -6,7 +6,7 @@
 //   月薪只存在這台電腦的設定檔，不會放進給 AI 的提示
 (function (root) {
   'use strict';
-  const DEFAULTS = { enabled: false, monthly: 0, start: '09:00', end: '18:00', lunchStart: '12:00', lunchEnd: '13:00', interval: 1, countLeave: false, showTotal: true };
+  const DEFAULTS = { enabled: false, monthly: 0, start: '09:00', end: '18:00', lunchStart: '12:00', lunchEnd: '13:00', interval: 1, countLeave: false, showTotal: true, totalMode: 'day' };
   const INTERVALS = [1, 5, 10, 30, 60, 300, 600, 1800, 3600]; // 秒
   const INTERVAL_LABEL = { 1: '每 1 秒', 5: '每 5 秒', 10: '每 10 秒', 30: '每 30 秒', 60: '每 1 分鐘', 300: '每 5 分鐘', 600: '每 10 分鐘', 1800: '每 30 分鐘', 3600: '每 1 小時' };
 
@@ -60,6 +60,13 @@
     const worked = workedSec(win, now);
     return { earned: worked * rate, max: daySec(win) * rate, working: working(win, now), worked };
   }
+  // 這個月到現在的累計：之前的工作天（engine 算好 monthPastDays，請假看設定）每天上滿＋今天到現在
+  function month(v, now) {
+    if (!v || !v.on) return 0;
+    const sameMonth = !v.date || v.date.slice(0, 7) === iso(now).slice(0, 7);
+    if (!sameMonth) return 0;
+    return (Number(v.monthPastDays) || 0) * workSecOf(v) * perSec(v, now) + today(v, now).earned;
+  }
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   // 金額：不到 1 元兩位小數、不到 10 元一位、其他整數加千分位
   function fmt(n) {
@@ -92,7 +99,7 @@
     return { ok: true, cfg: { enabled: f.enabled !== false, monthly, start, end, lunchStart: ls, lunchEnd: le, interval, countLeave: !!f.countLeave, showTotal: f.showTotal !== false } };
   }
 
-  const Income = { DEFAULTS, INTERVALS, INTERVAL_LABEL, mm, weekdaysIn, workSecOf, hourly, perSec, windows, daySec, workedSec, working, today, fmt, fmtBy, durText, normalize, iso };
+  const Income = { DEFAULTS, INTERVALS, INTERVAL_LABEL, mm, weekdaysIn, workSecOf, hourly, perSec, windows, daySec, workedSec, working, today, month, fmt, fmtBy, durText, normalize, iso };
   if (typeof module === 'object' && module.exports) module.exports = Income;
   else root.Income = Income;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -15,7 +15,8 @@ contextBridge.exposeInMainWorld('api', {
   decide: (id, opt) => ipcRenderer.invoke('npc:decide', id, opt), // 🤔 幫她做決定（按鈕）
   weatherSay: () => ipcRenderer.invoke('weather:say'), // ☁ 點天候水晶
   weatherRefresh: () => ipcRenderer.invoke('weather:refresh'),
-  incomeSet: (f) => ipcRenderer.invoke('income:set', f), // 🔔 收入撲滿：月薪、上下班、多久掉一次硬幣
+  incomeSet: (f) => ipcRenderer.invoke('income:set', f),
+  incomeMode: (m) => ipcRenderer.invoke('income:mode', m), // 🔔 撲滿上的「日／月」按鈕 // 🔔 收入撲滿：月薪、上下班、多久掉一次硬幣
   weatherSet: (on, where) => ipcRenderer.invoke('weather:set', on === true, String(where || '')), // ☁ 說明面板：打開／關掉、選位置
   confirmProposal: (id, keep) => ipcRenderer.invoke('npc:confirm', id, keep),
   cancelProposal: () => ipcRenderer.invoke('npc:cancel'),

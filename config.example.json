@@ -104,7 +104,8 @@
     "lunchEnd": "13:00",
     "interval": 1,
     "countLeave": false,
-    "showTotal": true
+    "showTotal": true,
+    "totalMode": "day"
   },
   "weather": {
     "enabled": false,

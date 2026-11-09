@@ -977,6 +977,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('weather:refresh', wrap(async () => { await runWeather(true); return { view: engine.view() }; }));
   // 打開／關掉天候水晶、選位置（使用者在說明面板按的）。打開了就馬上看一次天空（不等它，畫面先回來）
   ipcMain.handle('income:set', wrap((f) => engine.setIncome(f && typeof f === 'object' ? f : {}))); // 🔔 收入撲滿的設定
+  ipcMain.handle('income:mode', wrap((m) => engine.setIncomeMode(String(m || '')))); // 🔔 撲滿下面寫今天／這個月
   ipcMain.handle('weather:set', wrap((on, where) => { const r = engine.setWeather({ enabled: on === true, where: String(where || '').slice(0, 20) }); if (on === true) runWeather(true); return r; }));
   ipcMain.handle('npc:confirm', wrap((id, keep) => engine.confirmProposal(id, Array.isArray(keep) ? keep.map(Number) : null)));
   ipcMain.handle('npc:cancel', wrap(() => engine.cancelProposal()));
