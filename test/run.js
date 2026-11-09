@@ -5283,3 +5283,52 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
     });
   });
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🔍 介面大小（11/9）：比例、螢幕放得下多大、視窗大小、右下角不動 ----------
+(() => {
+  const UIS = require('../src/main/uiscale');
+  const root = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
+  const BASE = { WIN_W: 610, WIN_H: 800, MINI_SIZE: 140 };
+  // 1. 合法的比例：對齊 5%、0.7～1.5、亂填＝1
+  assert.strictEqual(UIS.clamp(1.12), 1.1); assert.strictEqual(UIS.clamp(1.13), 1.15); assert.strictEqual(UIS.clamp(0.3), 0.7); assert.strictEqual(UIS.clamp(9), 1.5);
+  for (const bad of [undefined, null, 'abc', -1, 0, NaN]) assert.strictEqual(UIS.clamp(bad), 1, '亂填＝100%：' + bad);
+  assert.strictEqual(UIS.clamp('1.2'), 1.2);
+  // 2. 螢幕放得下多大：1080p（工作區域 1040 高）→ 1.3；1440p 125% 縮放（1152 − 48 工作列）→ 1.35；1366×768 筆電（728）→ 0.9，但選單最大還是 100%
+  assert.strictEqual(UIS.fit({ width: 1920, height: 1040 }, BASE), 1.3);
+  assert.strictEqual(UIS.fit({ width: 2048, height: 1104 }, BASE), 1.35);
+  assert.strictEqual(UIS.fit({ width: 1366, height: 728 }, BASE), 0.9);
+  assert.strictEqual(UIS.maxFor({ width: 1366, height: 728 }, BASE), 1, '小螢幕：最大還是 100%（不會逼著變小）');
+  assert.strictEqual(UIS.maxFor({ width: 3840, height: 2100 }, BASE), 1.5, '大螢幕：最大 150%');
+  // 3. 實際用的：想要 150% 在 1080p 上 → 130%；100% 以下照用；小螢幕的 100% 照舊
+  assert.strictEqual(UIS.effective(1.5, { width: 1920, height: 1040 }, BASE), 1.3);
+  assert.strictEqual(UIS.effective(0.8, { width: 1366, height: 728 }, BASE), 0.8);
+  assert.strictEqual(UIS.effective(1, { width: 1366, height: 728 }, BASE), 1);
+  assert.strictEqual(UIS.effective(1.2, { width: 1366, height: 728 }, BASE), 1, '小螢幕想放大：先用 100%');
+  // 4. 視窗大小、滾輪
+  assert.deepStrictEqual(UIS.sizes(BASE, 1.2), { WIN_W: 732, WIN_H: 960, MINI_SIZE: 168 });
+  assert.deepStrictEqual(UIS.sizes(BASE, 0.9), { WIN_W: 549, WIN_H: 720, MINI_SIZE: 126 });
+  assert.strictEqual(UIS.wheel(1, 'in'), 1.1); assert.strictEqual(UIS.wheel(1, 'out'), 0.9); assert.strictEqual(UIS.wheel(0.7, 'out'), 0.7); assert.strictEqual(UIS.wheel(1.5, 'in'), 1.5);
+  assert.strictEqual(UIS.wheel(1.3, 'in', { width: 1920, height: 1040 }, BASE), 1.3, '滾輪：不超過螢幕放得下的');
+  assert.ok(UIS.PRESETS.includes(1) && UIS.PRESETS.every((p) => p === UIS.clamp(p)), '選單的大小都合法');
+  assert.strictEqual(UIS.pct(1.15), '115%');
+  // 5. 記住的位置：大小改了（記了舊的寬高）→ 右下角不動；舊存檔（沒有寬高）照舊
+  const D = { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 }, size: { width: 1920, height: 1080 } };
+  const scr = { getAllDisplays: () => [D], getPrimaryDisplay: () => D, getDisplayMatching: () => D, getDisplayNearestPoint: () => D };
+  const mkD = (st, sz) => DM.create({ screen: scr, state: st, sizes: sz, isMini: () => false, win: () => null });
+  const st2 = { positions: { [DM.dispSig(D)]: { full: { x: 1000, y: 200, w: 610, h: 800 }, mini: { x: 1700, y: 850, w: 140, h: 140 } } } };
+  const big = mkD(st2, UIS.sizes(BASE, 1.2));
+  assert.deepStrictEqual(big.boundsOn(D, 'full'), { x: 1000 - 122, y: 200 - 160, width: 732, height: 960 }, '放大：往左上長，右下角不動');
+  assert.deepStrictEqual(big.boundsOn(D, 'mini'), { x: 1700 - 28, y: 850 - 28, width: 168, height: 168 }, '小貓也是');
+  const old = mkD({ positions: { [DM.dispSig(D)]: { full: { x: 1000, y: 200, w: 610 }, mini: { x: 1700, y: 850 } } } }, BASE);
+  assert.deepStrictEqual(old.boundsOn(D, 'full'), { x: 1000, y: 200, width: 610, height: 800 }, '舊存檔照舊');
+  assert.deepStrictEqual(old.boundsOn(D, 'mini'), { x: 1700, y: 850, width: 140, height: 140 });
+  // 6. 主程式、畫面、說明
+  const mainJs = read('src/main/main.js');
+  assert.ok(/setZoomFactor\(uiScale\)/.test(mainJs) && /'zoom-changed'/.test(mainJs) && /🔍 介面大小（現在/.test(mainJs) && /scale:set/.test(mainJs) && /w: b\.width, h: b\.height/.test(mainJs), '主程式：zoom、Ctrl＋滾輪、選單、IPC、記寬高');
+  assert.ok(!/zoomFactor:/.test(mainJs), '不要用 webPreferences.zoomFactor（會套到同一個來源的其他視窗，還會被記住）');
+  assert.ok(/'ui:scale'/.test(read('src/main/preload.js')) && /scaleSet/.test(read('src/main/preload.js')), 'preload');
+  assert.ok(/scale\.js/.test(read('src/renderer/index.html')) && /renderScalePanel/.test(read('src/renderer/renderer.js')) && /'scale'/.test(read('src/renderer/panel-lines.js')), '滑桿面板接上');
+  assert.ok(/window\.scale/.test(read('README.md')) && JSON.parse(read('config.example.json')).window.scale === 1, 'README、範例設定');
+  console.log('介面大小測試通過 ✔');
+})();

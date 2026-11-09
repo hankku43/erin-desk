@@ -121,7 +121,12 @@ function characterImages() {
 
 // ---------- 多顯示器（邏輯在 displays.js，方便測試） ----------
 const DM = require('./displays');
-const dm = () => DM.create({ screen, state: engine.state, sizes: { WIN_W, WIN_H, MINI_SIZE }, isMini, win: () => win });
+// 🔍 介面大小（uiscale.js）：視窗大小 × 比例＋網頁 zoom；uiScale＝現在主視窗實際用的比例
+const UIS = require('./uiscale');
+const BASE = { WIN_W, WIN_H, MINI_SIZE };
+let uiScale = 1;
+const scaled = () => UIS.sizes(BASE, uiScale);
+const dm = () => DM.create({ screen, state: engine.state, sizes: scaled(), isMini, win: () => win });
 const dispSig = DM.dispSig;
 const displaysSorted = () => dm().displaysSorted();
 const displayLabel = (d, i) => dm().displayLabel(d, i);
@@ -151,15 +156,16 @@ function rememberPosition() {
   const sig = dispSig(d);
   engine.state.positions = engine.state.positions || {};
   const per = engine.state.positions[sig] = engine.state.positions[sig] || {};
-  if (isMini()) per.mini = { x: b.x, y: b.y }; else per.full = { x: b.x, y: b.y, w: WIN_W };
+  per[isMini() ? 'mini' : 'full'] = { x: b.x, y: b.y, w: b.width, h: b.height }; // 記寬高：之後大小改了（🔍 介面大小）還能對齊右下角
   engine.state.lastDisplay = sig;
   engine.saveState();
 }
 
 // 以目前視窗的右下角為基準算另一個型態的位置：貓和貓娘都貼在視窗右下角，這樣變身時她會留在原地
 function inPlaceBounds(cur, d, kind) {
-  const w = kind === 'mini' ? MINI_SIZE : WIN_W;
-  const h = kind === 'mini' ? MINI_SIZE : WIN_H;
+  const z = scaled();
+  const w = kind === 'mini' ? z.MINI_SIZE : z.WIN_W;
+  const h = kind === 'mini' ? z.MINI_SIZE : z.WIN_H;
   const wa = d.workArea;
   let x = cur.x + cur.width - w, y = cur.y + cur.height - h;
   x = Math.min(Math.max(x, wa.x), wa.x + wa.width - w);
@@ -204,12 +210,14 @@ function onDragEnd() {
     push('view:update', { view: engine.view(), reason: `已固定在顯示器 ${i + 1}，要換顯示器請從右鍵選單更改` });
     return;
   }
+  if (rescale({ quiet: true })) return; // 拖到另一台比較小的螢幕：縮到放得下（回到大螢幕再變回來）
   rememberPosition();
 }
 
 // 顯示器插拔或解析度變更：視窗跑出畫面就拉回來
 function ensureVisible() {
   if (!win || win.isDestroyed()) return;
+  if (rescale({ quiet: true })) return; // 換到放不下的螢幕：先縮到放得下
   const b = win.getBounds();
   const d = pinnedDisplay() || screen.getDisplayMatching(b);
   if (!centerIn(b, d) || !screen.getAllDisplays().some((x) => centerIn(b, x))) applyBounds(isMini() ? miniBounds(d) : fullBounds(d));
@@ -230,7 +238,48 @@ function displayMenu() {
   return items;
 }
 
+// ---------- 🔍 介面大小 ----------
+const scaleWanted = () => UIS.clamp((engine.config.window || {}).scale);
+function scaleInfo(d = targetDisplay()) {
+  return { scale: scaleWanted(), eff: uiScale, max: UIS.maxFor(d.workArea, BASE), min: UIS.MIN, presets: UIS.PRESETS };
+}
+// 依設定和現在的螢幕重算：比例變了就換視窗大小＋zoom（右下角不動）。回傳有沒有變
+function rescale({ quiet = false } = {}) {
+  if (!win || win.isDestroyed()) return false;
+  const cur = win.getBounds();
+  const d = pinnedDisplay() || screen.getDisplayMatching(cur);
+  const s = UIS.effective(scaleWanted(), d.workArea, BASE);
+  if (Math.abs(s - uiScale) < 0.001) { if (!quiet) push('ui:scale', scaleInfo(d)); return false; }
+  uiScale = s;
+  win.webContents.setZoomFactor(s);
+  applyBounds(inPlaceBounds(cur, d, isMini() ? 'mini' : 'full'));
+  setTimeout(rememberPosition, 350);
+  push('ui:scale', { ...scaleInfo(d), changed: true, quiet });
+  return true;
+}
+// 選單、滑桿、Ctrl＋滾輪：存進 config.json 的 window.scale（不能比這個螢幕放得下的大）
+function setScale(v) {
+  const d = targetDisplay();
+  const s = Math.min(UIS.clamp(v), UIS.maxFor(d.workArea, BASE));
+  if (s !== scaleWanted()) engine.saveConfigPatch({ window: { scale: s } });
+  rescale();
+  return scaleInfo(d);
+}
+function scaleMenu() {
+  const d = targetDisplay(), max = UIS.maxFor(d.workArea, BASE);
+  return [
+    ...UIS.PRESETS.map((p) => ({
+      label: `${UIS.pct(p)}${p === 1 ? '（原本的大小）' : ''}${p > max ? '（這個螢幕放不下）' : ''}`,
+      type: 'radio', checked: Math.abs(uiScale - p) < 0.001, enabled: p <= max, click: () => setScale(p),
+    })),
+    { type: 'separator' },
+    { label: '🎚 用滑桿調…', click: () => { if (isMini()) setMini(false); push('ui:open', 'scale'); } },
+    { label: `小技巧：滑鼠在${engine.config.npc.name}身上時，按住 Ctrl 滾滾輪也能調`, enabled: false },
+  ];
+}
+
 function createWindow({ hidden = false } = {}) {
+  { const d = targetDisplay(); uiScale = UIS.effective(scaleWanted(), d.workArea, BASE); } // 🔍 介面大小：先決定比例再算視窗大小
   const b = isMini() ? miniBounds() : fullBounds();
   win = new BrowserWindow({
     ...b, show: !hidden, // 第一次開要先演開場：主視窗先藏著，演完才出來
@@ -244,6 +293,16 @@ function createWindow({ hidden = false } = {}) {
   win.on('page-title-updated', (e) => e.preventDefault()); // 工作列顯示「艾琳的任務櫃台」，不要被網頁的 <title> 蓋掉
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(APP_DIR, 'src', 'renderer', 'index.html'));
+  // 🔍 介面大小：網頁跟著放大縮小（只有這個視窗；筆記本等其他視窗還是 100%）
+  win.webContents.setZoomFactor(uiScale);
+  win.webContents.on('did-finish-load', () => { if (win && !win.isDestroyed()) win.webContents.setZoomFactor(uiScale); });
+  // 滑鼠在她身上（或面板上）按住 Ctrl 滾滾輪：一格 10%；觸控板捏合也會來，所以 150ms 內只算一次
+  let wheelAt = 0;
+  win.webContents.on('zoom-changed', (_e, dir) => {
+    const now = Date.now(); if (now - wheelAt < 150) return; wheelAt = now;
+    const d = targetDisplay();
+    setScale(UIS.wheel(uiScale, dir, d.workArea, BASE));
+  });
   win.on('moved', () => { if (!moving) rememberPosition(); });
   screen.on('display-added', ensureVisible);
   screen.on('display-removed', ensureVisible);
@@ -755,6 +814,7 @@ function menuTemplate() {
       ...(engine.callUnlocked() ? [{ label: `💬 她怎麼叫你（現在叫你「${engine.config.npc.callName || '冒險者'}」）`, click: open('callName') }] : []), // 好感第 5 階「特別的冒險者」之後
       { type: 'separator' },
       { label: '置頂顯示', type: 'checkbox', checked: win.isAlwaysOnTop(), click: (m) => { win.setAlwaysOnTop(m.checked); engine.saveConfigPatch({ window: { alwaysOnTop: m.checked } }); } },
+      { label: `🔍 介面大小（現在 ${UIS.pct(uiScale)}）`, submenu: scaleMenu() },
       { label: '📊 狀態欄（等級、當前任務）', type: 'checkbox', checked: engine.config.window.hud !== false, click: (m) => { const r = engine.setHud(m.checked); push('view:update', { view: r.view }); } },
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
       { label: '🐰 棉棉和朵朵來櫃台串門子（下午茶外送、道賀、許願單）', type: 'checkbox', checked: engine.twCfg().enabled !== false, click: (m) => { const r = engine.setTwins(m.checked); push('view:update', { view: r.view }); } },
@@ -1132,6 +1192,8 @@ app.whenReady().then(async () => {
     win.setPosition(Math.round(x + dx), Math.round(y + dy));
   });
   ipcMain.on('win:menu', showMenu);
+  ipcMain.handle('scale:get', wrap(() => ({ info: scaleInfo() }))); // 🔍 介面大小
+  ipcMain.handle('scale:set', wrap((v) => ({ info: setScale(v) })));
   ipcMain.on('ai:toggle', () => setAI(!engine.config.llm.enabled));
   ipcMain.on('npc:touch', () => engine.touch()); // 冒險者碰了視窗：主動聊天的計時重來
   ipcMain.on('win:dragEnd', onDragEnd);
@@ -1172,7 +1234,7 @@ app.whenReady().then(async () => {
   try { powerMonitor.on('resume', () => setTimeout(() => runWeather(), 15000)); } catch (_) { /* 有些系統沒有 */ }
 
   // 開發測試用：QUEST_NPC_TEST=腳本路徑
-  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, runTick, runWeather, updater, pdWin: () => pdWin, pdOpen, opening: { start: startOpening, win: () => openingWin }, finale: { start: startFinale, win: () => finaleWin } });
+  if (process.env.QUEST_NPC_TEST) require(path.resolve(process.env.QUEST_NPC_TEST))({ win, engine, app, menuTemplate, runProactive, runTick, runWeather, updater, pdWin: () => pdWin, pdOpen, scale: { set: setScale, info: scaleInfo, rescale }, opening: { start: startOpening, win: () => openingWin }, finale: { start: startFinale, win: () => finaleWin } });
 });
 
 app.on('second-instance', () => { if (openingWin && !openingWin.isDestroyed()) { openingWin.focus(); return; } if (win) { win.restore(); win.focus(); } });

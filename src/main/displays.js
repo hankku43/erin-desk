@@ -55,8 +55,9 @@ function create({ screen, state, sizes, isMini, win }) {
     const wa = d.workArea;
     const s = savedPos(d, kind);
     if (s && typeof s.x === 'number') {
-      const x = kind === 'full' ? s.x - (WIN_W - (s.w || 540)) : s.x; // 視窗寬度改過時，維持右邊界
-      const r = { x, y: s.y, width: w, height: h };
+      // 視窗大小改過時（加寬、🔍 介面大小）維持右下角：她站的地方不動
+      const sw = s.w || (kind === 'full' ? 540 : w), sh = s.h || h;
+      const r = { x: s.x - (w - sw), y: s.y - (h - sh), width: w, height: h };
       if (centerIn(r, d)) {
         r.x = Math.min(Math.max(r.x, wa.x - w + 80), wa.x + wa.width - 80);
         r.y = Math.min(Math.max(r.y, wa.y - 60), wa.y + wa.height - h);

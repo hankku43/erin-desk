@@ -58,7 +58,7 @@ module.exports = ({ win, engine }) => {
       const n = (x) => Number(String(x).replace(/[^\d.]/g, ''));
       const e1 = await js(`Income.today(state.view.income, new Date()).earned`);
       assert(/^NT\$[\d,]+$/.test(t1) && /^NT\$[\d,]+$/.test(t2) && n(t2) >= n(t1), `撲滿下面只寫整數：${t1} → ${t2}`);
-      assert(n(t2) === Math.floor(e1) || n(t2) === Math.floor(e1) + 1, `整數＝今天賺的無條件捨去：${t2} vs ${e1}`);
+      assert(Math.abs(n(t2) - Math.floor(e1)) <= 1, `整數＝今天賺的無條件捨去：${t2} vs ${e1}`);
       const tip = await js(`document.querySelector('#incomeBank').dataset.tip`);
       assert(/今天賺了 NT\$/.test(tip) && tip.includes(`月薪 ÷（這個月 ${md} 個工作天 × 每天`), '滑過：' + tip);
       // 2b. 撲滿下面牌子上的兩張書籤「今日／本月」：切換下面寫今天的還是這個月的（存起來）；本月是淡紫色

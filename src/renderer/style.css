@@ -730,6 +730,18 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .ob-lock-row b { margin-right: 6px; }
 .fro { font-weight: 600; color: var(--ink-soft); font-size: var(--fs-s); }
 .ic-preview.bad { color: #c0392b; }
+/* 🔍 介面大小（scale.js） */
+.sc-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; }
+.sc-row input[type="range"] { flex: 1; accent-color: #e0a23a; height: 28px; cursor: pointer; }
+.sc-a, .sc-A { font-weight: 900; color: var(--gold-text-soft); line-height: 1; }
+.sc-a { font-size: var(--fs-xs); }
+.sc-A { font-size: var(--fs-xl); }
+.sc-row b { min-width: 52px; text-align: right; font-size: var(--fs-l); font-variant-numeric: tabular-nums; color: var(--gold-text); }
+.sc-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.sc-presets .sc-pre { min-width: 58px; font-variant-numeric: tabular-nums; }
+.sc-presets .sc-pre.on { background: linear-gradient(180deg, #ffe39a, #f0b23a); border-color: #c98a15; color: #4a2e00; }
+.sc-presets .sc-pre[disabled] { opacity: .45; cursor: not-allowed; }
+.sc-max { margin-top: 8px; }
 .ob-lock-row small { display: block; font-size: var(--fs-xs); color: var(--ink-soft); }
 .ob-pull { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .ob-bar { flex: 1; height: 10px; border-radius: var(--r-s); background: var(--track); overflow: hidden; border: 1px solid var(--line); }

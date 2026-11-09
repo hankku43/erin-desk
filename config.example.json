@@ -90,6 +90,7 @@
   },
   "window": {
     "alwaysOnTop": true,
+    "scale": 1,
     "idleChatterMinutes": 30,
     "topicCooldownDays": 14,
     "topicAskRatio": 0.5,

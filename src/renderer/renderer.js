@@ -3,9 +3,9 @@
 const $ = (s) => document.querySelector(s);
 const GREET_COOLDOWN = 30 * 60000; // 半小時內再點她，就不重複報告任務，改成閒聊
 const state = { view: null, character: null, queue: [], typing: false, panel: null, boardTab: 'quests', expanded: new Set(), busy: false, mini: false, miniAlert: false, pending: [], addingObj: null, confirmDel: null, panelBack: null, starSeen: {}, flMode: 'auto', flSlotId: null, flFlashUntil: 0, lastActive: null };
-const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename', 'callName', 'raidForm', 'leave', 'weatherSet', 'income']);
+const FORM_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'divine', 'onboard', 'rename', 'callName', 'raidForm', 'leave', 'weatherSet', 'income', 'scale']);
 // 欄位少的表單：面板貼在上方、只佔需要的高度（標題列位置跟其他面板一樣），取消／儲存就在欄位下面（10/14 E）
-const FIT_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'raidForm', 'report', 'submit', 'rename', 'callName', 'divine', 'weatherSet', 'income']);
+const FIT_PANELS = new Set(['questForm', 'rowForm', 'remForm', 'raidForm', 'report', 'submit', 'rename', 'callName', 'divine', 'weatherSet', 'income', 'scale']);
 // ✏️ 接待員改名：內建的句子（待機小字、面板台詞、說明小卡）是用「艾琳」寫的，顯示前換成現在的名字（rename.js）
 const npcNameR = () => (state.view && state.view.npc && state.view.npc.name) || '艾琳';
 const npcCallR = () => (state.view && state.view.npc && state.view.npc.call) || '冒險者'; // 💬 她現在怎麼叫你（第 5 階解鎖；冷戰中是冒險者）
@@ -1618,6 +1618,7 @@ function renderPanelInner(el, v) {
   if (state.panel === 'album') Story.renderAlbum(el, v); // 🎬 回憶相簿
   if (state.panel === 'weatherSet') renderWeatherSetPanel(el, v); // ☁ 天候水晶的說明與開關
   if (state.panel === 'income' && typeof renderIncomePanel === 'function') renderIncomePanel(el, v); // 🔔 收入撲滿的設定（piggy.js）
+  if (state.panel === 'scale' && typeof renderScalePanel === 'function') renderScalePanel(el, v); // 🔍 介面大小（scale.js）
 
   if (state.panel === 'report') {
     const t = v.today;
@@ -1785,6 +1786,7 @@ async function panelClick(e) {
   if (state.panel === 'journal' && await journalClick(e)) return;
   if (state.panel === 'weatherSet' && await weatherSetClick(e)) return;
   if (state.panel === 'income' && typeof incomeClick === 'function' && await incomeClick(e)) return;
+  if (state.panel === 'scale' && typeof scaleClick === 'function' && await scaleClick(e)) return;
   if (state.panel === 'shop' && await shopClick(e)) return;
   if (['raids', 'raidForm', 'daily'].includes(state.panel) && await raidsClick(e)) return;
   if (['leave', 'daily'].includes(state.panel) && await leaveClick(e)) return;

@@ -106,8 +106,10 @@ contextBridge.exposeInMainWorld('api', {
   dragEnd: () => ipcRenderer.send('win:dragEnd'),
   openMenu: () => ipcRenderer.send('win:menu'),
   setMini: (on) => ipcRenderer.send('win:mini', on),
+  scaleGet: () => ipcRenderer.invoke('scale:get'), // 🔍 介面大小
+  scaleSet: (v) => ipcRenderer.invoke('scale:set', Number(v)),
   on: (channel, fn) => {
-    const allowed = ['view:update', 'npc:lines', 'npc:partial', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:raid', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor', 'opening:done', 'finale:done'];
+    const allowed = ['view:update', 'npc:lines', 'npc:partial', 'ui:open', 'ui:mini', 'ui:shrink', 'ui:focus', 'ui:raid', 'ui:fortune', 'fx:reward', 'setup:progress', 'setup:ollama', 'update:status', 'presence', 'cursor', 'opening:done', 'finale:done', 'ui:scale'];
     if (!allowed.includes(channel)) return;
     ipcRenderer.on(channel, (_e, payload) => fn(payload));
   },
