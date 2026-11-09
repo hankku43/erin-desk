@@ -771,7 +771,7 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 /* 🎓 雜貨舖那步：鈴鐺撲滿的卡片 */
 .ob-gift { display: flex; gap: 10px; align-items: center; padding: 8px 10px; margin: 4px 0 8px; border: 2px solid var(--gold); border-radius: var(--r-m); background: linear-gradient(135deg, var(--gold-wash), var(--surface)); }
 .ob-gift-art { flex: none; width: 64px; height: 64px; display: grid; place-items: center; }
-.ob-gift-art svg { width: 64px; height: 64px; }
+.ob-gift-art svg, .ob-gift-art img { width: 64px; height: 64px; display: block; object-fit: contain; } /* Art 有 AI 畫的 PNG 時是 <img>：也要限制大小，不然會用原圖大小撐爆卡片 */
 .ob-gift b { font-size: var(--fs-l); margin-right: 6px; }
 .ob-gift small { display: block; margin-top: 3px; font-size: var(--fs-s); line-height: 1.55; color: var(--ink-soft); }
 .ob-help p { margin: 0 0 6px; font-size: var(--fs-s); line-height: 1.6; }

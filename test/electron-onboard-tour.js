@@ -89,6 +89,8 @@ module.exports = ({ win, engine, app, menuTemplate, pdWin }) => {
       await click('[data-ob-schedule]'); await wait(500);
       await until(() => js(`state.ob.step === 'shop'`), '到雜貨舖那步');
       await wait(300); await shot('t04_shop');
+      const giftBox = await js(`(()=>{const c=document.querySelector('.ob-gift').getBoundingClientRect(), a=document.querySelector('.ob-gift-art').firstElementChild.getBoundingClientRect(); return {cw:c.width,ch:c.height,ct:c.top,cl:c.left,aw:a.width,ah:a.height,at:a.top,al:a.left,tag:document.querySelector('.ob-gift-art').firstElementChild.tagName};})()`);
+      assert(giftBox.aw <= 66 && giftBox.ah <= 66 && giftBox.at >= giftBox.ct && giftBox.al >= giftBox.cl && giftBox.ch < 120, '卡片上的撲滿圖不會撐爆卡片：' + JSON.stringify(giftBox));
       assert(engine.state.player.gold < 220 && !engine.incomeUnlocked(), '還沒有撲滿、金幣不夠：' + engine.state.player.gold);
       const gold0 = engine.state.player.gold;
       assert(/220 金幣/.test(await text('.ob-body')) && /鈴鐺撲滿/.test(await text('.ob-body')), '說明見面禮和撲滿');
