@@ -95,6 +95,15 @@
     "topicAskRatio": 0.5,
     "idleAnim": true
   },
+  "income": {
+    "enabled": false,
+    "monthly": 0,
+    "start": "09:00",
+    "end": "18:00",
+    "interval": 1,
+    "countLeave": false,
+    "showTotal": true
+  },
   "weather": {
     "enabled": false,
     "city": "",

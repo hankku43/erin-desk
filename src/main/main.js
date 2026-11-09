@@ -758,7 +758,8 @@ function menuTemplate() {
       { label: '📊 狀態欄（等級、當前任務）', type: 'checkbox', checked: engine.config.window.hud !== false, click: (m) => { const r = engine.setHud(m.checked); push('view:update', { view: r.view }); } },
       { label: `✨ 待機小動作（${npcName}會自己動來動去）`, type: 'checkbox', checked: engine.config.window.idleAnim !== false, click: (m) => { engine.saveConfigPatch({ window: { idleAnim: m.checked } }); push('view:update', { view: engine.view() }); } },
       { label: '🐰 棉棉和朵朵來櫃台串門子（下午茶外送、道賀、許願單）', type: 'checkbox', checked: engine.twCfg().enabled !== false, click: (m) => { const r = engine.setTwins(m.checked); push('view:update', { view: r.view }); } },
-      { label: `☁ 天候水晶…（${engine.weatherOn() ? '開著' : '關著'}；打開會連網看天氣）`, click: open('weatherSet') }, // 說明會送出什麼、選位置、開關都在這個面板
+      { label: `☁ 天候水晶…（${engine.weatherOn() ? '開著' : '關著'}；打開會連網看天氣）`, click: open('weatherSet') },
+      { label: `🔔 收入撲滿…（${engine.incomeView().on ? '開著' : '關著'}；照月薪算上班時賺了多少）`, click: open('income') }, // 說明會送出什麼、選位置、開關都在這個面板
       { label: '🔒 Ollama 只在這台電腦（關掉雲端、自動下載更新、對外開放）', type: 'checkbox', checked: lockWanted(), click: (m) => menuSafe(async () => {
         if (m.checked) { const r = await lockOllama(OL.DEFAULT_WANT, { restart: true }); push('view:update', { view: engine.view(), reason: lockReason(r) }); return; }
         engine.saveConfigPatch({ ollamaLock: { cloud: false, autoUpdate: false, expose: false } });
@@ -975,6 +976,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('weather:say', wrap(() => engine.weatherSay())); // ☁ 點天候水晶
   ipcMain.handle('weather:refresh', wrap(async () => { await runWeather(true); return { view: engine.view() }; }));
   // 打開／關掉天候水晶、選位置（使用者在說明面板按的）。打開了就馬上看一次天空（不等它，畫面先回來）
+  ipcMain.handle('income:set', wrap((f) => engine.setIncome(f && typeof f === 'object' ? f : {}))); // 🔔 收入撲滿的設定
   ipcMain.handle('weather:set', wrap((on, where) => { const r = engine.setWeather({ enabled: on === true, where: String(where || '').slice(0, 20) }); if (on === true) runWeather(true); return r; }));
   ipcMain.handle('npc:confirm', wrap((id, keep) => engine.confirmProposal(id, Array.isArray(keep) ? keep.map(Number) : null)));
   ipcMain.handle('npc:cancel', wrap(() => engine.cancelProposal()));

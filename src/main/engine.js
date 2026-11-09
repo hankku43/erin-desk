@@ -53,6 +53,7 @@ const clipQ = (x, n = 40) => { const t = String(x || '').replace(/\s+/g, ' ').tr
 const NO_REPEAT = (said, userText, call) => `【不要重複】你剛才想回「${clipQ(said)}」，這跟你前面說過的話一模一樣。這次不要再說這句、也不要換個說法重講同一件事；直接針對${call}剛才說的「${clipQ(userText, 60)}」回應。聽不太懂的話就老實說，請他多說一點。`;
 const pad2 = (n) => String(n).padStart(2, '0');
 const RN = require('../renderer/rename'); // ✏️ 接待員改名：內建的「艾琳」換成現在的名字
+const INC = require('../renderer/income'); // 🔔 收入撲滿：照月薪算現在賺了多少（月薪不給 AI 看）
 const OS = require('../renderer/opening-script'); // 🎬 開場：名字規則
 const SU = require('../renderer/stageup-script'); // 💗 好感升階動畫：哪幾階有、舊存檔補演
 const FS = require('../renderer/finale-script'); // 💗 第 5 階終章：稱呼規則
@@ -516,6 +517,7 @@ class Engine {
       decor: { ...this.state.shop.equip }, // 🛒 主題配色、櫃台吊飾／擺設
       streak: this.streakOn() ? AC.current(this.state.streak, G.todayISO(this.now()), this.streakOpts()) : 0,
       twins: { waiting: this.twinsWaiting(), tickets: this.state.collection.tickets || 0, enabled: this.twCfg().enabled !== false, teaKept: this.teaKept() }, // 🐰 排隊要來櫃台的次數、抽卡券、☕ 櫃台上留著的奶茶
+      income: this.incomeView(), // 🔔 收入撲滿（畫面自己每秒算）
       weather: this.weatherView(), // ☁ 天候水晶
       idleExtra: this.idleExtra(), // 待機小字：今天的節日、之前幫她做的決定
     };
@@ -2963,6 +2965,36 @@ class Engine {
 
   // 狀態欄（左下角的等級、經驗值、當前任務）開關；存在設定裡，下次打開還是一樣
   setHud(on) { this.saveConfigPatch({ window: { hud: !!on } }); return { view: this.view() }; }
+
+  // ---- 🔔 收入撲滿：月薪 ÷ 240＝時薪，只算上班時間（作息設定的午休不算）、週末和國定假日不算 ----
+  //   月薪只放在 config.json 的 income，不會進給 AI 的提示（npc.js 不讀這個）
+  incomeCfg() { return { ...INC.DEFAULTS, ...((this.config && this.config.income) || {}) }; }
+  incomeLunch() {
+    const items = ((this.config.reminders || {}).items) || [];
+    const at = (ev) => (items.find((x) => x.event === ev) || {}).time || null;
+    const a = at('lunch'), b = at('afternoon');
+    return a && b && INC.mm(b) > INC.mm(a) ? [a, b] : null;
+  }
+  incomeView() {
+    const c = this.incomeCfg();
+    const today = G.todayISO(this.now());
+    const off = this.dayOff(today);
+    const workday = !off.off || (off.kind === 'leave' && !!c.countLeave);
+    const on = !!c.enabled && Number(c.monthly) > 0;
+    return {
+      on, set: Number(c.monthly) > 0, monthly: Number(c.monthly) || 0, start: c.start, end: c.end, lunch: this.incomeLunch(),
+      interval: INC.INTERVALS.includes(Number(c.interval)) ? Number(c.interval) : 1, countLeave: !!c.countLeave, showTotal: c.showTotal !== false,
+      date: today, workday, dayKind: off.kind || null, dayName: off.name || null,
+    };
+  }
+  // 設定（面板存的）：enabled＝false 只是收起來，月薪留著
+  setIncome(f = {}) {
+    if (f.enabled === false && !f.monthly) { this.saveConfigPatch({ income: { enabled: false } }); return { view: this.view() }; }
+    const r = INC.normalize(f);
+    if (!r.ok) throw new Error(r.error);
+    this.saveConfigPatch({ income: r.cfg });
+    return { view: this.view() };
+  }
 
   // ---- 📖 冒險日誌＋週報 ----
   jCfg() { const c = { ...J.DEFAULTS, ...(this.config.journal || {}) }; c.labels = { ...J.DEFAULTS.labels, ...((this.config.journal || {}).labels || {}) }; return c; }

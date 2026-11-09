@@ -728,6 +728,8 @@ body.mini.focusing #npcImg { --breathe: 4.8s; }
 .ob-lock-row { display: flex; gap: 6px; align-items: flex-start; font-size: var(--fs-s); margin: 5px 0; line-height: 1.45; cursor: pointer; }
 .ob-lock-row input { margin-top: 3px; }
 .ob-lock-row b { margin-right: 6px; }
+.fro { font-weight: 600; color: var(--ink-soft); font-size: var(--fs-s); }
+.ic-preview.bad { color: #c0392b; }
 .ob-lock-row small { display: block; font-size: var(--fs-xs); color: var(--ink-soft); }
 .ob-pull { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .ob-bar { flex: 1; height: 10px; border-radius: var(--r-s); background: var(--track); overflow: hidden; border: 1px solid var(--line); }
@@ -904,6 +906,23 @@ body.mini #decor, #npcWrap.transforming #decor, #npcWrap.shrinking #decor { disp
 #teaCup .tc-steam { position: absolute; left: 50%; top: -10px; width: 14px; height: 16px; margin-left: -7px; border-radius: 50%; border-left: 2px solid rgba(255, 255, 255, .85); animation: tcSteam 2.4s ease-in-out infinite; pointer-events: none; }
 #teaCup.bye { animation: tcBye .45s ease-in forwards; pointer-events: none; }
 body.mini #teaCup, #npcWrap.transforming #teaCup, #npcWrap.shrinking #teaCup { display: none; }
+/* 🔔 收入撲滿：艾琳腳邊（櫃台擺設的右邊；擺設本身就是鈴鐺撲滿時用它的位置） */
+#incomeBank { position: absolute; left: var(--bank-left, 0px); bottom: 14px; width: 70px; height: 78px; padding: 0; border: 0; background: none; cursor: pointer; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; animation: dPop .45s cubic-bezier(.3, 1.6, .5, 1) both; }
+#incomeBank .ib-art { width: 68px; height: 68px; display: block; filter: drop-shadow(0 3px 3px rgba(20, 24, 60, .3)); transform-origin: 50% 100%; }
+#incomeBank .ib-art svg, #incomeBank .ib-art img { width: 100%; height: 100%; display: block; object-fit: contain; object-position: 50% 100%; transform: scale(1.3); transform-origin: 50% 100%; }
+#incomeBank .ib-total { position: absolute; bottom: -12px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 12px; font-weight: 800; line-height: 15px; padding: 0 6px; border-radius: 8px; color: #6b4a07; background: rgba(255, 244, 205, .95); border: 1.5px solid #d9a93a; box-shadow: 0 1px 2px rgba(20, 24, 60, .25); font-variant-numeric: tabular-nums; }
+#incomeBank .ib-total.hidden { display: none; }
+#incomeBank.rest .ib-art { filter: drop-shadow(0 3px 3px rgba(20, 24, 60, .3)) saturate(.6) brightness(.95); }
+#incomeBank.ding .ib-art { animation: ibDing .5s ease-out .38s; }
+#incomeBank .ib-coin { position: absolute; left: 50%; top: -6px; width: 18px; height: 18px; margin-left: -9px; animation: ibCoin .55s cubic-bezier(.5, 0, .9, .6) both; pointer-events: none; }
+#incomeBank .ib-plus { position: absolute; left: 54px; top: 2px; white-space: nowrap; font-size: 13px; font-weight: 900; color: #9a6400; text-shadow: 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff, 1px 1px 0 #fff, -1px -1px 0 #fff; animation: ibPlus 1.3s ease-out .35s both; pointer-events: none; font-variant-numeric: tabular-nums; }
+body.bank-on #teaCup { left: calc(var(--bank-left, 0px) + 68px); }
+body.bank-is-desk #decor .d-desk { visibility: hidden; }
+body.mini #incomeBank, #npcWrap.transforming #incomeBank, #npcWrap.shrinking #incomeBank { display: none; }
+@keyframes ibCoin { 0% { opacity: 0; transform: translateY(-26px) rotate(-20deg); } 25% { opacity: 1; } 85% { opacity: 1; transform: translateY(14px) rotate(0); } 100% { opacity: 0; transform: translateY(18px) scaleY(.4); } }
+@keyframes ibDing { 0% { transform: none; } 30% { transform: scale(1.08, .92) rotate(-4deg); } 60% { transform: scale(.97, 1.04) rotate(3deg); } 100% { transform: none; } }
+@keyframes ibPlus { 0% { opacity: 0; transform: translateY(6px) scale(.8); } 20% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-22px); } }
+@media (prefers-reduced-motion: reduce) { #incomeBank .ib-coin, #incomeBank.ding .ib-art { animation: none; } #incomeBank .ib-coin { display: none; } }
 @keyframes tcSteam { 0% { opacity: 0; transform: translateY(6px) scaleY(.6); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-10px) scaleY(1.1); } }
 @keyframes tcBye { to { opacity: 0; transform: translate(40px, -60px) scale(.5); } }
 @media (prefers-reduced-motion: reduce) { #teaCup, #teaCup .tc-steam { animation: none; } }

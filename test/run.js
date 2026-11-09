@@ -5083,3 +5083,70 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(!fs.readFileSync(path.join(root, 'plans', '_template.md'), 'utf8').includes('艾琳'), '計畫範本');
   console.log('改名漏網之魚測試通過 ✔');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// ---------- 🔔 收入撲滿：月薪 ÷ 240、只算上班時間、週末國定假日不算、月薪不給 AI ----------
+(() => {
+  const INC = require('../src/renderer/income');
+  const os = require('os');
+  const close = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
+  assert.ok(close(INC.hourly(48000), 200) && close(INC.perSec(48000), 200 / 3600) && INC.hourly(0) === 0, '時薪＝月薪 ÷ 240');
+  // 時段：上班～下班扣掉午休
+  assert.deepStrictEqual(INC.windows({ start: '09:00', end: '18:00', lunch: ['12:00', '13:00'] }), [[540, 720], [780, 1080]]);
+  assert.deepStrictEqual(INC.windows({ start: '09:00', end: '18:00' }), [[540, 1080]]);
+  assert.deepStrictEqual(INC.windows({ start: '13:30', end: '18:00', lunch: ['12:00', '13:00'] }), [[810, 1080]], '午休不在上班時間裡：不扣');
+  assert.deepStrictEqual(INC.windows({ start: '18:00', end: '09:00' }), [], '下班比上班早：不算');
+  const win = INC.windows({ start: '09:00', end: '18:00', lunch: ['12:00', '13:00'] });
+  assert.strictEqual(INC.daySec(win), 8 * 3600, '預設一天 8 小時');
+  const at = (h, m = 0) => new Date(2026, 10, 9, h, m, 0);
+  assert.strictEqual(INC.workedSec(win, at(8, 30)), 0);
+  assert.strictEqual(INC.workedSec(win, at(10)), 3600);
+  assert.strictEqual(INC.workedSec(win, at(12, 30)), 3 * 3600, '午休不加');
+  assert.strictEqual(INC.workedSec(win, at(14)), 4 * 3600);
+  assert.strictEqual(INC.workedSec(win, at(20)), 8 * 3600, '下班後停在一天的量');
+  assert.ok(INC.working(win, at(10)) && !INC.working(win, at(12, 30)) && !INC.working(win, at(18)) && !INC.working(win, at(8, 59)));
+  const v = { on: true, monthly: 48000, start: '09:00', end: '18:00', lunch: ['12:00', '13:00'], workday: true, date: '2026-11-09' };
+  const t = INC.today(v, at(14));
+  assert.ok(close(t.earned, 800) && close(t.max, 1600) && t.working, '下午兩點：賺了 800（4 小時 × 200）：' + JSON.stringify(t));
+  assert.ok(INC.today({ ...v, workday: false }, at(14)).off && INC.today({ ...v, workday: false }, at(14)).earned === 0, '休假不算');
+  assert.strictEqual(INC.today({ ...v, date: '2026-11-08' }, at(14)).earned, 0, '日期不對（過了午夜還沒更新）：當 0');
+  assert.strictEqual(INC.today({ ...v, on: false }, at(14)).earned, 0);
+  // 金額寫法
+  assert.deepStrictEqual([INC.fmt(0.0556), INC.fmt(3.33), INC.fmt(1234.5)], ['0.06', '3.3', '1,235']);
+  assert.deepStrictEqual([INC.fmtBy(530.917, 0.056), INC.fmtBy(530.917, 3.3), INC.fmtBy(530.917, 200)], ['530.92', '530.9', '531']);
+  assert.strictEqual(INC.durText(5 * 3600 + 20 * 60), '5 小時 20 分');
+  // 檢查設定
+  assert.ok(!INC.normalize({ monthly: 'abc' }).ok && !INC.normalize({ monthly: 0 }).ok && /晚/.test(INC.normalize({ monthly: 1, start: '18:00', end: '09:00' }).error));
+  const nz = INC.normalize({ monthly: '48,000', start: '08:30', end: '17:30', interval: 60, countLeave: true });
+  assert.deepStrictEqual(nz.cfg, { enabled: true, monthly: 48000, start: '08:30', end: '17:30', interval: 60, countLeave: true, showTotal: true });
+  assert.strictEqual(INC.normalize({ monthly: 1, interval: 7 }).cfg.interval, 1, '不在清單裡的間隔：每 1 秒');
+  // 引擎：設定、午休跟作息、週末國定假日不算、請假看設定
+  const { Engine } = require('../src/main/engine');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-income-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [{ time: '12:00', event: 'lunch' }, { time: '13:00', event: 'afternoon' }, { time: '17:50', event: 'wrapup' }] } }));
+  fs.mkdirSync(path.join(dir, 'data'));
+  let now = new Date(2026, 10, 11, 14, 0); // 週三
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => now });
+  assert.ok(!E.view().income.on && !E.view().income.set, '預設關著');
+  assert.throws(() => E.setIncome({ monthly: 'x' }), /月薪/);
+  E.setIncome({ monthly: 48000, start: '09:00', end: '18:00', interval: 5 });
+  let iv = E.view().income;
+  assert.ok(iv.on && iv.monthly === 48000 && iv.interval === 5 && iv.workday && iv.date === '2026-11-11', JSON.stringify(iv));
+  assert.deepStrictEqual(iv.lunch, ['12:00', '13:00'], '午休照作息設定');
+  now = new Date(2026, 10, 14, 14, 0); assert.ok(!E.view().income.workday && E.view().income.dayKind === 'weekend', '週六不算');
+  now = new Date(2026, 9, 10, 14, 0); assert.ok(!E.view().income.workday, '國慶日不算');
+  now = new Date(2026, 10, 12, 14, 0); E.state.leave = { '2026-11-12': '特休' };
+  assert.ok(!E.view().income.workday && E.view().income.dayKind === 'leave', '請假預設不算');
+  E.setIncome({ monthly: 48000, start: '09:00', end: '18:00', interval: 5, countLeave: true });
+  assert.ok(E.view().income.workday, '勾了「請假也算」');
+  E.setIncome({ enabled: false });
+  iv = E.view().income;
+  assert.ok(!iv.on && iv.set && iv.monthly === 48000, '收起來：月薪留著');
+  // 月薪不給 AI：npc.js、提示相關的程式都不讀 income
+  for (const f of ['npc.js', 'intent.js', 'lore.js']) assert.ok(!/income|月薪/.test(fs.readFileSync(path.join(__dirname, '..', 'src', 'main', f), 'utf8')), f + ' 不碰月薪');
+  // 畫面接好了
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');
+  assert.ok(html.indexOf('income.js') > 0 && html.indexOf('piggy.js') > html.indexOf('income.js'), 'index.html 載入 income.js、piggy.js');
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('收入撲滿測試通過 ✔');
+})();
