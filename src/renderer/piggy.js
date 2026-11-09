@@ -49,7 +49,7 @@
     const t = Income.today(v, new Date());
     b.classList.toggle('rest', !t.working);
     const tot = b.querySelector('.ib-total');
-    tot.textContent = t.off ? '休假' : `NT$${Income.fmtBy(t.earned, Income.perSec(v.monthly) * v.interval)}`;
+    tot.textContent = t.off ? '休假' : `NT$${Math.floor(t.earned).toLocaleString('en-US')}`; // 只寫整數（11/9 使用者要求）；每一枚多少看旁邊飄的「+0.06」
     tot.classList.toggle('hidden', !v.showTotal && !t.off);
     b.dataset.tip = tipText(v, t);
     if (P.every !== v.interval) startTimer(v.interval);

@@ -41,7 +41,7 @@ module.exports = ({ win, engine }) => {
       await js(`document.querySelector('#icSave').click(); 0`);
       await until(`!!document.querySelector('#incomeBank') && state.panel === null`, 4000, '撲滿出現');
       assert(engine.config.income.monthly === 48000 && engine.config.income.enabled === true && engine.config.income.interval === 1, '存進設定：' + JSON.stringify(engine.config.income));
-      // 2. 每秒掉一枚、累計一直加
+      // 2. 每秒掉一枚；撲滿下面的累計只寫整數
       const t1 = await js(`document.querySelector('#incomeBank .ib-total').textContent`);
       let coins = 0;
       for (let i = 0; i < 30; i++) { coins = Math.max(coins, await js(`document.querySelectorAll('#incomeBank .ib-coin').length`)); if (coins) break; await wait(100); }
@@ -51,7 +51,9 @@ module.exports = ({ win, engine }) => {
       await wait(2200);
       const t2 = await js(`document.querySelector('#incomeBank .ib-total').textContent`);
       const n = (x) => Number(String(x).replace(/[^\d.]/g, ''));
-      assert(/^NT\$[\d,.]+$/.test(t1) && n(t2) > n(t1), `累計一直加：${t1} → ${t2}`);
+      const e1 = await js(`Income.today(state.view.income, new Date()).earned`);
+      assert(/^NT\$[\d,]+$/.test(t1) && /^NT\$[\d,]+$/.test(t2) && n(t2) >= n(t1), `撲滿下面只寫整數：${t1} → ${t2}`);
+      assert(n(t2) === Math.floor(e1) || n(t2) === Math.floor(e1) + 1, `整數＝今天賺的無條件捨去：${t2} vs ${e1}`);
       const tip = await js(`document.querySelector('#incomeBank').dataset.tip`);
       assert(/今天賺了 NT\$/.test(tip) && /時薪 NT\$200（月薪 ÷ 240）/.test(tip), '滑過：' + tip);
       // 3. 擺設是別的東西 → 撲滿在它右邊；奶茶再往右
