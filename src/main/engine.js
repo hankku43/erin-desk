@@ -2819,14 +2819,21 @@ class Engine {
     const stage = this.affOn() ? this.affStage() : 3;
     const key = g.joke ? 'gift_cucumber' : again ? 'gift_again' : `gift_${id}_${S.giftTier(stage)}`;
     const t = this.npc.template(key, { gift: g.name, seals: sh.seals });
-    const line = await this.say('gift', {
+    const facts = {
       quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [], noPlayer: true,
-      gift: `${g.name}（${RN.rename(g.desc, this.config.npc.name)}）${first ? '，這是第一次收到' : ''}${again ? '，今天已經收過一份了' : ''}${id === 'seal' ? `，收藏變成第 ${sh.seals} 個` : ''}`, opener: t.text,
-    }, { maxTokens: 180 });
-    if (line.source !== 'llm') { line.text = t.text; line.emotion = t.emotion; line.source = 'template'; }
-    delete line.repeated; delete line.data; delete line.tpl;
+      gift: `${g.name}（${RN.rename(g.desc, this.config.npc.name)}）${first ? '，這是第一次收到' : ''}${again ? '，今天已經收過一份了' : ''}${id === 'seal' ? `，收藏變成第 ${sh.seals} 個` : ''}`, opener: t.text, openerEmotion: t.emotion,
+    };
+    // 這次送的是什麼講清楚；黃瓜的惡作劇說明只在真的送黃瓜時才給（11/10：每次都給，小模型把蠟封章說成黃瓜）
+    const extraTail = g.joke ? `【這次】送的是${g.name}，是惡作劇（貓族怕黃瓜）：要嚇一跳、抗議，但不是真的生氣。` : `【這次】送的是「${g.name}」，針對它反應。`;
+    // ⚡ 先買好、話晚點說（11/10）：雜貨舖馬上完成，她的那句 AI 想好再從對話框出來（deferSpeech）；AI 沒開就直接說寫好的句子
+    let line = this.aiOn() ? await this.act('gift', facts, { maxTokens: 180, extraTail }) : { ...t };
+    if (line) {
+      if (line.source !== 'llm') { line.text = t.text; line.emotion = t.emotion; line.source = 'template'; }
+      delete line.repeated; delete line.data; delete line.tpl;
+      line = { ...line, event: 'gift' };
+    }
     this.saveState();
-    return this.settle({ gift: id, lines: [{ ...line, event: 'gift' }], shop: this.shopView(S.twinsLine(g.joke ? 'giftJoke' : 'gift', () => this.rnd())), view: this.view() });
+    return this.settle({ gift: id, lines: line ? [line] : [], shop: this.shopView(S.twinsLine(g.joke ? 'giftJoke' : 'gift', () => this.rnd())), view: this.view() });
   }
   // 買裝飾（主題配色、吊飾、擺設）：永久擁有，買了直接換上
   buyDecor(id) {

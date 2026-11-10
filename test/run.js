@@ -2552,6 +2552,34 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.npc.fetchJSON = async (_p, body) => { sent = body; return { message: { content: JSON.stringify({ line: '藍鈴花！冒險者怎麼知道艾琳喜歡這個？', emotion: 'happy' }) } }; };
   const fl = await E.buyGift('flower');
   assert.ok(/【禮物】藍鈴花束/.test(sent.messages.map((m) => m.content).join('\n')) && fl.lines[0].text === '藍鈴花！冒險者怎麼知道艾琳喜歡這個？');
+  // 不是黃瓜就不要提黃瓜（11/10：每次都寫「黃瓜是惡作劇」，小模型把蠟封章說成黃瓜）；說清楚這次送的是什麼
+  let prompt = sent.messages.map((m) => m.content).join('\n');
+  assert.ok(!/黃瓜/.test(prompt) && /【這次】送的是「藍鈴花束」/.test(prompt), '送花：提示裡沒有黃瓜');
+  await E.buyGift('seal');
+  prompt = sent.messages.map((m) => m.content).join('\n');
+  assert.ok(!/黃瓜/.test(prompt) && /【這次】送的是「遠方公會的蠟封章」/.test(prompt), '送蠟封章：提示裡沒有黃瓜');
+  await E.buyGift('cucumber');
+  prompt = sent.messages.map((m) => m.content).join('\n');
+  assert.ok(/【這次】送的是黃瓜，是惡作劇（貓族怕黃瓜）/.test(prompt), '真的送黃瓜才說');
+  // ⚡ 先買好、話晚點說（main 打開 deferSpeech）：雜貨舖馬上完成，她的那句 AI 想好再推過來
+  E.deferSpeech = true;
+  const spoken = [];
+  E.onSpeech = (ls) => spoken.push(...ls);
+  let release;
+  E.npc.fetchJSON = async () => { await new Promise((r) => { release = r; }); return { message: { content: JSON.stringify({ line: '小魚乾！艾琳最喜歡了～', emotion: 'happy' }) } }; };
+  const gold1 = E.state.player.gold;
+  const fast = await E.buyGift('fish');
+  assert.ok(fast.lines.length === 0 && E.state.player.gold === gold1 - 20 && fast.shop && fast.shop.twins && !spoken.length, '買好了：不等她的話');
+  release(); await E.speechIdle();
+  assert.ok(spoken.length === 1 && spoken[0].event === 'gift' && spoken[0].text === '小魚乾！艾琳最喜歡了～' && spoken[0].deferred, '她的話晚點推過來：' + JSON.stringify(spoken));
+  // AI 這次沒回好：說那份禮物寫好的句子（表情也用寫好的）
+  spoken.length = 0;
+  E.npc.fetchJSON = async () => { throw new Error('HTTP 500: boom'); };
+  const sealsBefore = E.state.shop.seals;
+  await E.buyGift('seal'); await E.speechIdle();
+  const tSeal = TEMPLATES.gift_seal_high[0];
+  assert.ok(spoken.length === 1 && spoken[0].text.includes(`第 ${sealsBefore + 1} 個`) && spoken[0].emotion !== 'happy' && spoken[0].source === 'template', 'AI 沒回好：寫好的句子＋表情 ' + JSON.stringify(spoken) + tSeal);
+  E.deferSpeech = false; E.onSpeech = null;
   E.config.llm.enabled = false; E.npc.llm.enabled = false;
   // 裝飾：買了直接換上；已經有的不再收錢；換主題算成就；不能放錯位置
   const bell = E.buyDecor('bell');
