@@ -42,12 +42,15 @@ function normEmotion(e) {
   if (EMOTIONS.includes(k)) return k;
   return EMOTION_ALIAS[k] || 'normal';
 }
+// 氣噗噗（fluster）：頭髮被摸亂、鼓臉頰、嘟嘴這種嬌嗔
+const FLUSTER_RE = /鳥窩|頭髮(都)?(被)?(摸|弄|揉)?(得)?亂|(摸|揉)亂|快(要)?(變回|縮成)貓|氣噗噗|氣呼呼|鼓(起|著)(臉|腮)|嘟(起|著)?嘴/;
 // 小模型幾乎都選 happy：台詞裡明明在害羞、在嫌棄，表情卻是笑的。依台詞內容修正
 const EMOTION_CUES = {
-  // 慌張害羞、感動排在害羞前面（比較強、比較特定的先比）
-  fluster: /冒煙|冒蒸氣|頭頂(都)?在冒|鳥窩|頭髮(都)?(被)?(摸)?亂|臉(都)?(要)?燒起來|快(要)?(變回|縮成)貓|不、不要看|啊啊啊/,
+  // 氣噗噗、感動排在害羞前面（比較特定的先比）
+  // fluster 的圖是頭髮被摸亂、鼓著臉頰冒氣（11/10：害羞時用它看起來像在生氣）→ 只留給被摸亂、嬌嗔；臉紅冒煙這種害羞算 shy
+  fluster: FLUSTER_RE,
   moved: /感動|眼眶|鼻子(好)?酸|好想哭|淚|哭出來/,
-  shy: /害羞|臉紅|紅著臉|紅了臉|臉頰(發燙|泛紅|紅紅|微紅)|低下頭|低著頭|捂住(臉|眼)|遮住(臉|嘴)|不好意思|結結巴巴|小小聲|(^|[^一-鿿])([一-鿿])、\2/,
+  shy: /冒煙|冒蒸氣|頭頂(都)?在冒|臉(都)?(要)?燒起來|不、不要看|啊啊啊|害羞|臉紅|紅著臉|紅了臉|臉頰(發燙|泛紅|紅紅|微紅)|低下頭|低著頭|捂住(臉|眼)|遮住(臉|嘴)|不好意思|結結巴巴|小小聲|(^|[^一-鿿])([一-鿿])、\2/,
   surprised: /[欸咦誒哇喵][？?！!]|[？?][！!]|[！!][？?]|嚇(了一跳|到了|一跳)|竟然|居然|真的假的|尾巴(的毛)?(都)?炸/,
   worried: /擔心|別太累|不要太累|別勉強|不要勉強|要注意身體|不舒服|逾期|來不及|糟糕|怎麼辦|唉|嗚/,
   cheer: /太棒了|恭喜|萬歲|好耶|耶[！!～~]|成功了|做到了|🎉|乾杯|加油[！!]{2,}/,
@@ -60,6 +63,7 @@ const EVENT_EMOTION = {
   levelup: 'cheer', all_clear: 'cheer', submit: 'cheer', objective_last: 'cheer', poke_meow: 'surprised',
 };
 function refineEmotion(text, emotion, event) {
+  if (emotion === 'fluster' && !FLUSTER_RE.test(String(text || ''))) return 'shy'; // AI 把告白、撒嬌這種害羞選成氣噗噗 → 害羞（圖看起來像生氣）
   if (emotion !== 'happy' && emotion !== 'normal') return emotion; // 模型自己挑了別的表情就照它
   for (const [emo, re] of Object.entries(EMOTION_CUES)) if (re.test(String(text || ''))) return emo;
   return (event && EVENT_EMOTION[event]) || emotion;
@@ -1114,7 +1118,7 @@ class NPC {
       '2. 任務、日期、數字只照【狀態】說，不編造；舊對話提到的任務或行程可能已經過時，以【狀態】為準。',
       `3. 不重複${call}的話，也不沿用自己前幾句的說法。`,
       `4. 工作以外的話題照【角色設定參考】發揮，不矛盾；不假裝知道${call}那邊的天氣、新聞。`,
-      `5. JSON：line＝這次說出口的完整句子；emotion 照這句的情緒挑，不要每句都用 happy：normal＝平常／happy＝開心／cheer＝慶祝／thinking＝思考、提醒、不確定／surprised＝驚訝／worried＝擔心${call}／shy＝被稱讚、聊感情時害羞／fluster＝比 shy 更慌張的害羞（臉紅冒煙）／moved＝感動（眼眶紅紅地笑）／disdain＝只在${call}失禮、騷擾時的冷眼。`,
+      `5. JSON：line＝這次說出口的完整句子；emotion 照這句的情緒挑，不要每句都用 happy：normal＝平常／happy＝開心／cheer＝慶祝／thinking＝思考、提醒、不確定／surprised＝驚訝／worried＝擔心${call}／shy＝被稱讚、示好、聊感情時害羞（再害羞、臉紅冒煙也用 shy）／fluster＝頭髮被摸亂、被逗到鼓著臉頰氣噗噗的嬌嗔（不是真的生氣；被告白、撒嬌、被稱讚都不用它）／moved＝感動（眼眶紅紅地笑）／disdain＝只在${call}失禮、騷擾時的冷眼。`,
       ...this.relationLines(),
     ].join('\n');
   }

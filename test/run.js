@@ -5378,10 +5378,30 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   const filled = NP.fillEmotionImages({ normal: 'n.png', happy: 'h.png', shy: 's.png' });
   assert.ok(filled.callname === 's.png' && filled.stamp === 'n.png' && filled.moved === 'h.png', '沒有圖的照替代補');
   assert.ok(fs.existsSync(path.join(__dirname, '..', 'tools', 'align_expr.py')), '對齊工具');
-  // 台詞線索：冒煙→慌張、眼眶→感動（排在害羞前面）
-  assert.strictEqual(NP.refineEmotion('頭頂都在冒煙了……不、不要看！', 'happy'), 'fluster');
+  // 台詞線索：頭髮被摸亂、鼓臉頰→氣噗噗（fluster）、眼眶→感動（排在害羞前面）；臉紅冒煙這種害羞→shy
+  assert.strictEqual(NP.refineEmotion('頭髮都被摸成鳥窩了啦！', 'happy'), 'fluster');
+  assert.strictEqual(NP.refineEmotion('哼，艾琳鼓著臉頰，不理你了～', 'normal'), 'fluster');
   assert.strictEqual(NP.refineEmotion('謝謝你……艾琳眼眶有點熱。', 'happy'), 'moved');
   assert.strictEqual(NP.refineEmotion('不好意思啦', 'happy'), 'shy', '一般害羞照舊');
+  assert.strictEqual(NP.refineEmotion('頭頂都在冒煙了……不、不要看！', 'happy'), 'shy', '11/10：臉紅冒煙是害羞，不用氣噗噗那張（看起來像生氣）');
+  // AI 自己選了 fluster：台詞是嬌嗔才留著，告白、撒嬌這種害羞改成 shy
+  assert.strictEqual(NP.refineEmotion('欸？要、要牽手？雪球才、才沒有在等……（尾巴繞成圈圈）', 'fluster'), 'shy', 'AI 選氣噗噗、台詞在害羞 → 害羞');
+  assert.strictEqual(NP.refineEmotion('再揉下去頭髮都亂了啦……（鼓起臉）', 'fluster'), 'fluster', 'AI 選氣噗噗、台詞在嬌嗔 → 照它');
+  assert.strictEqual(NP.refineEmotion('嘿嘿', 'shy'), 'shy', '其他 AI 選的表情照舊');
+  {
+    const ai = new NP.NPC({ npc: { name: '艾琳', callName: '冒險者' }, llm: { enabled: true, baseUrl: 'http://x', model: 'm', maxChars: 90 } });
+    ai.status.online = true;
+    const sys = ai.systemPrompt();
+    assert.ok(/fluster＝頭髮被摸亂/.test(sys) && /被告白、撒嬌、被稱讚都不用它/.test(sys) && /再害羞、臉紅冒煙也用 shy/.test(sys) && !/更慌張的害羞/.test(sys), '系統提示：fluster 只給嬌嗔');
+    let reply = { line: '欸、欸？冒險者突然這樣說……艾琳的尾巴都打結了啦。', emotion: 'fluster' };
+    ai.fetchJSON = async () => ({ message: { content: JSON.stringify(reply) } });
+    const facts = { quest: '', reason: '', remaining: [], slot: '', block: '', output: '', theme: '', memory: [], noPlayer: true };
+    let r = await ai.say('chat', facts, { userText: '我很喜歡跟你聊天' });
+    assert.ok(r.source === 'llm' && r.emotion === 'shy', `AI 回害羞的話卻選 fluster → 畫面用害羞：${r.emotion}`);
+    reply = { line: '還摸！艾琳的頭髮都被摸亂了……哼。', emotion: 'fluster' };
+    r = await ai.say('chat', facts, { userText: '摸摸頭' });
+    assert.strictEqual(r.emotion, 'fluster', '嬌嗔照用氣噗噗');
+  }
   // 內建台詞照事件換表情（原本擔心、驚訝、鄙視的不換）
   const npc = new NP.NPC({ npc: { name: '艾琳' }, llm: { enabled: false } });
   const emo = (ev, f = {}) => { const s = new Set(); for (let i = 0; i < 40; i++) s.add(npc.template(ev, { quest: '試做', reward: '10', title: 'x', gold: 5, item: 'x', minutes: 25, rest: 5, xp: 3, count: 1, label: 'x', at: '10:00', ...f }).emotion); return [...s]; };
