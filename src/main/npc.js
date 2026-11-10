@@ -10,9 +10,27 @@ try {
   toTW = OpenCC.Converter({ from: 'cn', to: 'tw' });
 } catch (_) { /* 未安裝 opencc-js 時略過繁簡轉換 */ }
 
-const EMOTIONS = ['normal', 'happy', 'thinking', 'surprised', 'cheer', 'worried', 'shy', 'disdain'];
+const EMOTIONS = ['normal', 'happy', 'thinking', 'surprised', 'cheer', 'worried', 'shy', 'disdain', 'moved', 'fluster'];
+// 11/10 從好感升階動畫的圖對齊來的表情（tools/align_expr.py）：AI 不會選，照事件、台詞、功能用（不增加給 AI 的提示）
+const EXPRESSIONS = ['sheepish', 'stamp', 'focus', 'notebook', 'gentle', 'lantern', 'promise', 'heartflame', 'callname'];
+// 好感升階動畫看完第幾階才用（劇情裡才出現的動作，先用了會劇透）；還沒解鎖時畫面用 EMOTION_FALLBACK 的圖
+const EXPR_LOCK = { promise: 4, heartflame: 4, callname: 5 };
+// 這些事件的內建台詞換成新表情（原本是擔心、驚訝、鄙視的不換）
+const EXPR_EVENT = {
+  submit: 'stamp', daily_report: 'stamp', pd_done: 'stamp', pd_done_next: 'stamp', wrap_confirm_none: 'stamp',
+  all_clear: 'moved', streak_milestone: 'moved', date_birthday: 'moved', date_birthday_again: 'moved', journal_perfect: 'moved', journal_allclear: 'moved', apology_accept: 'moved',
+  achievement: 'focus', achievement_many: 'focus', focus_start: 'focus', journal_writing: 'focus',
+  note_taken: 'notebook', pd_noted: 'notebook', notebook_on: 'notebook', journal_open: 'notebook',
+  reminder_set: 'promise', raid_set: 'promise',
+  farewell_night: 'gentle',
+  divine: 'lantern',
+  chat_repeat: 'sheepish',
+  touch_pat_more: 'fluster', stageup_tease: 'fluster',
+  gift_tea_high: 'heartflame', gift_fishbread_high: 'heartflame', gift_bubble_high: 'heartflame', gift_flower_high: 'heartflame', gift_envelope_high: 'heartflame', gift_ribbon_high: 'heartflame', gift_seal_high: 'heartflame',
+};
+const EXPR_KEEP = new Set(['worried', 'surprised', 'disdain']);
 // 還沒有圖的表情先借相近的圖（沒列的一律用 normal）
-const EMOTION_FALLBACK = { shy: 'happy', disdain: 'thinking' };
+const EMOTION_FALLBACK = { shy: 'happy', disdain: 'thinking', moved: 'happy', fluster: 'shy', sheepish: 'shy', stamp: 'cheer', focus: 'thinking', notebook: 'happy', gentle: 'happy', lantern: 'happy', promise: 'happy', heartflame: 'shy', callname: 'shy' };
 // 模型偶爾會自己發明表情名稱，收斂到現有的幾種
 const EMOTION_ALIAS = {
   embarrassed: 'shy', blush: 'shy', blushing: 'shy', flustered: 'shy', bashful: 'shy', '害羞': 'shy',
@@ -26,6 +44,9 @@ function normEmotion(e) {
 }
 // 小模型幾乎都選 happy：台詞裡明明在害羞、在嫌棄，表情卻是笑的。依台詞內容修正
 const EMOTION_CUES = {
+  // 慌張害羞、感動排在害羞前面（比較強、比較特定的先比）
+  fluster: /冒煙|冒蒸氣|頭頂(都)?在冒|鳥窩|頭髮(都)?(被)?(摸)?亂|臉(都)?(要)?燒起來|快(要)?(變回|縮成)貓|不、不要看|啊啊啊/,
+  moved: /感動|眼眶|鼻子(好)?酸|好想哭|淚|哭出來/,
   shy: /害羞|臉紅|紅著臉|紅了臉|臉頰(發燙|泛紅|紅紅|微紅)|低下頭|低著頭|捂住(臉|眼)|遮住(臉|嘴)|不好意思|結結巴巴|小小聲|(^|[^一-鿿])([一-鿿])、\2/,
   surprised: /[欸咦誒哇喵][？?！!]|[？?][！!]|[！!][？?]|嚇(了一跳|到了|一跳)|竟然|居然|真的假的|尾巴(的毛)?(都)?炸/,
   worried: /擔心|別太累|不要太累|別勉強|不要勉強|要注意身體|不舒服|逾期|來不及|糟糕|怎麼辦|唉|嗚/,
@@ -65,7 +86,7 @@ function dropRepeats(text, recent, n = 10) {
 function fillEmotionImages(found) {
   const out = { ...found };
   const any = out.normal || Object.values(out).find(Boolean) || null;
-  for (const emo of EMOTIONS) if (!out[emo]) out[emo] = out[EMOTION_FALLBACK[emo]] || out.normal || any;
+  for (const emo of [...EMOTIONS, ...EXPRESSIONS]) if (!out[emo]) out[emo] = out[EMOTION_FALLBACK[emo]] || out.normal || any;
   return out;
 }
 
@@ -1093,7 +1114,7 @@ class NPC {
       '2. 任務、日期、數字只照【狀態】說，不編造；舊對話提到的任務或行程可能已經過時，以【狀態】為準。',
       `3. 不重複${call}的話，也不沿用自己前幾句的說法。`,
       `4. 工作以外的話題照【角色設定參考】發揮，不矛盾；不假裝知道${call}那邊的天氣、新聞。`,
-      `5. JSON：line＝這次說出口的完整句子；emotion 照這句的情緒挑，不要每句都用 happy：normal＝平常／happy＝開心／cheer＝慶祝／thinking＝思考、提醒、不確定／surprised＝驚訝／worried＝擔心${call}／shy＝被稱讚、聊感情時害羞／disdain＝只在${call}失禮、騷擾時的冷眼。`,
+      `5. JSON：line＝這次說出口的完整句子；emotion 照這句的情緒挑，不要每句都用 happy：normal＝平常／happy＝開心／cheer＝慶祝／thinking＝思考、提醒、不確定／surprised＝驚訝／worried＝擔心${call}／shy＝被稱讚、聊感情時害羞／fluster＝比 shy 更慌張的害羞（臉紅冒煙）／moved＝感動（眼眶紅紅地笑）／disdain＝只在${call}失禮、騷擾時的冷眼。`,
       ...this.relationLines(),
     ].join('\n');
   }
@@ -1154,7 +1175,9 @@ class NPC {
       if (fresh.length) pool = fresh;
     }
     if (key === 'poke' && !f.quest) pool = pool.filter(([t]) => !t.includes('{quest}'));
-    const [tpl, emotion] = pick(pool);
+    let [tpl, emotion] = pick(pool);
+    const ex = EXPR_EVENT[key];
+    if (ex && !EXPR_KEEP.has(emotion)) emotion = ex; // 新表情（tools/align_expr.py）：交付蓋章、記小本子、晚安溫柔…
     // 內建台詞和填進去的片段（運勢、話題…）是用「艾琳」寫的：換成現在的名字（冒險者自己寫的字不動）
     const n = this.names();
     return { text: RN.call(RN.rename(fill(tpl, { ...n, ...f }), n.self, { protect: protectedTexts(f) }), n.call, { protect: protectedTexts(f) }), emotion, source: 'template', tpl };
@@ -1421,4 +1444,4 @@ class NPC {
   }
 }
 
-module.exports = { partialField, partialSteps, versionAtLeast, estTokens, badReply, NPC, EMOTIONS, EMOTION_FALLBACK, MOODS, MOOD_EMOTION, EVENT_EMOTION, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };
+module.exports = { partialField, partialSteps, versionAtLeast, estTokens, badReply, NPC, EMOTIONS, EXPRESSIONS, EXPR_LOCK, EXPR_EVENT, EMOTION_FALLBACK, MOODS, MOOD_EMOTION, EVENT_EMOTION, normEmotion, fillEmotionImages, refineEmotion, dropRepeats, TEMPLATES, voice, WHY, isFallbackText, isPlaceholder };

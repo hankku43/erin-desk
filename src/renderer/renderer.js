@@ -166,6 +166,8 @@ window.addEventListener('mouseleave', () => { lastIgnore = null; });
 function setEmotion(emo) {
   const c = state.character;
   if (!c) return;
+  // 好感升階動畫還沒看到那一階的表情（打勾勾、心形火、叫你的名字）：先用相近的圖，不劇透
+  if (emo && ((state.view && state.view.exprLocked) || []).includes(emo)) emo = (c.fallback && c.fallback[emo]) || 'happy';
   state.emotion = emo || 'normal'; // 待機小動作換完圖會換回這個
   const src = state.mini
     ? (state.miniAlert ? c.miniAlert : c.mini)

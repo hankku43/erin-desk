@@ -464,7 +464,7 @@ Intel 內顯和比較舊的 AMD 顯示卡目前 Ollama 用不到，會照沒有�
 
 ## 五、換成你自己的角色
 
-把圖片放進 `assets/character/`，檔名如下（沒提供的表情會用相近的圖代替：`shy` → `happy`、`disdain` → `thinking`，其他 → `normal`）：
+把圖片放進 `assets/character/`，檔名如下（`.png` 或 `.webp` 都可以；沒提供的表情會用相近的圖代替：`shy` → `happy`、`disdain` → `thinking`，下面「替代」那欄，其他 → `normal`）：
 
 | 檔名 | 用在 |
 |---|---|
@@ -476,6 +476,17 @@ Intel 內顯和比較舊的 AMD 顯示卡目前 Ollama 用不到，會照沒有�
 | `worried.png` | 逾期、卡關 |
 | `shy.png` | 害羞：被稱讚、被說中心事 |
 | `disdain.png` | 鄙視：ゴミを見るような目（開玩笑時用） |
+| `moved` | 感動（眼眶紅紅地笑）：整週委託全清、連續上工里程碑、生日、認識紀念日、你道歉時；AI 也會選。替代 happy |
+| `fluster` | 慌張害羞（頭冒蒸氣）：摸頭摸太久、升階前的「沒、沒事！」；AI 也會選（比 shy 更強）。替代 shy |
+| `sheepish` | 心虛（杯子藏背後）：AI 腦袋打結、改用內建台詞的時候。替代 shy |
+| `stamp` | 蓋章：交付委託、收工回報記下來、週計畫寫進計畫檔。替代 cheer |
+| `focus` | 專心描金邊：開始專注、解鎖成就、寫冒險日誌評語。替代 thinking |
+| `notebook` | 抱著小本子：記下你說的事、打開冒險日誌。替代 happy |
+| `gentle` | 溫柔：你說自己很痛苦、晚安道別。替代 happy |
+| `lantern` | 提燈：星環占卜、元宵、中秋。替代 happy |
+| `promise` | 打勾勾：設提醒、建團戰（**看完好感第 4 階動畫才用**）。替代 happy |
+| `heartflame` | 心形火焰：好感很高時收到禮物（**看完第 4 階才用**）。替代 shy |
+| `callname` | 叫你的名字：每天第一次見面（**看完第 5 階、開始叫你的名字之後**）。替代 shy |
 | `mini.png` | 縮小化時的貓咪型態（沒有的話會用 normal 縮小） |
 | `mini_alert.png` | 縮小時有新提醒 |
 | `blink.png` | （選填）眨眼：跟 normal 一樣，只有眼睛閉上 |
@@ -516,7 +527,7 @@ Intel 內顯和比較舊的 AMD 顯示卡目前 Ollama 用不到，會照沒有�
 設定內文，給 AI 參考用。
 ```
 
-表情可以填 normal／happy／thinking／surprised／cheer／worried／shy；disdain（鄙視）只留給冒險者失禮的時候，設定裡不要填。想讓某條故事要熟一點才聊得到，加一行 `好感：3`（1～5，見上面的好感度）。`話題：` 是她主動開口時用的：通常直接說這句，偶爾（預設四次一次）請 AI 用自己的話重說；最好用一個問句結尾，讓你好回話，也不要提任務和進度。`分享：` 也是她主動開口時用的，是她自己的小事，說完就好、不要問問題；她大約一半說「話題」、一半說「分享」。括號裡可以加標籤，用「・」隔開：`好感3`、時段（早上／中午／下午／傍晚／晚上）、星期（週一～週日、週末、平日）、季節（春天／夏天／秋天／冬天）；有標的只在那個時候聊，時候對了也比較容易被選到。同一句話兩週內不會再說（`window.topicCooldownDays`），話題少的時候會挑最久沒說的那句。
+表情可以填 normal／happy／thinking／surprised／cheer／worried／shy／moved／fluster；disdain（鄙視）只留給冒險者失禮的時候，設定裡不要填。想讓某條故事要熟一點才聊得到，加一行 `好感：3`（1～5，見上面的好感度）。`話題：` 是她主動開口時用的：通常直接說這句，偶爾（預設四次一次）請 AI 用自己的話重說；最好用一個問句結尾，讓你好回話，也不要提任務和進度。`分享：` 也是她主動開口時用的，是她自己的小事，說完就好、不要問問題；她大約一半說「話題」、一半說「分享」。括號裡可以加標籤，用「・」隔開：`好感3`、時段（早上／中午／下午／傍晚／晚上）、星期（週一～週日、週末、平日）、季節（春天／夏天／秋天／冬天）；有標的只在那個時候聊，時候對了也比較容易被選到。同一句話兩週內不會再說（`window.topicCooldownDays`），話題少的時候會挑最久沒說的那句。
 
 改完右鍵 →「⚙ 設定與資料」→「重新讀取設定」。
 
@@ -705,7 +716,7 @@ npm start
 | `build/` | 打包用的圖示（`icon.ico`、`icon.png`）；`package.json` 的 `build` 是 electron-builder 設定 |
 | `lore/艾琳.md` | 角色設定 |
 | `assets/character/` | 角色圖（去背後）；`assets/shop/` 是雜貨舖的物品和店員圖；`assets/raw/` 是原圖；`assets/ui/` 是提示圖示 |
-| `tools/` | 去背腳本（角色 `remove_bg.py`、雜貨舖合輯 `cut_sheet.py`）、佔位圖產生器、舊格式轉換 `convert_plan.js`、安裝前檢查 Node.js 版本 `check-node.js`、挑下載來源 `pick-mirror.js`（安裝.bat／打包.bat 用）、列出要上傳到 Release 的檔案 `release-files.js`（打包.bat 最後跑） |
+| `tools/` | 去背腳本（角色 `remove_bg.py`、雜貨舖合輯 `cut_sheet.py`）、把升階動畫的圖對齊成櫃台表情 `align_expr.py`（照兩眼位置縮放平移）、佔位圖產生器、舊格式轉換 `convert_plan.js`、安裝前檢查 Node.js 版本 `check-node.js`、挑下載來源 `pick-mirror.js`（安裝.bat／打包.bat 用）、列出要上傳到 Release 的檔案 `release-files.js`（打包.bat 最後跑） |
 | `test/run.js` | 單元測試（`npm test`）：解析、回寫、引擎的新增／編輯／刪除、行事曆匯入匯出、聊天改進度、角色檢索；`test/electron-*.js` 是用 xvfb 跑的畫面測試，用法：`QUEST_NPC_TEST=test/electron-tour.js npx electron .`（`electron-edit.js` 會把每個表單走一遍並檢查檔案內容） |
 
 ## 開發

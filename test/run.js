@@ -1477,7 +1477,7 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   E.rand = () => 0.9; t += 60000;
   reply = { line: '嗯哼～謝謝誇獎，今天也一起加油吧！', emotion: 'happy', actions: [] };
   r = await E.chat('你喜歡的人是誰');
-  assert.ok(!/這次的情緒/.test(sys()) && sent.format.properties.emotion.enum.length === 7, '沒骰到就不加指示（沒有要判斷態度：鄙視不能選）');
+  assert.ok(!/這次的情緒/.test(sys()) && sent.format.properties.emotion.enum.length === 9, '沒骰到就不加指示（沒有要判斷態度：鄙視不能選）');
   assert.strictEqual(r.lines[0].emotion, 'happy');
   // 沒骰到但台詞在害羞 → 表情跟著台詞
   t += 60000; reply = { line: '（突然害羞地低頭）唔……這種事要保密啦。', emotion: 'happy', actions: [] };
@@ -5332,3 +5332,69 @@ for (const e of L.entries) assert.ok(e.keywords.length >= 3 && e.reply, `「${e.
   assert.ok(/window\.scale/.test(read('README.md')) && JSON.parse(read('config.example.json')).window.scale === 1, 'README、範例設定');
   console.log('介面大小測試通過 ✔');
 })();
+
+// ---------- 🎭 新表情（11/10）：動畫的圖對齊成櫃台的畫框、照事件／台詞／功能用、劇情表情要看完那一階 ----------
+(async () => {
+  const os = require('os');
+  const NP = require('../src/main/npc');
+  const FE = require('../src/main/festivals');
+  const { Engine } = require('../src/main/engine');
+  // 圖：每個新表情都有（webp、跟 normal 一樣大），AI 能選的多了感動、慌張
+  for (const e of [...NP.EMOTIONS, ...NP.EXPRESSIONS]) {
+    const f = ['png', 'webp'].map((x) => path.join(__dirname, '..', 'assets', 'character', `${e}.${x}`)).find((p) => fs.existsSync(p));
+    assert.ok(f, `表情 ${e} 有圖`);
+    if (f.endsWith('.webp')) { const b = fs.readFileSync(f); assert.ok(b.slice(0, 4).toString() === 'RIFF' && b.slice(8, 12).toString() === 'WEBP' && b.length < 400 * 1024, `${e}.webp 格式、大小：${b.length}`); }
+  }
+  assert.ok(NP.EMOTIONS.includes('moved') && NP.EMOTIONS.includes('fluster') && NP.EMOTIONS.length === 10, 'AI 多兩種：感動、慌張');
+  for (const e of NP.EXPRESSIONS) assert.ok(!NP.EMOTIONS.includes(e) && NP.EMOTION_FALLBACK[e], `${e} 不給 AI 選、有替代的圖`);
+  const filled = NP.fillEmotionImages({ normal: 'n.png', happy: 'h.png', shy: 's.png' });
+  assert.ok(filled.callname === 's.png' && filled.stamp === 'n.png' && filled.moved === 'h.png', '沒有圖的照替代補');
+  assert.ok(fs.existsSync(path.join(__dirname, '..', 'tools', 'align_expr.py')), '對齊工具');
+  // 台詞線索：冒煙→慌張、眼眶→感動（排在害羞前面）
+  assert.strictEqual(NP.refineEmotion('頭頂都在冒煙了……不、不要看！', 'happy'), 'fluster');
+  assert.strictEqual(NP.refineEmotion('謝謝你……艾琳眼眶有點熱。', 'happy'), 'moved');
+  assert.strictEqual(NP.refineEmotion('不好意思啦', 'happy'), 'shy', '一般害羞照舊');
+  // 內建台詞照事件換表情（原本擔心、驚訝、鄙視的不換）
+  const npc = new NP.NPC({ npc: { name: '艾琳' }, llm: { enabled: false } });
+  const emo = (ev, f = {}) => { const s = new Set(); for (let i = 0; i < 40; i++) s.add(npc.template(ev, { quest: '試做', reward: '10', title: 'x', gold: 5, item: 'x', minutes: 25, rest: 5, xp: 3, count: 1, label: 'x', at: '10:00', ...f }).emotion); return [...s]; };
+  assert.deepStrictEqual(emo('submit'), ['stamp'], '交付：蓋章');
+  assert.deepStrictEqual(emo('note_taken'), ['notebook'], '記下來：抱著小本子');
+  assert.deepStrictEqual(emo('farewell_night'), ['gentle'], '晚安：溫柔');
+  assert.deepStrictEqual(emo('reminder_set'), ['promise'], '設提醒：打勾勾（畫面那邊再看解鎖了沒）');
+  assert.deepStrictEqual(emo('touch_pat_more'), ['fluster'], '摸太久：慌張');
+  assert.ok(emo('chat_repeat').every((e) => ['sheepish', 'surprised'].includes(e)), '腦袋打結：心虛（驚訝的那句不換）');
+  assert.ok(emo('all_clear').includes('moved') && emo('focus_start').includes('focus') && emo('achievement').includes('focus'));
+  for (const [k, v] of Object.entries(NP.EXPR_EVENT)) assert.ok(NP.TEMPLATES[k] && [...NP.EMOTIONS, ...NP.EXPRESSIONS].includes(v), `EXPR_EVENT ${k}`);
+  // 節日：元宵、中秋提燈；認識紀念日感動
+  const D = (s) => new Date(`${s}T09:00:00`);
+  assert.strictEqual(FE.linesFor(D('2027-02-20'), { stage: 3, rnd: () => 0 })[0].emotion, 'lantern', '元宵');
+  assert.strictEqual(FE.linesFor(D('2026-09-25'), { stage: 3, rnd: () => 0 })[0].emotion, 'lantern', '中秋');
+  const an = FE.linesFor(D('2026-10-28'), { firstMet: '2026-09-29', stage: 3, rnd: () => 0 }).find((x) => x.kind === 'anniv');
+  assert.ok(an && ['moved', 'shy'].includes(an.emotion), '認識第 30 天：感動');
+  // 引擎：劇情表情看完那一階才解鎖；第 5 階之後每天第一次見面叫名字；說很痛苦時溫柔
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erin-expr-'));
+  fs.copyFileSync(path.join(__dirname, 'fixtures', 'week_sample.md'), path.join(dir, 'plan.md'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ plan: { path: 'plan.md' }, llm: { enabled: false, baseUrl: 'http://x' }, lore: { path: path.join(__dirname, '..', 'lore', '艾琳.md'), embeddings: false }, reminders: { items: [] }, festivals: { enabled: false }, decide: { enabled: false } }));
+  fs.mkdirSync(path.join(dir, 'data'));
+  const E = new Engine({ appDir: dir, dataDir: path.join(dir, 'data'), now: () => new Date(2026, 10, 10, 10, 0) });
+  assert.deepStrictEqual(E.view().exprLocked, ['promise', 'heartflame', 'callname'], '剛認識：三種都鎖著');
+  E.affShows().seen[4] = { at: 1 };
+  assert.deepStrictEqual(E.view().exprLocked, ['callname'], '看完第 4 階：打勾勾、心形火解鎖');
+  E.affShows().seen[5] = { at: 1 }; E.state.callUnlocked = true;
+  assert.deepStrictEqual(E.view().exprLocked, [], '看完第 5 階：全部解鎖');
+  E.state.lastGreetDate = '';
+  let g = await E.greet();
+  assert.strictEqual(g.lines[0].emotion, 'callname', '第 5 階之後：每天第一次見面叫你的名字');
+  g = await E.greet(); assert.notStrictEqual(g.lines[0].emotion, 'callname', '之後的打招呼不用');
+  const c = await E.chat('我好累，覺得自己好沒用，不想活了');
+  assert.strictEqual(c.lines[0].emotion, 'gentle', '說自己很痛苦：溫柔');
+  E.config.affection = { ...(E.config.affection || {}), enabled: false };
+  assert.deepStrictEqual(E.view().exprLocked, [], '好感度關著：都可以用');
+  // 畫面：還沒解鎖的用替代的圖；圖清單有新表情
+  const rr = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'renderer.js'), 'utf8');
+  assert.ok(/state\.view\.exprLocked\) \|\| \[\]\)\.includes\(emo\)\) emo = \(c\.fallback && c\.fallback\[emo\]\)/.test(rr), 'setEmotion 擋還沒解鎖的表情');
+  const mm = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.js'), 'utf8');
+  assert.ok(/for \(const emo of \[\.\.\.EMOTIONS, \.\.\.EXPRESSIONS\]\) own\[emo\] = findImage\(emo\)/.test(mm) && /fallback: EMOTION_FALLBACK/.test(mm));
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('新表情測試通過 ✔');
+})().catch((e) => { console.error(e); process.exit(1); });

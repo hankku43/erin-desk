@@ -7,7 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
 const { Engine } = require('./engine');
-const { EMOTIONS, fillEmotionImages } = require('./npc');
+const { EMOTIONS, EXPRESSIONS, EMOTION_FALLBACK, fillEmotionImages } = require('./npc');
 const SETUP = require('./setup');
 const OI = require('./ollamaInstall');
 const PG = require('./pullGuard');
@@ -100,12 +100,13 @@ function uiImage(base) {
 const POSES = ['blink', 'sleep', 'tea', 'write', 'stretch', 'wave'];
 function characterImages() {
   const own = {};
-  for (const emo of EMOTIONS) own[emo] = findImage(emo);
+  for (const emo of [...EMOTIONS, ...EXPRESSIONS]) own[emo] = findImage(emo);
   const found = fillEmotionImages(own); // 沒有圖的表情借相近的圖
   const fallback = found.normal;
   const mini = findImage('mini');
   return {
     images: found,
+    fallback: EMOTION_FALLBACK, // 還沒解鎖的表情（view.exprLocked）用哪張
     mini: mini || fallback,           // 縮小時的貓咪型態
     miniAlert: findImage('mini_alert') || mini || fallback, // 有新訊息時
     avatar: findImage('avatar'),

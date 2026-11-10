@@ -8,7 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const RN = require('../renderer/rename');
 
-const EMOTIONS = ['normal', 'happy', 'thinking', 'surprised', 'cheer', 'worried', 'shy', 'disdain']; // 跟 npc.js 一樣（測試會檢查）
+const EMOTIONS = ['normal', 'happy', 'thinking', 'surprised', 'cheer', 'worried', 'shy', 'disdain', 'moved', 'fluster']; // 跟 npc.js 一樣（測試會檢查）
 
 // ---- 文字處理 ----
 function normalize(s) {

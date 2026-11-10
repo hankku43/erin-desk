@@ -242,17 +242,20 @@ function pickLine(list, stage, rnd = Math.random) {
 }
 
 // 今天要說的話（還沒加金幣與名字）：[{ key（記「說過了」用）, text, emotion, gold, kind: fest|term|anniv|eve, name }]
+// 🎭 有燈籠的節日（元宵、中秋）：她提著燈說
+const LANTERN_FESTS = new Set(['lantern', 'midautumn']);
 function linesFor(d, { firstMet = '', stage = 1, rnd = Math.random } = {}) {
   const out = [];
   const year = d.getFullYear();
   const an = annivOn(firstMet, d);
-  if (an) { const [text, emotion] = ANNIV_LINES[an.key]; out.push({ key: `anniv:${an.n}`, kind: 'anniv', name: `認識第 ${an.n} 天`, text, emotion, gold: an.gold, n: an.n, years: an.years }); }
+  if (an) { const [text, emotion] = ANNIV_LINES[an.key]; out.push({ key: `anniv:${an.n}`, kind: 'anniv', name: `認識第 ${an.n} 天`, text, emotion: emotion === 'shy' ? emotion : 'moved', gold: an.gold, n: an.n, years: an.years }); } // 🎭 認識紀念日：感動
   for (const f of festsOn(d)) {
     const def = FESTS[f.id];
     const again = f.n && def.again;
     const line = pickLine(again ? def.again : def.day, stage, rnd);
     if (!line) continue;
-    out.push({ key: `fest:${f.id}:${year}`, kind: 'fest', id: f.id, name: def.name, text: line[0], emotion: line[1], gold: again ? 0 : (def.gold || 0), n: f.n || 1 });
+    const emo = LANTERN_FESTS.has(f.id) && !['shy', 'worried'].includes(line[1]) ? 'lantern' : line[1]; // 🎭 有燈籠的節日：提著燈
+    out.push({ key: `fest:${f.id}:${year}`, kind: 'fest', id: f.id, name: def.name, text: line[0], emotion: emo, gold: again ? 0 : (def.gold || 0), n: f.n || 1 });
   }
   const L = lunarOf(d);
   if (L && L.term && TERM_LINES[L.term] && !TERM_FEST[L.term]) {

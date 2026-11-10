@@ -16,7 +16,7 @@ function parseAny(text, file) {
   return { plan: PlanNew.parsePlan(text, file), legacy: false };
 }
 const G = require('./game');
-const { NPC, partialSteps } = require('./npc');
+const { NPC, partialSteps, EXPR_LOCK } = require('./npc');
 const I = require('./intent');
 const CS = require('./chatScope');
 const { Lore, topicFits } = require('./lore');
@@ -520,6 +520,7 @@ class Engine {
       streak: this.streakOn() ? AC.current(this.state.streak, G.todayISO(this.now()), this.streakOpts()) : 0,
       twins: { waiting: this.twinsWaiting(), tickets: this.state.collection.tickets || 0, enabled: this.twCfg().enabled !== false, teaKept: this.teaKept() }, // 🐰 排隊要來櫃台的次數、抽卡券、☕ 櫃台上留著的奶茶
       income: this.incomeView(), // 🔔 收入撲滿（畫面自己每秒算）
+      exprLocked: this.exprLocked(), // 🎭 好感升階動畫還沒看到的表情（打勾勾、心形火、叫你的名字）
       weather: this.weatherView(), // ☁ 天候水晶
       idleExtra: this.idleExtra(), // 待機小字：今天的節日、之前幫她做的決定
     };
@@ -642,7 +643,9 @@ class Engine {
       this.state.lastGreetDate = today;
       this.affect(this.affCfg().gain.greet, '今天第一次見面');
       this.saveState();
-      lines.push(await this.say('morning', { dayGreet: this.dayGreet(now), todayLine: this.todayLine(), eventDetail: `今天第一次見面，${this.todayLine()}` }));
+      const ml = await this.say('morning', { dayGreet: this.dayGreet(now), todayLine: this.todayLine(), eventDetail: `今天第一次見面，${this.todayLine()}` });
+      if (ml && this.callOn() && !['worried', 'disdain'].includes(ml.emotion)) ml.emotion = 'callname'; // 🎭 第 5 階之後：每天第一次見面叫你的名字
+      lines.push(ml);
     } else {
       lines.push(await this.say('greet'));
     }
@@ -1097,6 +1100,14 @@ class Engine {
     return { first, promised, title: SU.title(n), view: this.view() };
   }
   // 💬 她怎麼叫你：好感第一次到第 5 階、看完終章（或跳過）才解鎖；沒開好感度＝照設定
+  // 🎭 劇情表情：那一階的升階動畫看過（或關掉動畫時到了那一階）才用；好感度關著＝都可以
+  exprUnlocked(n) {
+    if (!this.affOn()) return true;
+    const a = this.aff();
+    if (!this.showsOn()) return (a.maxStage || 1) >= n;
+    return !!this.affShows().seen[n];
+  }
+  exprLocked() { return Object.entries(EXPR_LOCK).filter(([, n]) => !this.exprUnlocked(n)).map(([k]) => k); }
   callUnlocked() {
     if (!this.affOn()) return true;
     if (this.state.callUnlocked) return true;
@@ -1881,6 +1892,7 @@ class Engine {
         this.offense(att);
       } else {
         if (line.emotion === 'disdain') line.emotion = 'thinking'; // 沒有失禮就不擺臉色
+        if (kw === 'care') line.emotion = 'gentle'; // 🎭 說自己很痛苦：溫柔地陪著
         if (apologizing || (att === 'apology' && canApologize)) {
           this.affect(acfg.gain.apology, '道歉', { uncapped: true }); a.apologyDay = today; a.coldUntil = 0;
         } else if ((kw === 'kind' || att === 'kind') && (a.kindToday || 0) < 3 && !this.isCold()) {
